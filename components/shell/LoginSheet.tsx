@@ -1,0 +1,164 @@
+"use client";
+import { useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { useAuth, useUI } from "@/lib/store";
+import { Mail, Lock, Eye, EyeOff, BookHeart } from "lucide-react";
+
+export function LoginSheet() {
+  const open = useUI((s) => s.loginOpen);
+  const pending = useUI((s) => s.pending);
+  const close = useUI((s) => s.closeLogin);
+  const toast = useUI((s) => s.toast);
+  const login = useAuth((s) => s.login);
+
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [email, setEmail] = useState("");
+  const [pwd, setPwd] = useState("");
+  const [pwd2, setPwd2] = useState("");
+  const [show, setShow] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
+
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  const pwdOk = /^(?=.*[A-Za-z])(?=.*\d).{8,}$/.test(pwd);
+  const canSubmit =
+    emailOk && pwdOk && (mode === "login" || pwd === pwd2) && !loading;
+
+  function reset() {
+    setEmail("");
+    setPwd("");
+    setPwd2("");
+    setErr("");
+    setLoading(false);
+    setShow(false);
+  }
+
+  async function submit() {
+    if (!canSubmit) return;
+    setLoading(true);
+    setErr("");
+    await new Promise((r) => setTimeout(r, 700));
+    // mock：任意合法邮箱+密码即成功
+    login(email);
+    setLoading(false);
+    toast(mode === "login" ? "欢迎回来" : "注册成功，已自动登录");
+    const action = pending;
+    close();
+    reset();
+    setTimeout(() => action?.(), 60);
+  }
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          className="fixed inset-0 z-[90] flex items-end justify-center"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+        >
+          <div
+            className="absolute inset-0 bg-ink/40 backdrop-blur-sm"
+            onClick={() => {
+              close();
+              reset();
+            }}
+          />
+          <motion.div
+            initial={{ y: "100%" }}
+            animate={{ y: 0 }}
+            exit={{ y: "100%" }}
+            transition={{ type: "spring", stiffness: 320, damping: 32 }}
+            className="relative w-full max-w-app rounded-t-xl bg-snow px-6 pb-8 pt-3 dark:bg-dark-card"
+          >
+            <div className="mx-auto mb-5 h-1 w-10 rounded-full bg-line" />
+            <div className="mb-4 flex flex-col items-center">
+              <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-celadon-soft">
+                <BookHeart className="text-celadon" size={24} />
+              </div>
+              <h2 className="font-serif text-xl text-ink dark:text-dark-text">
+                {mode === "login" ? "登录 / 注册" : "注册新账号"}
+              </h2>
+            </div>
+
+            <div className="space-y-3">
+              <Field icon={<Mail size={16} />}>
+                <input
+                  className="w-full bg-transparent text-sm outline-none placeholder:text-ink-300"
+                  placeholder="邮箱"
+                  value={email}
+                  inputMode="email"
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </Field>
+              <Field icon={<Lock size={16} />}>
+                <input
+                  className="w-full bg-transparent text-sm outline-none placeholder:text-ink-300"
+                  placeholder="密码（≥8位，含字母和数字）"
+                  type={show ? "text" : "password"}
+                  value={pwd}
+                  onChange={(e) => setPwd(e.target.value)}
+                />
+                <button onClick={() => setShow((s) => !s)} className="text-ink-300">
+                  {show ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </Field>
+              {mode === "register" && (
+                <Field icon={<Lock size={16} />}>
+                  <input
+                    className="w-full bg-transparent text-sm outline-none placeholder:text-ink-300"
+                    placeholder="确认密码"
+                    type={show ? "text" : "password"}
+                    value={pwd2}
+                    onChange={(e) => setPwd2(e.target.value)}
+                  />
+                </Field>
+              )}
+              {err && <p className="text-xs text-rouge">{err}</p>}
+
+              <button
+                disabled={!canSubmit}
+                onClick={submit}
+                className="mt-1 w-full rounded-xl bg-ink py-3 text-sm font-medium text-snow transition active:scale-[0.98] disabled:opacity-40 dark:bg-celadon"
+              >
+                {loading ? "请稍候…" : mode === "login" ? "登录" : "注册"}
+              </button>
+
+              <div className="pt-1 text-center">
+                <button
+                  className="text-xs text-rouge"
+                  onClick={() => {
+                    setMode((m) => (m === "login" ? "register" : "login"));
+                    setErr("");
+                  }}
+                >
+                  {mode === "login" ? "没有账号？立即注册" : "已有账号？返回登录"}
+                </button>
+              </div>
+              <div className="text-center">
+                <button
+                  className="text-xs text-ink-300"
+                  onClick={() => {
+                    close();
+                    reset();
+                  }}
+                >
+                  先逛逛
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+function Field({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2 rounded-xl border border-line bg-moon px-3.5 py-3 focus-within:border-celadon dark:bg-dark-bg">
+      <span className="text-ink-300">{icon}</span>
+      {children}
+    </div>
+  );
+}

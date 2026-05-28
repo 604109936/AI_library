@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(codex exec *)",
+      "Read(//c/Users/wjt/.codex/generated_images/019e6cc4-290a-7dc2-b410-07dd4b5772fb//**)",
+      "Bash(cp /c/Users/wjt/.codex/generated_images/019e6cc4-290a-7dc2-b410-07dd4b5772fb/*.png /d/ClaudeCode/AI_library/prototypes/02_chat.png)",
+      "Bash(bash *)",
+      "Bash(xargs -n1 basename)",
+      "Bash(npm -v)",
+      "Bash(pnpm -v)",
+      "Bash(git --version)",
+      "Bash(pnpm install *)",
+      "Bash(pnpm typecheck *)",
+      "Bash(pnpm build *)",
+      "Bash(curl -s \"http://localhost:3101/library\")",
+      "Bash(curl -s \"http://localhost:3101/me\")",
+      "PowerShell(Get-NetTCPConnection *)",
+      "Bash(curl -s -o /dev/null -w \"本机 localhost:3000 → HTTP %{http_code}\\\\n\" \"http://127.0.0.1:3000/library\")",
+      "Bash(curl -s -o /dev/null -w \"局域网 192.168.1.8:3000 → HTTP %{http_code}\\\\n\" \"http://192.168.1.8:3000/library\")",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" \"http://localhost:3000/manifest.webmanifest\")",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" \"http://localhost:3000/icon.svg\")",
+      "Bash(curl -s \"http://localhost:3000/library\")"
+    ]
+  }
+}

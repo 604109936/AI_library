@@ -1,0 +1,126 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --app-max: 480px;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  @apply bg-moon text-ink font-sans antialiased;
+  overscroll-behavior-y: none;
+}
+
+.dark body {
+  @apply bg-dark-bg text-dark-text;
+}
+
+/* 居中限宽手机壳（桌面端画廊感） */
+.app-shell {
+  @apply mx-auto w-full max-w-app min-h-[100dvh] relative;
+}
+
+/* 隐藏滚动条 */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* 安全区 */
+.pb-safe {
+  padding-bottom: calc(env(safe-area-inset-bottom) + 0px);
+}
+.h-safe-bottom {
+  height: env(safe-area-inset-bottom);
+}
+
+/* 骨架 shimmer */
+.skeleton {
+  @apply relative overflow-hidden bg-line/60 rounded;
+}
+.skeleton::after {
+  content: "";
+  @apply absolute inset-0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.55),
+    transparent
+  );
+  animation: shimmer 1.4s infinite;
+}
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* 阅读背景主题 */
+.reader-bg-white {
+  background: #ffffff;
+  color: #2a2c2e;
+}
+.reader-bg-moon {
+  background: #f4f2ed;
+  color: #2a2c2e;
+}
+.reader-bg-green {
+  background: #e8f0e4;
+  color: #2a2c2e;
+}
+.reader-bg-dark {
+  background: #1f1e18;
+  color: #ede6d6;
+}
+
+/* 文字省略 */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* prose 简易（智学/书评 markdown） */
+.prose-cn {
+  @apply text-[15px] leading-7 text-ink-700;
+}
+.prose-cn h1,
+.prose-cn h2,
+.prose-cn h3 {
+  @apply font-serif text-ink font-semibold mt-3 mb-1;
+}
+.prose-cn ul {
+  @apply list-disc pl-5 my-2;
+}
+.prose-cn ol {
+  @apply list-decimal pl-5 my-2;
+}
+.prose-cn blockquote {
+  @apply border-l-[3px] border-celadon pl-3 my-2 text-ink-500 bg-celadon-soft/40 py-1 rounded-r;
+}
+.prose-cn strong {
+  @apply text-ink font-semibold;
+}
+.prose-cn code {
+  @apply bg-line/60 px-1 py-0.5 rounded text-[13px];
+}

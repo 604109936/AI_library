@@ -1,0 +1,15 @@
+{
+  "name": "AI 图书馆",
+  "short_name": "AI图书馆",
+  "description": "智学 · 泡馆 · 乱翻 · 我的 —— 一座会回答问题的图书馆",
+  "start_url": "/library",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F4F2ED",
+  "theme_color": "#F4F2ED",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}
