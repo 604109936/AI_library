@@ -3,7 +3,7 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, Heart, BookmarkPlus, Share2, ChevronRight, PenLine } from "lucide-react";
+import { ChevronLeft, Heart, ChevronRight, PenLine } from "lucide-react";
 import { getBook, getChapters, getBookReviews } from "@/lib/api";
 import { BookCover } from "@/components/ui/BookCover";
 import { Stars } from "@/components/ui/Stars";
@@ -84,18 +84,16 @@ export default function BookDetail({ params }: { params: { id: string } }) {
       </div>
 
       {/* 操作栏 */}
-      <div className="mx-4 flex items-center justify-around rounded-xl bg-snow py-3 shadow-sm dark:bg-dark-card">
-        <button onClick={onFav} className="flex flex-col items-center gap-1 active:scale-95">
-          <Heart size={22} className={fav ? "fill-rouge text-rouge" : "text-ink-500"} />
-          <span className="text-[11px] text-ink-500">{fav ? "已收藏" : "收藏"}</span>
-        </button>
-        <button onClick={() => toast("已加入书架")} className="flex flex-col items-center gap-1 active:scale-95">
-          <BookmarkPlus size={22} className="text-ink-500" />
-          <span className="text-[11px] text-ink-500">书架</span>
-        </button>
-        <button onClick={() => toast("分享功能即将上线", "info")} className="flex flex-col items-center gap-1 active:scale-95">
-          <Share2 size={22} className="text-ink-500" />
-          <span className="text-[11px] text-ink-500">分享</span>
+      <div className="mx-4">
+        <button
+          onClick={onFav}
+          className={
+            "flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-medium shadow-sm transition active:scale-[0.99] " +
+            (fav ? "bg-rouge/10 text-rouge" : "bg-snow text-ink dark:bg-dark-card dark:text-dark-text")
+          }
+        >
+          <Heart size={18} className={fav ? "fill-rouge text-rouge" : ""} />
+          {fav ? "已收藏" : "收藏"}
         </button>
       </div>
 

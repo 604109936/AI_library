@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Heart, Bookmark, MessageSquare, Share2, ArrowRight, Play } from "lucide-react";
+import { Heart, Bookmark, MessageSquare, ArrowRight, Play } from "lucide-react";
 import { BottomNav } from "@/components/shell/BottomNav";
 import { Avatar } from "@/components/ui/Avatar";
 import { getFlip } from "@/lib/api";
@@ -121,7 +121,7 @@ function FlipSlide({ book }: { book: Book }) {
 
       {/* 渐变 + 信息浮层 */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/80 to-transparent" />
-      <div className="absolute bottom-0 left-0 right-16 px-4 pb-[78px]">
+      <div className="absolute bottom-0 left-0 right-16 px-4 pb-[82px]">
         <h2 className="font-serif text-2xl text-white drop-shadow">{book.title}</h2>
         <p className="mt-1 text-sm text-white/80">{book.author}</p>
         <div className="mt-2 flex flex-wrap gap-1.5">
@@ -130,6 +130,12 @@ function FlipSlide({ book }: { book: Book }) {
           ))}
         </div>
         <p className="mt-2 text-sm text-white/85">{book.intro}</p>
+        <button
+          onClick={() => router.push(`/library/book/${book.id}/read`)}
+          className="mt-3 inline-flex items-center gap-1 rounded-full bg-celadon px-4 py-2 text-sm font-medium text-white shadow-celadon active:scale-95"
+        >
+          读这本书 <ArrowRight size={14} />
+        </button>
       </div>
 
       {/* 右侧操作栏 */}
@@ -142,16 +148,7 @@ function FlipSlide({ book }: { book: Book }) {
           onClick={() => requireLogin(() => { const n = toggleFav(book.id); toast(n ? "已收藏" : "已取消收藏"); })}
         />
         <Action icon={<MessageSquare size={28} className="text-white" />} label={formatCount(12000)} onClick={() => requireLogin(() => router.push(`/library/book/${book.id}/review/new`))} />
-        <Action icon={<Share2 size={28} className="text-white" />} label="分享" onClick={() => toast("分享功能即将上线", "info")} />
       </div>
-
-      {/* 读这本书 */}
-      <button
-        onClick={() => router.push(`/library/book/${book.id}/read`)}
-        className="absolute bottom-[150px] right-3 flex items-center gap-1 rounded-full bg-celadon px-3.5 py-2 text-xs font-medium text-white shadow-celadon active:scale-95"
-      >
-        读这本书 <ArrowRight size={13} />
-      </button>
     </div>
   );
 }

@@ -228,7 +228,6 @@ function ReaderInner({ id }: { id: string }) {
               <button onClick={() => doHighlight(HL_COLORS[0])}>高亮</button>
               <button onClick={openNote}>笔记</button>
               <button onClick={() => { navigator.clipboard?.writeText(menu.text); toast("已复制"); setMenu(null); }}>复制</button>
-              <button onClick={() => { toast("分享功能即将上线", "info"); setMenu(null); }}>分享</button>
             </div>
             <div className="mt-2 flex items-center justify-center gap-2">
               {HL_COLORS.map((c) => (
