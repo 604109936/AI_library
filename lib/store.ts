@@ -32,7 +32,8 @@ export const useAuth = create<AuthState>()(
     (set, get) => ({
       user: null,
       hydrated: false,
-      login: (email: string) => set({ user: { ...profile, email } }),
+      login: (account: string) =>
+        set({ user: { ...profile, email: account.includes("@") ? account : profile.email } }),
       logout: () => set({ user: null }),
       setHydrated: () => set({ hydrated: true }),
       updateProfile: (patch) => {

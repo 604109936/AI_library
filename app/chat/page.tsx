@@ -37,6 +37,12 @@ function ChatInner() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages]);
 
+  // 生成结束/停止后持久化会话到历史（避免在渲染更新函数里调用 store setter）
+  useEffect(() => {
+    if (!busy && messages.length) persist(messages);
+    // eslint-disable-next-line
+  }, [busy]);
+
   function persist(msgs: TMsg[]) {
     const firstUser = msgs.find((m) => m.role === "user");
     if (!firstUser) return;
@@ -66,13 +72,11 @@ function ChatInner() {
       setMessages((prev) => prev.map((m) => (m.id === aId ? { ...m, content: partial } : m)));
       if (i >= answer.length) {
         if (timer.current) clearInterval(timer.current);
-        setMessages((prev) => {
-          const next = prev.map((m) =>
+        setMessages((prev) =>
+          prev.map((m) =>
             m.id === aId ? { ...m, content: answer, citations, recommendations, streaming: false } : m
-          );
-          persist(next);
-          return next;
-        });
+          )
+        );
         setBusy(false);
       }
     }, 16);
@@ -85,13 +89,13 @@ function ChatInner() {
   }
 
   function regenerate() {
-    const lastUser = [...messages].reverse().find((m) => m.role === "user");
-    if (!lastUser) return;
-    setMessages((prev) => {
-      const idx = prev.map((m) => m.role).lastIndexOf("assistant");
-      return idx >= 0 ? prev.slice(0, idx) : prev;
-    });
-    setTimeout(() => send(lastUser.content), 30);
+    if (busy) return;
+    const lastUserIdx = messages.map((m) => m.role).lastIndexOf("user");
+    if (lastUserIdx < 0) return;
+    const q = messages[lastUserIdx].content;
+    // 去掉最后一轮的"用户提问 + 回答"，再重新发送，避免重复用户气泡
+    setMessages((prev) => prev.slice(0, lastUserIdx));
+    setTimeout(() => send(q), 30);
   }
 
   function newSession() {

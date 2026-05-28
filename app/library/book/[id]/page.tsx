@@ -11,13 +11,14 @@ import { Avatar } from "@/components/ui/Avatar";
 import { VideoMode, AudioMode } from "@/components/library/Players";
 import { Skeleton, ErrorState } from "@/components/ui/States";
 import { formatCount } from "@/lib/utils";
-import { useLibrary, useUI, requireLogin } from "@/lib/store";
+import { useAuth, useLibrary, useUI, requireLogin } from "@/lib/store";
 import type { ReadingMode } from "@/lib/types";
 
 export default function BookDetail({ params }: { params: { id: string } }) {
   const { id } = params;
   const router = useRouter();
   const toast = useUI((s) => s.toast);
+  const user = useAuth((s) => s.user);
   const isFav = useLibrary((s) => s.isFav);
   const toggleFav = useLibrary((s) => s.toggleFav);
 
@@ -26,7 +27,7 @@ export default function BookDetail({ params }: { params: { id: string } }) {
   const rvQ = useQuery({ queryKey: ["reviews", id, "hot"], queryFn: () => getBookReviews(id, "hot") });
 
   const book = bookQ.data;
-  const fav = book ? isFav(book.id) : false;
+  const fav = book && user ? isFav(book.id) : false;
 
   const modes = useMemo(() => {
     if (!book) return [] as { key: ReadingMode; label: string }[];

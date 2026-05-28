@@ -7,7 +7,7 @@ import { BottomNav } from "@/components/shell/BottomNav";
 import { Avatar } from "@/components/ui/Avatar";
 import { getFlip } from "@/lib/api";
 import { formatCount } from "@/lib/utils";
-import { useLibrary, useUI, requireLogin } from "@/lib/store";
+import { useAuth, useLibrary, useUI, requireLogin } from "@/lib/store";
 import type { Book } from "@/lib/types";
 
 export default function FlipPage() {
@@ -41,7 +41,8 @@ function FlipSlide({ book }: { book: Book }) {
   const isFav = useLibrary((s) => s.isFav);
   const toggleFav = useLibrary((s) => s.toggleFav);
   const toast = useUI((s) => s.toast);
-  const fav = isFav(book.id);
+  const user = useAuth((s) => s.user);
+  const fav = user ? isFav(book.id) : false;
 
   useEffect(() => {
     const el = ref.current;

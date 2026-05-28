@@ -44,20 +44,32 @@ function ReaderInner({ id }: { id: string }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [pct, setPct] = useState(0);
+  const pctRef = useRef(0);
 
   const bgCls = BG_OPTIONS.find((b) => b.key === reader.bg)?.cls ?? "reader-bg-moon";
 
-  // 记录历史 + 进度上报
+  // 记录历史 + 进度上报：进入即记录，之后每 5 秒上报一次，离开/切章时再记录一次真实进度
   useEffect(() => {
     if (!bookQ.data || !cur) return;
-    pushHistory({
-      bookId: bookQ.data.id.split("__")[0],
-      bookTitle: bookQ.data.title,
-      coverSeed: bookQ.data.coverSeed,
-      mode: "text",
-      progress: Math.max(1, Math.round(pct)),
-      lastAt: new Date().toISOString(),
-    });
+    const b = bookQ.data;
+    const report = () => {
+      const prog = Math.max(1, Math.round(pctRef.current));
+      pushHistory({
+        bookId: b.id.split("__")[0],
+        bookTitle: b.title,
+        coverSeed: b.coverSeed,
+        mode: "text",
+        progress: prog,
+        lastAt: new Date().toISOString(),
+      });
+      setProgress({ bookId: b.id.split("__")[0], chapterId: cur.id, chapterNo: cur.no, pct: prog, mode: "text" });
+    };
+    report();
+    const t = setInterval(report, 5000);
+    return () => {
+      report();
+      clearInterval(t);
+    };
     // eslint-disable-next-line
   }, [cur?.id, bookQ.data?.id]);
 
@@ -65,7 +77,9 @@ function ReaderInner({ id }: { id: string }) {
     const el = scrollRef.current;
     if (!el) return;
     const p = (el.scrollTop / (el.scrollHeight - el.clientHeight || 1)) * 100;
-    setPct(Math.min(100, Math.max(0, p)));
+    const clamped = Math.min(100, Math.max(0, p));
+    pctRef.current = clamped;
+    setPct(clamped);
   }
 
   function onSelect() {

@@ -19,8 +19,8 @@ export function LoginSheet() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
-  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-  const pwdOk = /^(?=.*[A-Za-z])(?=.*\d).{8,}$/.test(pwd);
+  const emailOk = email.trim().length >= 3; // 邮箱或账号（体验账号 123456）
+  const pwdOk = pwd.length >= 6;
   const canSubmit =
     emailOk && pwdOk && (mode === "login" || pwd === pwd2) && !loading;
 
@@ -79,22 +79,28 @@ export function LoginSheet() {
               <h2 className="font-serif text-xl text-ink dark:text-dark-text">
                 {mode === "login" ? "登录 / 注册" : "注册新账号"}
               </h2>
+              <button
+                type="button"
+                onClick={() => { setMode("login"); setEmail("123456"); setPwd("123456"); setErr(""); }}
+                className="mt-2 rounded-full bg-celadon-soft px-3 py-1 text-xs text-celadon-700"
+              >
+                体验账号 123456 / 123456（点此一键填入）
+              </button>
             </div>
 
             <div className="space-y-3">
               <Field icon={<Mail size={16} />}>
                 <input
                   className="w-full bg-transparent text-sm outline-none placeholder:text-ink-300"
-                  placeholder="邮箱"
+                  placeholder="邮箱 / 账号"
                   value={email}
-                  inputMode="email"
                   onChange={(e) => setEmail(e.target.value)}
                 />
               </Field>
               <Field icon={<Lock size={16} />}>
                 <input
                   className="w-full bg-transparent text-sm outline-none placeholder:text-ink-300"
-                  placeholder="密码（≥8位，含字母和数字）"
+                  placeholder="密码"
                   type={show ? "text" : "password"}
                   value={pwd}
                   onChange={(e) => setPwd(e.target.value)}
