@@ -69,7 +69,7 @@ export function LoginSheet() {
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
             transition={{ type: "spring", stiffness: 320, damping: 32 }}
-            className="relative w-full max-w-app rounded-t-xl bg-snow px-6 pb-8 pt-3 dark:bg-dark-card"
+            className="app-width relative rounded-t-xl bg-snow px-6 pb-8 pt-3 dark:bg-dark-card"
           >
             <div className="mx-auto mb-5 h-1 w-10 rounded-full bg-line" />
             <div className="mb-4 flex flex-col items-center">

@@ -230,7 +230,7 @@ function ReaderInner({ id }: { id: string }) {
         {notePanel && (
           <motion.div className="fixed inset-0 z-50 flex items-end justify-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <div className="absolute inset-0 bg-ink/30" onClick={() => setNotePanel(null)} />
-            <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="relative w-full max-w-app rounded-t-xl bg-snow p-5 dark:bg-dark-card">
+            <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="app-width relative rounded-t-xl bg-snow p-5 dark:bg-dark-card">
               <p className="mb-2 rounded-lg border-l-[3px] border-celadon bg-celadon-soft/40 px-3 py-2 text-xs text-ink-700">{notePanel.excerpt}</p>
               <textarea
                 autoFocus
@@ -281,7 +281,7 @@ function ReaderInner({ id }: { id: string }) {
         {settings && (
           <motion.div className="fixed inset-0 z-50 flex items-end justify-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <div className="absolute inset-0 bg-ink/20" onClick={() => setSettings(false)} />
-            <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="relative w-full max-w-app rounded-t-xl bg-snow p-5 dark:bg-dark-card">
+            <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="app-width relative rounded-t-xl bg-snow p-5 dark:bg-dark-card">
               <h3 className="mb-3 text-center font-serif text-base text-ink dark:text-dark-text">阅读设置</h3>
               <Row label="字号">
                 <div className="flex gap-2">

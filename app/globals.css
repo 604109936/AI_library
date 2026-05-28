@@ -24,9 +24,24 @@ body {
   @apply bg-dark-bg text-dark-text;
 }
 
-/* 居中限宽手机壳（桌面端画廊感） */
+/* 移动端/WebView 铺满全宽；仅桌面大屏（≥1024px）居中限宽成手机壳 */
 .app-shell {
-  @apply mx-auto w-full max-w-app min-h-[100dvh] relative;
+  margin: 0 auto;
+  width: 100%;
+  min-height: 100dvh;
+  position: relative;
+}
+.app-width {
+  width: 100%;
+}
+@media (min-width: 1024px) {
+  .app-shell {
+    max-width: 480px;
+    box-shadow: 0 0 0 1px rgba(42, 44, 46, 0.06);
+  }
+  .app-width {
+    max-width: 480px;
+  }
 }
 
 /* 隐藏滚动条 */

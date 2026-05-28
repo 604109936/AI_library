@@ -15,7 +15,7 @@ const TABS: { key: TabKey; label: string; href: string; Icon: typeof User }[] = 
 /** 唯一的底部导航。仅在四个根页面挂载；二级页不渲染本组件。 */
 export function BottomNav({ active }: { active: TabKey }) {
   return (
-    <nav className="fixed bottom-0 left-1/2 z-40 w-full max-w-app -translate-x-1/2 border-t border-line bg-snow/95 pb-safe backdrop-blur dark:border-white/5 dark:bg-dark-card/95">
+    <nav className="app-width fixed bottom-0 left-1/2 z-40 -translate-x-1/2 border-t border-line bg-snow/95 pb-safe backdrop-blur dark:border-white/5 dark:bg-dark-card/95">
       <div className="grid grid-cols-4">
         {TABS.map(({ key, label, href, Icon }) => {
           const on = key === active;

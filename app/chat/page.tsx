@@ -150,7 +150,7 @@ function ChatInner() {
       </div>
 
       {/* 输入区：固定在底栏上方 */}
-      <div className="fixed bottom-[58px] left-1/2 z-40 w-full max-w-app -translate-x-1/2 border-t border-line bg-moon/95 px-3 py-2.5 backdrop-blur dark:border-white/5 dark:bg-dark-bg/95">
+      <div className="app-width fixed bottom-[58px] left-1/2 z-40 -translate-x-1/2 border-t border-line bg-moon/95 px-3 py-2.5 backdrop-blur dark:border-white/5 dark:bg-dark-bg/95">
         {busy && (
           <button onClick={stop} className="mx-auto mb-2 flex items-center gap-1 rounded-full border border-line bg-snow px-3 py-1 text-xs text-ink-500 dark:bg-dark-card">
             <Square size={12} /> 停止生成
