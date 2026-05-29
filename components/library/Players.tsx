@@ -8,11 +8,6 @@ import type { Book } from "@/lib/types";
 
 const SPEEDS = [0.75, 1, 1.25, 1.5, 2];
 
-/** 容器级全屏接口（对 div 请求全屏不会被强制横屏，保证竖屏沉浸） */
-type FsEl = HTMLDivElement & {
-  webkitRequestFullscreen?: () => void;
-};
-
 function useHistoryReporter(book: Book, mode: "video" | "audio") {
   const pushHistory = useLibrary((s) => s.pushHistory);
   const setProgress = useLibrary((s) => s.setProgress);
@@ -77,7 +72,6 @@ export function BookMediaHero({ book }: { book: Book }) {
 
 /* ----------------------------- 竖屏视频（抖音式竖屏全屏） ----------------------------- */
 function VideoStage({ book }: { book: Book }) {
-  const wrapRef = useRef<HTMLDivElement>(null);
   const ref = useRef<HTMLVideoElement>(null);
   const [speed, setSpeed] = useState(1);
   const [playing, setPlaying] = useState(false);
@@ -89,12 +83,13 @@ function VideoStage({ book }: { book: Book }) {
   const report = useHistoryReporter(book, "video");
 
   useEffect(() => { if (ref.current) ref.current.playbackRate = speed; }, [speed]);
-  // 系统返回/ESC 退出原生全屏时同步状态
+  // 竖屏全屏 = 铺满「手机列宽 × 视口高」的浮层（不调用原生全屏，避免桌面被拉成横屏）；开启时锁背景滚动
   useEffect(() => {
-    const onChange = () => { if (!document.fullscreenElement) setFs(false); };
-    document.addEventListener("fullscreenchange", onChange);
-    return () => document.removeEventListener("fullscreenchange", onChange);
-  }, []);
+    if (!fs) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [fs]);
 
   function toggle() {
     const v = ref.current;
@@ -105,29 +100,12 @@ function VideoStage({ book }: { book: Book }) {
     const i = SPEEDS.indexOf(speed);
     setSpeed(SPEEDS[(i + 1) % SPEEDS.length]);
   }
-  // 进入「竖屏全屏」：fixed 满屏 + 对容器(div)请求原生全屏（不会强制横屏）
-  function enterFs() {
-    setFs(true);
-    const el = wrapRef.current as FsEl | null;
-    try {
-      const pr = el?.requestFullscreen?.();
-      pr?.catch?.(() => {});
-      if (el && !el.requestFullscreen && el.webkitRequestFullscreen) el.webkitRequestFullscreen();
-    } catch { /* 忽略 */ }
-  }
-  function exitFs() {
-    setFs(false);
-    try {
-      if (document.fullscreenElement) document.exitFullscreen?.()?.catch?.(() => {});
-    } catch { /* 忽略 */ }
-  }
 
   return (
     <div
-      ref={wrapRef}
       className={
         fs
-          ? "fixed inset-0 z-[120] flex items-center justify-center bg-black"
+          ? "fixed inset-y-0 left-1/2 z-[120] flex w-full max-w-app -translate-x-1/2 items-center justify-center bg-black"
           : "relative aspect-[3/4] w-full overflow-hidden rounded-3xl bg-black shadow-xl ring-1 ring-black/5 dark:ring-white/10"
       }
     >
@@ -137,7 +115,7 @@ function VideoStage({ book }: { book: Book }) {
         poster={book.cover}
         playsInline
         muted={muted}
-        className={fs ? "max-h-full w-full object-contain" : "h-full w-full object-cover"}
+        className={fs ? "h-full w-full object-contain" : "h-full w-full object-cover"}
         onClick={toggle}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
@@ -170,11 +148,11 @@ function VideoStage({ book }: { book: Book }) {
             {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
           </button>
           {fs ? (
-            <button onClick={exitFs} aria-label="退出全屏" className="flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur active:scale-90">
+            <button onClick={() => setFs(false)} aria-label="退出全屏" className="flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur active:scale-90">
               <Minimize2 size={16} />
             </button>
           ) : (
-            <button onClick={enterFs} aria-label="竖屏全屏" className="flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur active:scale-90">
+            <button onClick={() => setFs(true)} aria-label="竖屏全屏" className="flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur active:scale-90">
               <Maximize2 size={16} />
             </button>
           )}
