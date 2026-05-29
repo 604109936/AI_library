@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Heart, MessageSquare, ArrowRight, Play, Volume2, VolumeX } from "lucide-react";
 import { BottomNav } from "@/components/shell/BottomNav";
-import { BookCover } from "@/components/ui/BookCover";
 import { Motif } from "@/components/ui/Motif";
 import { getFlip } from "@/lib/api";
 import { formatCount } from "@/lib/utils";
@@ -220,35 +219,13 @@ function FlipSlide({ book, muted, onMute, onActive }: { book: Book; muted: boole
       <div className="pointer-events-none absolute inset-0" style={{ background: "radial-gradient(120% 80% at 50% 42%, transparent 55%, rgba(0,0,0,0.4))" }} />
       <Motif name="branch" className="pointer-events-none absolute bottom-28 -left-4 w-28 text-brass/10" />
 
-      {/* 信息题跋（左下） */}
-      <div className="absolute inset-x-0 bottom-0 z-10 px-4 pr-[76px]" style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 130px)" }}>
-        <motion.div {...reveal(0)} animate={shown ? { opacity: 1, y: 0 } : { opacity: 0, y: 14 }}>
-          <div className="flex items-start">
-            <span className="mr-2 mt-1.5 h-6 w-0.5 shrink-0 rounded-full bg-celadon/80" />
-            <h2 className="font-serif text-[26px] leading-[1.15] tracking-wide text-dark-text drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)]">{book.title}</h2>
-          </div>
-          <p className="mt-1.5 text-[13px] text-dark-text/65">{book.author} · {book.category}解读</p>
-        </motion.div>
-        <motion.div {...reveal(0.07)} animate={shown ? { opacity: 1, y: 0 } : { opacity: 0, y: 14 }}>
-          <div className="mt-2.5 flex flex-wrap gap-1.5">
-            {book.tags.slice(0, 3).map((t, i) => (
-              <span key={t} className={"rounded-full border bg-white/8 px-2.5 py-1 text-[11px] font-medium tracking-wide backdrop-blur-md " + (i === 0 ? "border-celadon/30 text-celadon-300" : "border-brass/25 text-celadon-300")}>{t}</span>
-            ))}
-          </div>
-          <p className="mt-2.5 line-clamp-2 text-[13px] leading-5 text-dark-text/85">{book.intro}</p>
-        </motion.div>
-      </div>
-
-      {/* 右侧操作栏：书封缩略 + 收藏 + 书评（瓷釉托盘） */}
+      {/* 右侧操作栏：收藏 + 书评（书封入口已并入「读这本书」，避免重复进详情）*/}
       <motion.div
         {...reveal(0.1)}
         animate={shown ? { opacity: 1, y: 0 } : { opacity: 0, y: 14 }}
         className="absolute right-3 z-10 flex flex-col items-center gap-6"
-        style={{ bottom: "calc(env(safe-area-inset-bottom) + 168px)" }}
+        style={{ bottom: "calc(env(safe-area-inset-bottom) + 232px)" }}
       >
-        <button onClick={() => router.push(`/library/book/${realId}`)} aria-label="书籍详情" className="transition active:scale-95">
-          <BookCover title={book.title} seed={book.coverSeed} src={book.cover} showText={false} rounded="rounded-xl" className="w-11 shadow-lg ring-2 ring-brass/45" />
-        </button>
         <Action
           icon={<Heart size={24} className={fav ? "fill-rouge text-rouge" : "text-dark-text"} />}
           label={formatCount(book.favCount + (fav ? 1 : 0))}
@@ -265,20 +242,30 @@ function FlipSlide({ book, muted, onMute, onActive }: { book: Book; muted: boole
         />
       </motion.div>
 
-      {/* 右下主操作「读这本书」（青瓷玉牌） */}
-      <motion.div
-        {...reveal(0.16)}
-        animate={shown ? { opacity: 1, y: 0 } : { opacity: 0, y: 14 }}
-        className="absolute right-3 z-20 flex justify-end"
-        style={{ bottom: "calc(env(safe-area-inset-bottom) + 84px)" }}
-      >
-        <button
-          onClick={() => router.push(`/library/book/${realId}/read`)}
-          className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-b from-celadon to-celadon-700 px-5 py-2.5 text-sm font-medium text-white shadow-celadon ring-1 ring-brass/40 transition active:scale-95"
+      {/* 底部：信息题跋（左）+「读这本书」（右）· 同行底部对齐 */}
+      <div className="absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-3 px-4" style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 74px)" }}>
+        <motion.div {...reveal(0.04)} animate={shown ? { opacity: 1, y: 0 } : { opacity: 0, y: 14 }} className="min-w-0 flex-1">
+          <div className="flex items-start">
+            <span className="mr-2 mt-1.5 h-6 w-0.5 shrink-0 rounded-full bg-celadon/80" />
+            <h2 className="font-serif text-[26px] leading-[1.15] tracking-wide text-dark-text drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)]">{book.title}</h2>
+          </div>
+          <p className="mt-1.5 text-[13px] text-dark-text/70">{book.author} · {book.category}解读</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {book.tags.slice(0, 3).map((t) => (
+              <span key={t} className="rounded-full border border-brass/30 bg-black/35 px-2.5 py-1 text-[11px] font-medium text-dark-text/90 backdrop-blur-md">{t}</span>
+            ))}
+          </div>
+          <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-dark-text/85">{book.intro}</p>
+        </motion.div>
+        <motion.button
+          {...reveal(0.16)}
+          animate={shown ? { opacity: 1, y: 0 } : { opacity: 0, y: 14 }}
+          onClick={() => router.push(`/library/book/${realId}`)}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-gradient-to-b from-celadon to-celadon-700 px-5 py-2.5 text-sm font-medium text-white shadow-celadon ring-1 ring-brass/40 transition active:scale-95"
         >
           读这本书 <ArrowRight size={15} />
-        </button>
-      </motion.div>
+        </motion.button>
+      </div>
     </div>
   );
 }

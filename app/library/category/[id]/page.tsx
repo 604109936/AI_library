@@ -11,9 +11,9 @@ import { categories } from "@/lib/mock/data";
 import { useAuth, useLibrary, requireLogin } from "@/lib/store";
 
 type Status = "all" | "read" | "unread" | "reading";
-type Sort = "new" | "rating" | "readers" | "words";
+type Sort = "new" | "rating" | "readers";
 const SORT_LABEL: Record<Sort, string> = {
-  new: "最新入库", rating: "评分最高", readers: "阅读人数最多", words: "字数最少",
+  new: "最新入库", rating: "评分最高", readers: "阅读人数最多",
 };
 const STATUS: { key: Status; label: string }[] = [
   { key: "all", label: "全部" },
@@ -80,17 +80,16 @@ export default function CategoryPage({ params }: { params: { id: string } }) {
 
   return (
     <main className="min-h-[100dvh] pb-10">
+      {/* 顶栏（不透明吸顶，滚动时与筛选栏严丝合缝、不再露出列表）*/}
+      <Header title={cat?.name ?? "分类"} />
       {/* 装饰页头 */}
-      <div className="relative">
-        <Header transparent />
-        <Motif name="branch" className="absolute right-3 top-1 h-20 w-20 text-celadon/40" />
-        <div className="-mt-10 flex flex-col items-center pb-3">
-          <h1 className="font-serif text-2xl text-ink dark:text-dark-text">{cat?.name ?? "分类"}</h1>
-          <div className="mt-1.5 flex items-center gap-2.5">
-            <OrnDivider />
-            <span className="text-xs text-ink-500 dark:text-dark-text/55">共 {cat?.count ?? 0} 本</span>
-            <OrnDivider />
-          </div>
+      <div className="relative flex flex-col items-center pb-3 pt-1">
+        <Motif name="branch" className="pointer-events-none absolute -top-1 right-4 h-16 w-16 text-celadon/30" />
+        <h1 className="font-serif text-2xl text-ink dark:text-dark-text">{cat?.name ?? "分类"}</h1>
+        <div className="mt-1.5 flex items-center gap-2.5">
+          <OrnDivider />
+          <span className="text-xs text-ink-500 dark:text-dark-text/55">共 {cat?.count ?? 0} 本</span>
+          <OrnDivider />
         </div>
       </div>
 

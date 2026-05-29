@@ -370,7 +370,8 @@ const para = (book: RawBook, ch: string, idx: number) =>
 // 视频/音频：保留稳定可达的示例源（国内可访问），靠 posterUrl 做差异化首帧；
 // 真实的章节级视频/音频在后端阶段由七牛云提供。
 const SAMPLE_VIDEO = "https://www.w3schools.com/html/mov_bbb.mp4";
-const SAMPLE_AUDIO = "https://www.w3schools.com/html/horse.mp3";
+// horse.mp3 仅 1 秒马叫且源不稳，换成稳定可播的长音轨做演示（正式音频后端接七牛云）
+const SAMPLE_AUDIO = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3";
 
 export const books: Book[] = raw.map((b, i) => ({
   id: b.id,
