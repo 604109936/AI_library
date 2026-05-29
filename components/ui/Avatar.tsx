@@ -33,7 +33,7 @@ export function Avatar({
   const bg = AV[(seed - 1 + AV.length) % AV.length] ?? AV[0];
   const ch = name?.trim()?.[0] ?? "读";
   // 默认按 seed 映射到一组真实头像图，缺图时回退首字母色块
-  const file = src ?? `/avatars/a${((seed - 1 + AVATAR_COUNT) % AVATAR_COUNT) + 1}.png`;
+  const file = src ?? `/avatars/a${((seed - 1 + AVATAR_COUNT) % AVATAR_COUNT) + 1}.webp`;
   return (
     <div
       role="img"

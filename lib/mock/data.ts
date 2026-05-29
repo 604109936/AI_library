@@ -376,10 +376,10 @@ export const books: Book[] = raw.map((b, i) => ({
   id: b.id,
   title: b.title,
   author: b.author,
-  cover: `/covers/${b.id}.png`,
+  cover: `/covers/${b.id}.webp`,
   coverSeed: i + 1,
-  heroUrl: `/heroes/${b.categoryId}.png`,
-  posterUrl: `/posters/${b.categoryId}.png`,
+  heroUrl: `/heroes/${b.categoryId}.webp`,
+  posterUrl: `/posters/${b.categoryId}.webp`,
   category: categories.find((c) => c.id === b.categoryId)!.name,
   categoryId: b.categoryId,
   tags: b.tags,
@@ -476,9 +476,9 @@ export const profile: UserProfile = {
 export const myFavorites = ["mindset", "cipoetry", "courage", "intimacy", "deepwork", "willpower"];
 
 export const myHistory: HistoryItem[] = [
-  { bookId: "mindset", bookTitle: "终身成长", author: "卡罗尔·德韦克", coverSeed: 1, cover: "/covers/mindset.png", mode: "text", progress: 63, lastAt: new Date().toISOString() },
-  { bookId: "cipoetry", bookTitle: "人间词话", author: "王国维", coverSeed: 2, cover: "/covers/cipoetry.png", mode: "audio", progress: 20, lastAt: new Date(Date.now() - 86400000).toISOString() },
-  { bookId: "courage", bookTitle: "被讨厌的勇气", author: "岸见一郎·古贺史健", coverSeed: 3, cover: "/covers/courage.png", mode: "video", progress: 100, lastAt: new Date(Date.now() - 3 * 86400000).toISOString() },
+  { bookId: "mindset", bookTitle: "终身成长", author: "卡罗尔·德韦克", coverSeed: 1, cover: "/covers/mindset.webp", mode: "text", progress: 63, lastAt: new Date().toISOString() },
+  { bookId: "cipoetry", bookTitle: "人间词话", author: "王国维", coverSeed: 2, cover: "/covers/cipoetry.webp", mode: "audio", progress: 20, lastAt: new Date(Date.now() - 86400000).toISOString() },
+  { bookId: "courage", bookTitle: "被讨厌的勇气", author: "岸见一郎·古贺史健", coverSeed: 3, cover: "/covers/courage.webp", mode: "video", progress: 100, lastAt: new Date(Date.now() - 3 * 86400000).toISOString() },
 ];
 
 export const myNotes: NoteItem[] = [
@@ -526,7 +526,7 @@ export const myReviews: Review[] = [
     bookId: "mindset",
     bookTitle: "终身成长",
     bookCoverSeed: 1,
-    bookCover: "/covers/mindset.png",
+    bookCover: "/covers/mindset.webp",
     userId: "me",
     nickname: "书友·淮安",
     avatarSeed: 7,
@@ -541,7 +541,7 @@ export const myReviews: Review[] = [
     bookId: "cipoetry",
     bookTitle: "人间词话",
     bookCoverSeed: 2,
-    bookCover: "/covers/cipoetry.png",
+    bookCover: "/covers/cipoetry.webp",
     userId: "me",
     nickname: "书友·淮安",
     avatarSeed: 7,

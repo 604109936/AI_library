@@ -16,7 +16,7 @@ export function Mascot({ size = 40, className }: { size?: number; className?: st
     >
       {ok ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src="/mascot.png" alt="智学" onError={() => setOk(false)} className="h-full w-full object-cover" />
+        <img src="/mascot.webp" alt="智学" onError={() => setOk(false)} className="h-full w-full object-cover" />
       ) : (
         <>
           <span className="absolute rounded-md border border-current/40" style={{ inset: size * 0.16 }} />
