@@ -75,7 +75,7 @@ function FlipSkeleton() {
 
 const reveal = (delay: number) => ({
   initial: { opacity: 0, y: 14 },
-  transition: { type: "spring" as const, stiffness: 240, damping: 24, delay },
+  transition: { duration: 0.34, ease: [0.22, 1, 0.36, 1] as const, delay },
 });
 
 function FlipSlide({ book, muted, onMute, onActive }: { book: Book; muted: boolean; onMute: () => void; onActive: () => void }) {
@@ -227,15 +227,14 @@ function FlipSlide({ book, muted, onMute, onActive }: { book: Book; muted: boole
         style={{ bottom: "calc(env(safe-area-inset-bottom) + 232px)" }}
       >
         <Action
-          icon={<Heart size={24} className={fav ? "fill-rouge text-rouge" : "text-dark-text"} />}
+          icon={<Heart size={30} className={fav ? "fill-rouge text-rouge" : "text-dark-text"} />}
           label={formatCount(book.favCount + (fav ? 1 : 0))}
           ariaLabel={fav ? "已收藏" : "收藏"}
           pressed={fav}
-          trayClass={fav ? "ring-rouge/45 bg-rouge/12" : ""}
           onClick={() => requireLogin(() => { const n = toggleFav(realId); toast(n ? "已收藏" : "已取消收藏"); if (n) triggerBurst(); })}
         />
         <Action
-          icon={<MessageSquare size={23} className="text-dark-text" />}
+          icon={<MessageSquare size={28} className="text-dark-text" />}
           label={formatCount(book.reviewCount)}
           ariaLabel="查看书评"
           onClick={() => router.push(`/library/book/${realId}/reviews`)}
@@ -261,7 +260,7 @@ function FlipSlide({ book, muted, onMute, onActive }: { book: Book; muted: boole
           {...reveal(0.16)}
           animate={shown ? { opacity: 1, y: 0 } : { opacity: 0, y: 14 }}
           onClick={() => router.push(`/library/book/${realId}`)}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-gradient-to-b from-celadon to-celadon-700 px-5 py-2.5 text-sm font-medium text-white shadow-celadon ring-1 ring-brass/40 transition active:scale-95"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-celadon px-5 py-2.5 text-sm font-medium text-white shadow-celadon ring-1 ring-brass/40 transition active:scale-95"
         >
           读这本书 <ArrowRight size={15} />
         </motion.button>
@@ -276,26 +275,22 @@ function Action({
   onClick,
   ariaLabel,
   pressed,
-  trayClass,
 }: {
   icon: React.ReactNode;
   label: string;
   onClick: () => void;
   ariaLabel: string;
   pressed?: boolean;
-  trayClass?: string;
 }) {
   return (
     <button onClick={onClick} aria-label={ariaLabel} aria-pressed={pressed} className="flex flex-col items-center gap-1 transition active:scale-90">
-      <span className={"flex h-11 w-11 items-center justify-center rounded-full bg-black/25 shadow-[0_2px_10px_rgba(0,0,0,0.25)] ring-1 ring-white/12 backdrop-blur-md " + (trayClass ?? "")}>
-        {icon}
-      </span>
+      <span className="drop-shadow-[0_2px_6px_rgba(0,0,0,0.5)]">{icon}</span>
       <motion.span
         key={label}
         initial={{ y: 6, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.18 }}
-        className="text-[11px] font-medium tabular-nums text-dark-text/85 drop-shadow"
+        className="text-[11px] font-medium tabular-nums text-dark-text drop-shadow-[0_1px_3px_rgba(0,0,0,0.5)]"
       >
         {label}
       </motion.span>
