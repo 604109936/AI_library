@@ -9,7 +9,7 @@ import { getBook, getChapters, getBookReviews } from "@/lib/api";
 import { BookCover } from "@/components/ui/BookCover";
 import { Stars } from "@/components/ui/Stars";
 import { Avatar } from "@/components/ui/Avatar";
-import { Motif, OrnDivider } from "@/components/ui/Motif";
+import { Motif } from "@/components/ui/Motif";
 import { BookMediaHero } from "@/components/library/Players";
 import { Skeleton, ErrorState } from "@/components/ui/States";
 import { formatCount, formatDate } from "@/lib/utils";
@@ -51,32 +51,26 @@ export default function BookDetail({ params }: { params: { id: string } }) {
       transition={{ duration: 0.26, ease: [0.4, 0, 0.2, 1] }}
       className="min-h-[100dvh] pb-12"
     >
-      {/* 媒体台：封面即视频入口（竖屏全屏 · 可切音频）· 古籍扉页 + 影院开场 */}
-      <div className="relative min-h-[74vh] overflow-hidden">
+      {/* 媒体台：封面即视频入口（竖屏全屏 · 可切音频）· 影院沉浸 */}
+      <div className="relative min-h-[76vh] overflow-hidden">
         <HeroBg book={book} />
         {/* 银幕柔光 */}
-        <div className="pointer-events-none absolute left-1/2 top-[18%] h-72 w-72 -translate-x-1/2 rounded-full bg-celadon/18 blur-3xl dark:bg-celadon/14" />
-        {/* 朱印水印 */}
-        <Motif name="seal" size={26} className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 text-rouge/15 dark:text-rouge/12" />
+        <div className="pointer-events-none absolute left-1/2 top-[20%] h-80 w-80 -translate-x-1/2 rounded-full bg-celadon/25 blur-[90px]" />
         <button
           onClick={() => router.back()}
           aria-label="返回"
-          className="absolute left-2 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-snow/70 backdrop-blur transition active:scale-90 dark:bg-dark-card/70"
+          className="absolute left-2 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-black/30 text-snow backdrop-blur transition active:scale-90"
           style={{ top: "calc(env(safe-area-inset-top) + 8px)" }}
         >
-          <ChevronLeft size={24} className="text-ink dark:text-dark-text" />
+          <ChevronLeft size={24} />
         </button>
         <BookMediaHero book={book} />
       </div>
 
-      {/* 扉页题名 */}
+      {/* 题名 */}
       <div className="flex flex-col items-center px-4 pt-4 text-center">
         <h1 className="font-serif text-[26px] leading-tight tracking-[0.01em] text-ink dark:text-dark-text">{book.title}</h1>
-        <p className="mt-1 flex items-center justify-center gap-2 text-sm text-ink-500 dark:text-dark-text/55">
-          <OrnDivider className="scale-75 text-celadon/40" />
-          {book.author}
-          <OrnDivider className="scale-75 text-celadon/40" />
-        </p>
+        <p className="mt-1 text-sm text-ink-500 dark:text-dark-text/55">{book.author}</p>
         <div className="mt-2 flex flex-wrap justify-center gap-1.5">
           {book.tags.map((t, i) => (
             <span key={t} className="animate-fade-up rounded-full border border-line px-2.5 py-0.5 text-[11px] text-ink-500 dark:border-white/10 dark:text-dark-text/60" style={{ animationDelay: `${i * 0.04}s` }}>{t}</span>
@@ -126,10 +120,9 @@ export default function BookDetail({ params }: { params: { id: string } }) {
         )}
       </div>
 
-      {/* 远山分隔 + 文字全文 */}
+      {/* 文字全文 */}
       {book.hasText && (
         <div className="mt-6 px-4">
-          <Motif name="mountain" className="mx-auto my-3 w-40 text-celadon/25 dark:text-celadon/30" />
           <div className="mb-1 flex items-center justify-between">
             <h2 className="flex items-center font-serif text-base text-ink dark:text-dark-text">
               <span className="mr-2.5 h-3.5 w-0.5 rounded bg-brass" /> 文字全文
@@ -213,21 +206,21 @@ export default function BookDetail({ params }: { params: { id: string } }) {
 function HeroBg({ book }: { book: Book }) {
   const [ok, setOk] = useState(true);
   return (
-    <div className="absolute inset-0 overflow-hidden">
+    <div className="absolute inset-0 overflow-hidden bg-gradient-to-b from-[#283129] via-celadon-700/15 to-moon dark:from-black dark:via-dark-bg/70 dark:to-dark-bg">
       {book.heroUrl && ok ? (
         <motion.img
           src={book.heroUrl}
           alt=""
           onError={() => setOk(false)}
-          initial={{ scale: 1.1, filter: "brightness(0.75)" }}
-          animate={{ scale: 1.05, filter: "brightness(1)" }}
-          transition={{ duration: 1.0, ease: [0.22, 1, 0.36, 1] }}
-          className="h-full w-full object-cover opacity-80 will-change-transform dark:opacity-55"
+          initial={{ scale: 1.12, filter: "brightness(0.7)" }}
+          animate={{ scale: 1.05, filter: "brightness(0.95)" }}
+          transition={{ duration: 1.1, ease: [0.22, 1, 0.36, 1] }}
+          className="h-full w-full object-cover opacity-45 will-change-transform"
         />
       ) : (
-        <BookCover title="" seed={book.coverSeed} src={book.cover} className="h-full w-full scale-125 opacity-60 blur-2xl" showText={false} rounded="rounded-none" />
+        <BookCover title="" seed={book.coverSeed} src={book.cover} className="h-full w-full scale-125 opacity-30 blur-2xl" showText={false} rounded="rounded-none" />
       )}
-      <div className="absolute inset-0 bg-gradient-to-b from-transparent to-moon dark:to-dark-bg" />
+      <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-moon dark:to-dark-bg" />
     </div>
   );
 }
@@ -236,7 +229,7 @@ function DetailSkeleton() {
   return (
     <main className="min-h-[100dvh] px-4 pt-16">
       <div className="flex flex-col items-center">
-        <Skeleton className="aspect-[9/16] w-[62%] max-w-[252px] rounded-3xl" />
+        <Skeleton className="aspect-[9/16] w-[66%] max-w-[268px] rounded-3xl" />
         <Skeleton className="mt-4 h-7 w-40 rounded" />
         <Skeleton className="mt-2 h-4 w-24 rounded" />
         <Skeleton className="mt-3 h-3 w-52 rounded" />

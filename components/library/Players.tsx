@@ -124,7 +124,7 @@ function VideoStage({ book }: { book: Book }) {
       className={
         fs
           ? "fixed inset-0 z-[120] flex items-center justify-center bg-black"
-          : "relative aspect-[9/16] w-[62%] max-w-[252px] overflow-hidden rounded-3xl bg-black shadow-2xl ring-1 ring-black/10 dark:ring-white/10"
+          : "relative aspect-[9/16] w-[66%] max-w-[268px] overflow-hidden rounded-3xl bg-black shadow-2xl ring-1 ring-white/15"
       }
     >
       <video
