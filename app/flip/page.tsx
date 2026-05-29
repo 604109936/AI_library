@@ -73,18 +73,12 @@ function FlipSkeleton() {
   );
 }
 
-const reveal = (delay: number) => ({
-  initial: { opacity: 0, y: 14 },
-  transition: { duration: 0.34, ease: [0.22, 1, 0.36, 1] as const, delay },
-});
-
 function FlipSlide({ book, muted, onMute, onActive }: { book: Book; muted: boolean; onMute: () => void; onActive: () => void }) {
   const router = useRouter();
   const ref = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(true);
   const [ready, setReady] = useState(false);
-  const [shown, setShown] = useState(false);
   const [burst, setBurst] = useState(0);
   const [err, setErr] = useState(false);
   const lastTap = useRef(0);
@@ -105,11 +99,10 @@ function FlipSlide({ book, muted, onMute, onActive }: { book: Book; muted: boole
         const e = entries[0];
         if (e.isIntersecting) {
           onActive();
-          setShown(true);
           v?.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
-        } else {
-          setShown(false);
-          if (v) { v.pause(); v.currentTime = 0; }
+        } else if (v) {
+          v.pause();
+          v.currentTime = 0;
         }
       },
       { threshold: 0.6 }
@@ -220,9 +213,7 @@ function FlipSlide({ book, muted, onMute, onActive }: { book: Book; muted: boole
       <Motif name="branch" className="pointer-events-none absolute bottom-28 -left-4 w-28 text-brass/10" />
 
       {/* 右侧操作栏：收藏 + 书评（书封入口已并入「读这本书」，避免重复进详情）*/}
-      <motion.div
-        {...reveal(0.1)}
-        animate={shown ? { opacity: 1, y: 0 } : { opacity: 0, y: 14 }}
+      <div
         className="absolute right-3 z-10 flex flex-col items-center gap-6"
         style={{ bottom: "calc(env(safe-area-inset-bottom) + 232px)" }}
       >
@@ -239,11 +230,11 @@ function FlipSlide({ book, muted, onMute, onActive }: { book: Book; muted: boole
           ariaLabel="查看书评"
           onClick={() => router.push(`/library/book/${realId}/reviews`)}
         />
-      </motion.div>
+      </div>
 
       {/* 底部：信息题跋（左）+「读这本书」（右）· 同行底部对齐 */}
       <div className="absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-3 px-4" style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 74px)" }}>
-        <motion.div {...reveal(0.04)} animate={shown ? { opacity: 1, y: 0 } : { opacity: 0, y: 14 }} className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1">
           <div className="flex items-start">
             <span className="mr-2 mt-1.5 h-6 w-0.5 shrink-0 rounded-full bg-celadon/80" />
             <h2 className="font-serif text-[26px] leading-[1.15] tracking-wide text-dark-text drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)]">{book.title}</h2>
@@ -255,15 +246,13 @@ function FlipSlide({ book, muted, onMute, onActive }: { book: Book; muted: boole
             ))}
           </div>
           <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-dark-text/85">{book.intro}</p>
-        </motion.div>
-        <motion.button
-          {...reveal(0.16)}
-          animate={shown ? { opacity: 1, y: 0 } : { opacity: 0, y: 14 }}
+        </div>
+        <button
           onClick={() => router.push(`/library/book/${realId}`)}
           className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-celadon px-5 py-2.5 text-sm font-medium text-white shadow-celadon ring-1 ring-brass/40 transition active:scale-95"
         >
           读这本书 <ArrowRight size={15} />
-        </motion.button>
+        </button>
       </div>
     </div>
   );

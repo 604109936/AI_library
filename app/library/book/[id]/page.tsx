@@ -107,7 +107,9 @@ export default function BookDetail({ params }: { params: { id: string } }) {
 
       {/* 简介（序） */}
       <div className="mx-4 mt-6">
-        <h2 className="mb-2 font-serif text-base text-ink dark:text-dark-text">简介</h2>
+        <h2 className="mb-2 flex items-center font-serif text-lg tracking-wide text-ink dark:text-dark-text">
+          <span className="mr-2 h-4 w-[3px] rounded-full bg-celadon" /> 简介
+        </h2>
         <p className={"text-sm leading-7 text-ink-700 dark:text-dark-text/70 " + (expand ? "" : "line-clamp-3")}>{book.summary}</p>
         {book.summary.length > 50 && (
           <button onClick={() => setExpand((v) => !v)} className="mt-1.5 inline-flex items-center gap-0.5 text-xs text-celadon-700 dark:text-celadon-300">
@@ -120,7 +122,9 @@ export default function BookDetail({ params }: { params: { id: string } }) {
       {book.hasText && (
         <div className="mt-6 px-4">
           <div className="mb-1 flex items-center justify-between">
-            <h2 className="font-serif text-base text-ink dark:text-dark-text">文字全文</h2>
+            <h2 className="flex items-center font-serif text-lg tracking-wide text-ink dark:text-dark-text">
+              <span className="mr-2 h-4 w-[3px] rounded-full bg-celadon" /> 文字全文
+            </h2>
             {chQ.data && <span className="text-xs text-ink-300">共 {chQ.data.length} 章</span>}
           </div>
           {chQ.isError ? (
@@ -154,7 +158,9 @@ export default function BookDetail({ params }: { params: { id: string } }) {
       {/* 书评预览 */}
       <div className="mt-6 px-4">
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="font-serif text-base text-ink dark:text-dark-text">读者评价</h2>
+          <h2 className="flex items-center font-serif text-lg tracking-wide text-ink dark:text-dark-text">
+            <span className="mr-2 h-4 w-[3px] rounded-full bg-celadon" /> 读者评价
+          </h2>
           <Link href={`/library/book/${book.id}/reviews`} className="flex items-center text-xs text-ink-300">
             全部 <ChevronRight size={14} />
           </Link>

@@ -44,7 +44,10 @@ export function BookMediaHero({ book }: { book: Book }) {
   return (
     <div className="flex flex-col items-center px-4 pt-16 pb-2">
       <div className="w-full max-w-[300px]">
-        {mode === "video" && canVideo ? <VideoStage book={book} /> : <AudioStage book={book} />}
+        {/* 固定高度：视频卡(3:4)与音频盘共用同一高度，切换不顶动下方内容 */}
+        <div className="flex min-h-[400px] items-center justify-center">
+          {mode === "video" && canVideo ? <VideoStage book={book} /> : <AudioStage book={book} />}
+        </div>
 
         {/* 视频 / 音频 切换（卡片下方右对齐） */}
         {canVideo && canAudio && (
