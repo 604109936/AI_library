@@ -47,26 +47,30 @@ export function BookMediaHero({ book }: { book: Book }) {
   }
 
   return (
-    <div className="flex flex-col items-center px-4 pt-16 pb-3">
-      {mode === "video" && canVideo ? <VideoStage book={book} /> : <AudioStage book={book} />}
+    <div className="flex flex-col items-center px-4 pt-16 pb-2">
+      <div className="w-full max-w-[300px]">
+        {mode === "video" && canVideo ? <VideoStage book={book} /> : <AudioStage book={book} />}
 
-      {/* 视频 / 音频 切换 */}
-      {canVideo && canAudio && (
-        <div className="mt-4 inline-flex rounded-full border border-line bg-snow/85 p-1 shadow-sm backdrop-blur dark:border-white/10 dark:bg-dark-card/85">
-          {([["video", "视频解读", Video], ["audio", "音频伴读", Headphones]] as const).map(([k, label, Icon]) => (
-            <button
-              key={k}
-              onClick={() => setMode(k)}
-              className={
-                "flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-medium transition " +
-                (mode === k ? "bg-celadon text-snow shadow-celadon" : "text-ink-500 dark:text-dark-text/60")
-              }
-            >
-              <Icon size={13} /> {label}
-            </button>
-          ))}
-        </div>
-      )}
+        {/* 视频 / 音频 切换（卡片下方右对齐） */}
+        {canVideo && canAudio && (
+          <div className="mt-3 flex justify-end">
+            <div className="inline-flex rounded-full border border-line bg-snow/85 p-1 shadow-sm backdrop-blur dark:border-white/10 dark:bg-dark-card/85">
+              {([["video", "视频", Video], ["audio", "音频", Headphones]] as const).map(([k, label, Icon]) => (
+                <button
+                  key={k}
+                  onClick={() => setMode(k)}
+                  className={
+                    "flex items-center gap-1 rounded-full px-3.5 py-1 text-xs font-medium transition " +
+                    (mode === k ? "bg-celadon text-snow shadow-celadon" : "text-ink-500 dark:text-dark-text/60")
+                  }
+                >
+                  <Icon size={12} /> {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -124,13 +128,13 @@ function VideoStage({ book }: { book: Book }) {
       className={
         fs
           ? "fixed inset-0 z-[120] flex items-center justify-center bg-black"
-          : "relative aspect-[9/16] w-[66%] max-w-[268px] overflow-hidden rounded-3xl bg-black shadow-2xl ring-1 ring-white/15"
+          : "relative aspect-[3/4] w-full overflow-hidden rounded-3xl bg-black shadow-xl ring-1 ring-black/5 dark:ring-white/10"
       }
     >
       <video
         ref={ref}
         src={book.videoUrl}
-        poster={book.posterUrl}
+        poster={book.cover}
         playsInline
         muted={muted}
         className={fs ? "max-h-full w-full object-contain" : "h-full w-full object-cover"}
@@ -141,13 +145,12 @@ function VideoStage({ book }: { book: Book }) {
         onLoadedMetadata={(e) => setDur(e.currentTarget.duration || 0)}
       />
 
-      {/* 海报入口（未开始） */}
+      {/* 海报入口（未开始）：封面 + 居中播放钮，对齐设计稿 */}
       {!started && (
-        <button onClick={toggle} aria-label="播放视频解读" className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gradient-to-t from-black/45 via-black/10 to-black/15">
-          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-celadon/90 shadow-celadon backdrop-blur">
+        <button onClick={toggle} aria-label="播放视频解读" className="absolute inset-0 flex items-center justify-center bg-black/10">
+          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-celadon/85 shadow-celadon backdrop-blur">
             <Play size={30} className="ml-1 fill-snow text-snow" />
           </span>
-          <span className="text-xs text-white/90 drop-shadow">点击播放 · 视频解读</span>
         </button>
       )}
 
@@ -160,21 +163,23 @@ function VideoStage({ book }: { book: Book }) {
         </button>
       )}
 
-      {/* 右上：静音 + 全屏/退出 */}
-      <div className={"absolute z-10 flex gap-1.5 " + (fs ? "right-3 top-[calc(env(safe-area-inset-top)+12px)]" : "right-2 top-2")}>
-        <button onClick={() => setMuted((m) => !m)} aria-label={muted ? "取消静音" : "静音"} className="flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur active:scale-90">
-          {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
-        </button>
-        {fs ? (
-          <button onClick={exitFs} aria-label="退出全屏" className="flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur active:scale-90">
-            <Minimize2 size={16} />
+      {/* 右上：静音 + 全屏/退出（开播后才显示，海报态保持干净） */}
+      {started && (
+        <div className={"absolute z-10 flex gap-1.5 " + (fs ? "right-3 top-[calc(env(safe-area-inset-top)+12px)]" : "right-2 top-2")}>
+          <button onClick={() => setMuted((m) => !m)} aria-label={muted ? "取消静音" : "静音"} className="flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur active:scale-90">
+            {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
           </button>
-        ) : (
-          <button onClick={enterFs} aria-label="竖屏全屏" className="flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur active:scale-90">
-            <Maximize2 size={16} />
-          </button>
-        )}
-      </div>
+          {fs ? (
+            <button onClick={exitFs} aria-label="退出全屏" className="flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur active:scale-90">
+              <Minimize2 size={16} />
+            </button>
+          ) : (
+            <button onClick={enterFs} aria-label="竖屏全屏" className="flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur active:scale-90">
+              <Maximize2 size={16} />
+            </button>
+          )}
+        </div>
+      )}
 
       {/* 底部控制条（已开始） */}
       {started && (

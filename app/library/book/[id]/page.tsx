@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { ChevronLeft, Heart, ChevronRight, ChevronDown, PenLine, Clock, Check } from "lucide-react";
+import { ChevronLeft, Heart, ChevronRight, ChevronDown, PenLine, Check } from "lucide-react";
 import { getBook, getChapters, getBookReviews } from "@/lib/api";
 import { BookCover } from "@/components/ui/BookCover";
 import { Stars } from "@/components/ui/Stars";
@@ -52,14 +52,14 @@ export default function BookDetail({ params }: { params: { id: string } }) {
       className="min-h-[100dvh] pb-12"
     >
       {/* 媒体台：封面即视频入口（竖屏全屏 · 可切音频）· 影院沉浸 */}
-      <div className="relative min-h-[76vh] overflow-hidden">
+      <div className="relative overflow-hidden">
         <HeroBg book={book} />
-        {/* 银幕柔光 */}
-        <div className="pointer-events-none absolute left-1/2 top-[20%] h-80 w-80 -translate-x-1/2 rounded-full bg-celadon/25 blur-[90px]" />
+        {/* 柔光 */}
+        <div className="pointer-events-none absolute left-1/2 top-[24%] h-72 w-72 -translate-x-1/2 rounded-full bg-celadon/18 blur-[80px]" />
         <button
           onClick={() => router.back()}
           aria-label="返回"
-          className="absolute left-2 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-black/30 text-snow backdrop-blur transition active:scale-90"
+          className="absolute left-2 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-snow/80 text-ink backdrop-blur transition active:scale-90 dark:bg-dark-card/70 dark:text-dark-text"
           style={{ top: "calc(env(safe-area-inset-top) + 8px)" }}
         >
           <ChevronLeft size={24} />
@@ -67,51 +67,47 @@ export default function BookDetail({ params }: { params: { id: string } }) {
         <BookMediaHero book={book} />
       </div>
 
-      {/* 题名 */}
-      <div className="flex flex-col items-center px-4 pt-4 text-center">
+      {/* 题名 + 元信息（左对齐）· 右侧收藏药丸 */}
+      <div className="px-4 pt-4">
         <h1 className="font-serif text-[26px] leading-tight tracking-[0.01em] text-ink dark:text-dark-text">{book.title}</h1>
         <p className="mt-1 text-sm text-ink-500 dark:text-dark-text/55">{book.author}</p>
-        <div className="mt-2 flex flex-wrap justify-center gap-1.5">
+        <div className="mt-2 flex flex-wrap gap-1.5">
           {book.tags.map((t, i) => (
             <span key={t} className="animate-fade-up rounded-full border border-line px-2.5 py-0.5 text-[11px] text-ink-500 dark:border-white/10 dark:text-dark-text/60" style={{ animationDelay: `${i * 0.04}s` }}>{t}</span>
           ))}
         </div>
-        <div className="mt-3 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 text-xs text-ink-500 tabular-nums dark:text-dark-text/55">
-          <span className="flex items-center gap-1"><Stars value={book.rating} size={13} /> <span className="text-rouge">{book.rating.toFixed(1)}</span></span>
-          <span className="h-1 w-1 rotate-45 bg-line dark:bg-white/15" />
-          <span>{formatCount(book.readers)} 在读</span>
-          <span className="h-1 w-1 rotate-45 bg-line dark:bg-white/15" />
-          <span>约 {formatCount(book.words)} 字</span>
-          <span className="h-1 w-1 rotate-45 bg-line dark:bg-white/15" />
-          <span className="flex items-center gap-0.5"><Clock size={12} /> {book.durationMin} 分钟</span>
+        <div className="mt-3 flex items-end justify-between gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-ink-500 tabular-nums dark:text-dark-text/55">
+            <span className="flex items-center gap-1"><Stars value={book.rating} size={13} /> <span className="text-rouge">{book.rating.toFixed(1)}</span></span>
+            <span className="h-1 w-1 rotate-45 bg-line dark:bg-white/15" />
+            <span>{formatCount(book.readers)} 在读</span>
+            <span className="h-1 w-1 rotate-45 bg-line dark:bg-white/15" />
+            <span>约 {formatCount(book.words)} 字</span>
+          </div>
+          <div className="relative shrink-0">
+            <button
+              onClick={onFav}
+              aria-pressed={fav}
+              className={
+                "flex items-center gap-1 rounded-full border px-3.5 py-1.5 text-xs font-medium transition active:scale-95 " +
+                (fav ? "border-rouge/40 bg-rouge/10 text-rouge dark:bg-rouge/15" : "border-celadon text-celadon-700 dark:border-celadon/60 dark:text-celadon-300")
+              }
+            >
+              <motion.span key={favTick} initial={favTick ? { scale: 0.5 } : false} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 500, damping: 13 }}>
+                <Heart size={14} className={fav ? "fill-rouge text-rouge" : ""} />
+              </motion.span>
+              {fav ? "已收藏" : "收藏"}
+            </button>
+            {fav && favTick > 0 && (
+              <Heart key={favTick} size={14} className="pointer-events-none absolute -top-1 left-1/2 -translate-x-1/2 animate-like-burst fill-rouge text-rouge" />
+            )}
+          </div>
         </div>
-      </div>
-
-      {/* 收藏（胭脂藏书印） */}
-      <div className="relative mx-4 mt-4">
-        <button
-          onClick={onFav}
-          aria-pressed={fav}
-          className={
-            "flex w-full items-center justify-center gap-2 rounded-2xl py-3 text-sm font-medium shadow-sm transition active:scale-[0.99] " +
-            (fav ? "bg-rouge/10 text-rouge dark:bg-rouge/15" : "bg-snow text-ink dark:bg-dark-card dark:text-dark-text")
-          }
-        >
-          <motion.span key={favTick} initial={favTick ? { scale: 0.5 } : false} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 500, damping: 13 }}>
-            <Heart size={18} className={fav ? "fill-rouge text-rouge" : ""} />
-          </motion.span>
-          {fav ? "已收藏" : "收藏"}
-        </button>
-        {fav && favTick > 0 && (
-          <Heart key={favTick} size={16} className="pointer-events-none absolute left-1/2 top-1 -translate-x-1/2 animate-like-burst fill-rouge text-rouge" />
-        )}
       </div>
 
       {/* 简介（序） */}
       <div className="mx-4 mt-6">
-        <h2 className="mb-2 flex items-center font-serif text-base text-ink dark:text-dark-text">
-          <span className="mr-2.5 h-3.5 w-0.5 rounded bg-brass" /> 简介
-        </h2>
+        <h2 className="mb-2 font-serif text-base text-ink dark:text-dark-text">简介</h2>
         <p className={"text-sm leading-7 text-ink-700 dark:text-dark-text/70 " + (expand ? "" : "line-clamp-3")}>{book.summary}</p>
         {book.summary.length > 50 && (
           <button onClick={() => setExpand((v) => !v)} className="mt-1.5 inline-flex items-center gap-0.5 text-xs text-celadon-700 dark:text-celadon-300">
@@ -124,9 +120,7 @@ export default function BookDetail({ params }: { params: { id: string } }) {
       {book.hasText && (
         <div className="mt-6 px-4">
           <div className="mb-1 flex items-center justify-between">
-            <h2 className="flex items-center font-serif text-base text-ink dark:text-dark-text">
-              <span className="mr-2.5 h-3.5 w-0.5 rounded bg-brass" /> 文字全文
-            </h2>
+            <h2 className="font-serif text-base text-ink dark:text-dark-text">文字全文</h2>
             {chQ.data && <span className="text-xs text-ink-300">共 {chQ.data.length} 章</span>}
           </div>
           {chQ.isError ? (
@@ -160,9 +154,7 @@ export default function BookDetail({ params }: { params: { id: string } }) {
       {/* 书评预览 */}
       <div className="mt-6 px-4">
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="flex items-center font-serif text-base text-ink dark:text-dark-text">
-            <span className="mr-2.5 h-3.5 w-0.5 rounded bg-brass" /> 读者评价
-          </h2>
+          <h2 className="font-serif text-base text-ink dark:text-dark-text">读者评价</h2>
           <Link href={`/library/book/${book.id}/reviews`} className="flex items-center text-xs text-ink-300">
             全部 <ChevronRight size={14} />
           </Link>
@@ -206,21 +198,21 @@ export default function BookDetail({ params }: { params: { id: string } }) {
 function HeroBg({ book }: { book: Book }) {
   const [ok, setOk] = useState(true);
   return (
-    <div className="absolute inset-0 overflow-hidden bg-gradient-to-b from-[#283129] via-celadon-700/15 to-moon dark:from-black dark:via-dark-bg/70 dark:to-dark-bg">
+    <div className="absolute inset-0 overflow-hidden bg-gradient-to-b from-celadon-soft via-celadon-soft/30 to-moon dark:from-celadon/12 dark:via-dark-bg/50 dark:to-dark-bg">
       {book.heroUrl && ok ? (
         <motion.img
           src={book.heroUrl}
           alt=""
           onError={() => setOk(false)}
-          initial={{ scale: 1.12, filter: "brightness(0.7)" }}
-          animate={{ scale: 1.05, filter: "brightness(0.95)" }}
-          transition={{ duration: 1.1, ease: [0.22, 1, 0.36, 1] }}
-          className="h-full w-full object-cover opacity-45 will-change-transform"
+          initial={{ scale: 1.08, opacity: 0 }}
+          animate={{ scale: 1.02, opacity: 0.28 }}
+          transition={{ duration: 1.0, ease: [0.22, 1, 0.36, 1] }}
+          className="h-full w-full object-cover will-change-transform"
         />
       ) : (
-        <BookCover title="" seed={book.coverSeed} src={book.cover} className="h-full w-full scale-125 opacity-30 blur-2xl" showText={false} rounded="rounded-none" />
+        <BookCover title="" seed={book.coverSeed} src={book.cover} className="h-full w-full scale-125 opacity-20 blur-2xl" showText={false} rounded="rounded-none" />
       )}
-      <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-moon dark:to-dark-bg" />
+      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-moon dark:to-dark-bg" />
     </div>
   );
 }
@@ -229,10 +221,10 @@ function DetailSkeleton() {
   return (
     <main className="min-h-[100dvh] px-4 pt-16">
       <div className="flex flex-col items-center">
-        <Skeleton className="aspect-[9/16] w-[66%] max-w-[268px] rounded-3xl" />
-        <Skeleton className="mt-4 h-7 w-40 rounded" />
-        <Skeleton className="mt-2 h-4 w-24 rounded" />
-        <Skeleton className="mt-3 h-3 w-52 rounded" />
+        <Skeleton className="aspect-[3/4] w-[78%] max-w-[300px] rounded-3xl" />
+        <Skeleton className="mt-4 h-7 w-40 self-start rounded" />
+        <Skeleton className="mt-2 h-4 w-24 self-start rounded" />
+        <Skeleton className="mt-3 h-3 w-52 self-start rounded" />
       </div>
       <Skeleton className="mt-6 h-12 w-full rounded-2xl" />
       <Skeleton className="mt-5 h-16 w-full rounded-2xl" />
