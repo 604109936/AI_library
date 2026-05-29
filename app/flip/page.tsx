@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Heart, MessageSquare, ArrowRight, Play, Volume2, VolumeX, BookOpen } from "lucide-react";
+import { Heart, MessageSquare, ArrowRight, Play, Volume2, VolumeX } from "lucide-react";
 import { BottomNav } from "@/components/shell/BottomNav";
 import { BookCover } from "@/components/ui/BookCover";
 import { getFlip } from "@/lib/api";
@@ -187,29 +187,30 @@ function FlipSlide({ book, index, muted, onMute, onActive }: { book: Book; index
       {/* 柔和渐变 */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-3/5 bg-gradient-to-t from-black/85 via-black/35 to-transparent" />
 
-      {/* 信息浮层 */}
-      <div className="absolute bottom-0 left-0 right-[76px] px-4 pb-[84px]">
-        <span className="inline-flex items-center gap-1 rounded-full bg-celadon/85 px-2.5 py-0.5 text-[11px] font-medium text-white shadow backdrop-blur">
-          <BookOpen size={11} /> {book.category}解读
-        </span>
-        <h2 className="mt-2 font-serif text-[26px] leading-tight text-white drop-shadow-md">{book.title}</h2>
-        <p className="mt-1 text-sm text-white/75">{book.author}</p>
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {book.tags.slice(0, 3).map((t) => (
-            <span key={t} className="rounded-full border border-white/25 bg-white/10 px-2 py-0.5 text-[11px] text-white/90 backdrop-blur">{t}</span>
-          ))}
+      {/* 信息浮层（左下文案）+ 右下主操作「读这本书」 */}
+      <div className="absolute inset-x-0 bottom-0 pb-[72px]">
+        <div className="px-4 pr-[68px]">
+          <h2 className="font-serif text-[26px] leading-tight text-white drop-shadow-md">{book.title}</h2>
+          <p className="mt-1 text-sm text-white/70">{book.author} · {book.category}解读</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {book.tags.slice(0, 3).map((t) => (
+              <span key={t} className="rounded-full border border-white/25 bg-white/10 px-2 py-0.5 text-[11px] text-white/90 backdrop-blur">{t}</span>
+            ))}
+          </div>
+          <p className="mt-2.5 line-clamp-2 text-[13px] leading-5 text-white/85">{book.intro}</p>
         </div>
-        <p className="mt-2.5 line-clamp-2 text-[13px] leading-5 text-white/85">{book.intro}</p>
-        <button
-          onClick={() => router.push(`/library/book/${realId}/read`)}
-          className="mt-3.5 inline-flex items-center gap-1.5 rounded-full bg-celadon px-5 py-2.5 text-sm font-medium text-white shadow-celadon ring-1 ring-white/20 active:scale-95"
-        >
-          读这本书 <ArrowRight size={15} />
-        </button>
+        <div className="mt-3.5 flex justify-end px-4">
+          <button
+            onClick={() => router.push(`/library/book/${realId}/read`)}
+            className="inline-flex items-center gap-1.5 rounded-full bg-celadon px-5 py-2.5 text-sm font-medium text-white shadow-celadon ring-1 ring-white/20 active:scale-95"
+          >
+            读这本书 <ArrowRight size={15} />
+          </button>
+        </div>
       </div>
 
-      {/* 右侧操作栏：书封缩略（进详情）+ 收藏 + 书评 */}
-      <div className="absolute bottom-[92px] right-3 flex flex-col items-center gap-5">
+      {/* 右侧操作栏：书封缩略（进详情）+ 收藏 + 书评（上移，为右下 CTA 让位） */}
+      <div className="absolute bottom-[150px] right-3 flex flex-col items-center gap-5">
         <button onClick={() => router.push(`/library/book/${realId}`)} aria-label="书籍详情" className="active:scale-95">
           <BookCover title={book.title} seed={book.coverSeed} src={book.cover} showText={false} rounded="rounded-xl" className="w-11 shadow-lg ring-2 ring-white/40" />
         </button>

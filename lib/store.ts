@@ -108,7 +108,7 @@ export const useUI = create<UIState>()(
       toast: (msg, type = "success") => {
         const id = toastId++;
         set({ toasts: [...get().toasts, { id, msg, type }] });
-        setTimeout(() => get().dismiss(id), 2500);
+        setTimeout(() => get().dismiss(id), 2800);
       },
       dismiss: (id) => set({ toasts: get().toasts.filter((t) => t.id !== id) }),
       loginOpen: false,

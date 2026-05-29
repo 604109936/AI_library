@@ -1,5 +1,5 @@
 "use client";
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
@@ -9,11 +9,11 @@ import { getBook, getChapters, getBookReviews } from "@/lib/api";
 import { BookCover } from "@/components/ui/BookCover";
 import { Stars } from "@/components/ui/Stars";
 import { Avatar } from "@/components/ui/Avatar";
-import { VideoMode, AudioMode } from "@/components/library/Players";
+import { BookMediaHero } from "@/components/library/Players";
 import { Skeleton, ErrorState } from "@/components/ui/States";
 import { formatCount, formatDate } from "@/lib/utils";
 import { useAuth, useLibrary, useUI, requireLogin } from "@/lib/store";
-import type { Book, ReadingMode } from "@/lib/types";
+import type { Book } from "@/lib/types";
 
 export default function BookDetail({ params }: { params: { id: string } }) {
   const { id } = params;
@@ -31,17 +31,6 @@ export default function BookDetail({ params }: { params: { id: string } }) {
   const fav = book && user ? isFav(book.id) : false;
   const [favTick, setFavTick] = useState(0);
   const [expand, setExpand] = useState(false);
-
-  const modes = useMemo(() => {
-    if (!book) return [] as { key: ReadingMode; label: string }[];
-    const m: { key: ReadingMode; label: string }[] = [];
-    if (book.hasVideo) m.push({ key: "video", label: "视频解读" });
-    if (book.hasAudio) m.push({ key: "audio", label: "音频伴读" });
-    if (book.hasText) m.push({ key: "text", label: "文字全文" });
-    return m;
-  }, [book]);
-  const [mode, setMode] = useState<ReadingMode | null>(null);
-  const activeMode = mode ?? (book?.hasText ? "text" : modes[0]?.key) ?? "text";
 
   if (bookQ.isLoading) return <DetailSkeleton />;
   if (bookQ.isError || !book) return <ErrorState onRetry={() => bookQ.refetch()} />;
@@ -61,7 +50,7 @@ export default function BookDetail({ params }: { params: { id: string } }) {
       transition={{ duration: 0.26, ease: [0.4, 0, 0.2, 1] }}
       className="min-h-[100dvh] pb-12"
     >
-      {/* Hero */}
+      {/* 媒体台：封面即视频入口（竖屏友好 · 可全屏 · 可切音频） */}
       <div className="relative">
         <HeroBg book={book} />
         <button
@@ -71,28 +60,26 @@ export default function BookDetail({ params }: { params: { id: string } }) {
         >
           <ChevronLeft size={24} className="text-ink dark:text-dark-text" />
         </button>
-        <div className="relative flex flex-col items-center px-4 pt-16 pb-3">
-          <div className="relative">
-            <BookCover title={book.title} author={book.author} seed={book.coverSeed} src={book.cover} className="w-32 shadow-2xl" />
-            {/* 书脊伪 3D */}
-            <span className="pointer-events-none absolute inset-y-0 left-0 w-1.5 rounded-l-lg bg-gradient-to-r from-black/25 to-transparent" />
-          </div>
-          <h1 className="mt-4 font-serif text-2xl text-ink dark:text-dark-text">{book.title}</h1>
-          <p className="mt-1 text-sm text-ink-500 dark:text-dark-text/55">{book.author}</p>
-          <div className="mt-2 flex flex-wrap justify-center gap-1.5">
-            {book.tags.map((t) => (
-              <span key={t} className="rounded-full border border-line px-2 py-0.5 text-[11px] text-ink-500 dark:border-white/10 dark:text-dark-text/60">{t}</span>
-            ))}
-          </div>
-          <div className="mt-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-ink-500 dark:text-dark-text/55">
-            <span className="flex items-center gap-1"><Stars value={book.rating} size={13} /> {book.rating.toFixed(1)}</span>
-            <span>·</span>
-            <span>{formatCount(book.readers)} 在读</span>
-            <span>·</span>
-            <span>约 {formatCount(book.words)} 字</span>
-            <span>·</span>
-            <span className="flex items-center gap-0.5"><Clock size={12} /> {book.durationMin} 分钟</span>
-          </div>
+        <BookMediaHero book={book} />
+      </div>
+
+      {/* 标题信息 */}
+      <div className="flex flex-col items-center px-4 pt-3 text-center">
+        <h1 className="font-serif text-2xl text-ink dark:text-dark-text">{book.title}</h1>
+        <p className="mt-1 text-sm text-ink-500 dark:text-dark-text/55">{book.author}</p>
+        <div className="mt-2 flex flex-wrap justify-center gap-1.5">
+          {book.tags.map((t) => (
+            <span key={t} className="rounded-full border border-line px-2 py-0.5 text-[11px] text-ink-500 dark:border-white/10 dark:text-dark-text/60">{t}</span>
+          ))}
+        </div>
+        <div className="mt-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-ink-500 dark:text-dark-text/55">
+          <span className="flex items-center gap-1"><Stars value={book.rating} size={13} /> {book.rating.toFixed(1)}</span>
+          <span>·</span>
+          <span>{formatCount(book.readers)} 在读</span>
+          <span>·</span>
+          <span>约 {formatCount(book.words)} 字</span>
+          <span>·</span>
+          <span className="flex items-center gap-0.5"><Clock size={12} /> {book.durationMin} 分钟</span>
         </div>
       </div>
 
@@ -124,53 +111,35 @@ export default function BookDetail({ params }: { params: { id: string } }) {
         )}
       </div>
 
-      {/* 三模式 Tab */}
-      <div className="mt-5 px-4">
-        <div className="flex gap-5 border-b border-line dark:border-white/10">
-          {modes.map((m) => (
-            <button
-              key={m.key}
-              onClick={() => setMode(m.key)}
-              className={"relative pb-2 text-sm transition " + (activeMode === m.key ? "font-medium text-celadon" : "text-ink-500 dark:text-dark-text/55")}
-            >
-              {m.label}
-              {activeMode === m.key && (
-                <motion.span layoutId="detailTab" transition={{ type: "spring", stiffness: 380, damping: 30 }} className="absolute -bottom-px left-0 right-0 h-0.5 rounded-full bg-celadon" />
-              )}
-            </button>
-          ))}
-        </div>
-
-        <div className="pt-4">
-          {activeMode === "video" && <VideoMode book={book} />}
-          {activeMode === "audio" && <AudioMode book={book} />}
-          {activeMode === "text" && (
-            chQ.isError ? (
-              <ErrorState title="章节加载失败" subtitle="点击重试" onRetry={() => chQ.refetch()} />
-            ) : chQ.isLoading ? (
-              <Skeleton className="h-40 w-full rounded-2xl" />
-            ) : (
-              <div className="divide-y divide-line dark:divide-white/10">
-                {chQ.data?.map((c, i) => (
-                  <Link
-                    key={c.id}
-                    href={`/library/book/${book.id}/read?ch=${c.id}`}
-                    className="flex animate-fade-up items-center justify-between py-3"
-                    style={{ animationDelay: `${i * 0.03}s` }}
-                  >
-                    <span className="text-sm text-ink-700 dark:text-dark-text/85">第{c.no}章 {c.title}</span>
-                    <span className="flex items-center gap-1">
-                      {c.status === "reading" && <span className="text-[11px] text-celadon">在读</span>}
-                      {c.status === "read" && <Check size={14} className="text-ink-300" />}
-                      <ChevronRight size={16} className="text-ink-300" />
-                    </span>
-                  </Link>
-                ))}
-              </div>
-            )
+      {/* 文字全文 */}
+      {book.hasText && (
+        <div className="mt-6 px-4">
+          <h2 className="mb-1 font-serif text-base text-ink dark:text-dark-text">文字全文</h2>
+          {chQ.isError ? (
+            <ErrorState title="章节加载失败" subtitle="点击重试" onRetry={() => chQ.refetch()} />
+          ) : chQ.isLoading ? (
+            <Skeleton className="h-40 w-full rounded-2xl" />
+          ) : (
+            <div className="divide-y divide-line dark:divide-white/10">
+              {chQ.data?.map((c, i) => (
+                <Link
+                  key={c.id}
+                  href={`/library/book/${book.id}/read?ch=${c.id}`}
+                  className="flex animate-fade-up items-center justify-between py-3"
+                  style={{ animationDelay: `${i * 0.03}s` }}
+                >
+                  <span className="text-sm text-ink-700 dark:text-dark-text/85">第{c.no}章 {c.title}</span>
+                  <span className="flex items-center gap-1">
+                    {c.status === "reading" && <span className="text-[11px] text-celadon">在读</span>}
+                    {c.status === "read" && <Check size={14} className="text-ink-300" />}
+                    <ChevronRight size={16} className="text-ink-300" />
+                  </span>
+                </Link>
+              ))}
+            </div>
           )}
         </div>
-      </div>
+      )}
 
       {/* 书评预览 */}
       <div className="mt-6 px-4">

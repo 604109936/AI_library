@@ -125,10 +125,9 @@ function ChatInner() {
         {empty ? (
           <div className="relative flex flex-col items-center pt-10">
             <Motif name="bamboo" className="pointer-events-none absolute -top-2 right-0 h-20 w-20 text-celadon/30" />
-            <Mascot size={84} className="shadow-celadon" />
-            <h1 className="mt-4 font-serif text-2xl text-ink dark:text-dark-text">智学</h1>
-            <p className="mt-1.5 text-sm text-ink-700 dark:text-dark-text/80">你的 AI 读书伙伴</p>
-            <p className="mt-0.5 text-xs text-ink-300">通览馆藏，为你荐书 · 答疑 · 解读原文</p>
+            <Mascot size={88} className="shadow-celadon" />
+            <p className="mt-4 font-serif text-xl text-ink dark:text-dark-text">你的 AI 读书伙伴</p>
+            <p className="mt-1 text-xs text-ink-300">通览馆藏，为你荐书 · 答疑 · 解读原文</p>
             <div className="mt-6 w-full space-y-2.5">
               {exampleQuestions.map((q) => (
                 <button

@@ -34,3 +34,7 @@ next-env.d.ts
 
 # os
 Thumbs.db
+
+# imagegen 临时产物（候选图/批处理脚本，不参与部署）
+.cand/
+.imagegen-*.ps1

@@ -1,9 +1,9 @@
 "use client";
 import { useState } from "react";
-import { Bot } from "lucide-react";
+import { UserRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-/** 「智学」AI 吉祥物（青瓷印章风）。优先真实图 /mascot.png，缺图回退印章框 + 机器人图标。 */
+/** 「智学」AI 读书伙伴头像（新中式馆主形象）。优先真实图 /mascot.webp，缺图回退印章框 + 人物图标。 */
 export function Mascot({ size = 40, className }: { size?: number; className?: string }) {
   const [ok, setOk] = useState(true);
   return (
@@ -20,7 +20,7 @@ export function Mascot({ size = 40, className }: { size?: number; className?: st
       ) : (
         <>
           <span className="absolute rounded-md border border-current/40" style={{ inset: size * 0.16 }} />
-          <Bot size={size * 0.48} strokeWidth={1.7} />
+          <UserRound size={size * 0.46} strokeWidth={1.7} />
         </>
       )}
     </span>
