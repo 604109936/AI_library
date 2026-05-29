@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { Play, Pause, Rewind, FastForward, Maximize2, Volume2, VolumeX, Video, Headphones } from "lucide-react";
+import { Play, Pause, Rewind, FastForward, Maximize2, Minimize2, Volume2, VolumeX, Video, Headphones } from "lucide-react";
 import { BookCover } from "@/components/ui/BookCover";
 import { formatTime } from "@/lib/utils";
 import { useLibrary } from "@/lib/store";
@@ -8,9 +8,8 @@ import type { Book } from "@/lib/types";
 
 const SPEEDS = [0.75, 1, 1.25, 1.5, 2];
 
-/** iOS/桌面端的全屏接口差异兼容 */
-type FsVideo = HTMLVideoElement & {
-  webkitEnterFullscreen?: () => void;
+/** 容器级全屏接口（对 div 请求全屏不会被强制横屏，保证竖屏沉浸） */
+type FsEl = HTMLDivElement & {
   webkitRequestFullscreen?: () => void;
 };
 
@@ -72,18 +71,26 @@ export function BookMediaHero({ book }: { book: Book }) {
   );
 }
 
-/* ----------------------------- 竖屏视频（可全屏） ----------------------------- */
+/* ----------------------------- 竖屏视频（抖音式竖屏全屏） ----------------------------- */
 function VideoStage({ book }: { book: Book }) {
+  const wrapRef = useRef<HTMLDivElement>(null);
   const ref = useRef<HTMLVideoElement>(null);
   const [speed, setSpeed] = useState(1);
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
   const [started, setStarted] = useState(false);
+  const [fs, setFs] = useState(false);
   const [cur, setCur] = useState(0);
   const [dur, setDur] = useState(0);
   const report = useHistoryReporter(book, "video");
 
   useEffect(() => { if (ref.current) ref.current.playbackRate = speed; }, [speed]);
+  // 系统返回/ESC 退出原生全屏时同步状态
+  useEffect(() => {
+    const onChange = () => { if (!document.fullscreenElement) setFs(false); };
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
 
   function toggle() {
     const v = ref.current;
@@ -94,23 +101,39 @@ function VideoStage({ book }: { book: Book }) {
     const i = SPEEDS.indexOf(speed);
     setSpeed(SPEEDS[(i + 1) % SPEEDS.length]);
   }
-  function fullscreen() {
-    const v = ref.current as FsVideo | null;
-    if (!v) return;
-    if (v.webkitEnterFullscreen) v.webkitEnterFullscreen();
-    else if (v.requestFullscreen) v.requestFullscreen();
-    else if (v.webkitRequestFullscreen) v.webkitRequestFullscreen();
+  // 进入「竖屏全屏」：fixed 满屏 + 对容器(div)请求原生全屏（不会强制横屏）
+  function enterFs() {
+    setFs(true);
+    const el = wrapRef.current as FsEl | null;
+    try {
+      const pr = el?.requestFullscreen?.();
+      pr?.catch?.(() => {});
+      if (el && !el.requestFullscreen && el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    } catch { /* 忽略 */ }
+  }
+  function exitFs() {
+    setFs(false);
+    try {
+      if (document.fullscreenElement) document.exitFullscreen?.()?.catch?.(() => {});
+    } catch { /* 忽略 */ }
   }
 
   return (
-    <div className="relative aspect-[9/16] w-[62%] max-w-[252px] overflow-hidden rounded-3xl bg-black shadow-2xl ring-1 ring-black/10 dark:ring-white/10">
+    <div
+      ref={wrapRef}
+      className={
+        fs
+          ? "fixed inset-0 z-[120] flex items-center justify-center bg-black"
+          : "relative aspect-[9/16] w-[62%] max-w-[252px] overflow-hidden rounded-3xl bg-black shadow-2xl ring-1 ring-black/10 dark:ring-white/10"
+      }
+    >
       <video
         ref={ref}
         src={book.videoUrl}
         poster={book.posterUrl}
         playsInline
         muted={muted}
-        className="h-full w-full object-cover"
+        className={fs ? "max-h-full w-full object-contain" : "h-full w-full object-cover"}
         onClick={toggle}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
@@ -137,26 +160,32 @@ function VideoStage({ book }: { book: Book }) {
         </button>
       )}
 
-      {/* 右上：静音 + 全屏 */}
-      <div className="absolute right-2 top-2 flex gap-1.5">
-        <button onClick={() => setMuted((m) => !m)} aria-label={muted ? "取消静音" : "静音"} className="flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur active:scale-90">
-          {muted ? <VolumeX size={15} /> : <Volume2 size={15} />}
+      {/* 右上：静音 + 全屏/退出 */}
+      <div className={"absolute z-10 flex gap-1.5 " + (fs ? "right-3 top-[calc(env(safe-area-inset-top)+12px)]" : "right-2 top-2")}>
+        <button onClick={() => setMuted((m) => !m)} aria-label={muted ? "取消静音" : "静音"} className="flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur active:scale-90">
+          {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
         </button>
-        <button onClick={fullscreen} aria-label="全屏播放" className="flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur active:scale-90">
-          <Maximize2 size={15} />
-        </button>
+        {fs ? (
+          <button onClick={exitFs} aria-label="退出全屏" className="flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur active:scale-90">
+            <Minimize2 size={16} />
+          </button>
+        ) : (
+          <button onClick={enterFs} aria-label="竖屏全屏" className="flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur active:scale-90">
+            <Maximize2 size={16} />
+          </button>
+        )}
       </div>
 
       {/* 底部控制条（已开始） */}
       {started && (
-        <div className="absolute inset-x-0 bottom-0 flex items-center gap-1.5 bg-gradient-to-t from-black/70 to-transparent px-2.5 pb-2 pt-6 text-white">
+        <div className={"absolute inset-x-0 bottom-0 flex items-center gap-2 bg-gradient-to-t from-black/75 to-transparent px-3 text-white " + (fs ? "pb-[calc(env(safe-area-inset-bottom)+18px)] pt-12" : "pb-2 pt-6")}>
           <button onClick={toggle} aria-label={playing ? "暂停" : "播放"}>
-            {playing ? <Pause size={16} /> : <Play size={16} />}
+            {playing ? <Pause size={fs ? 20 : 16} /> : <Play size={fs ? 20 : 16} />}
           </button>
-          <span className="w-8 text-[10px] tabular-nums">{formatTime(cur)}</span>
+          <span className={"shrink-0 tabular-nums " + (fs ? "w-10 text-xs" : "w-8 text-[10px]")}>{formatTime(cur)}</span>
           <input type="range" min={0} max={dur || 1} value={cur} aria-label="播放进度" onChange={(e) => { if (ref.current) ref.current.currentTime = +e.target.value; }} className="h-1 flex-1 accent-celadon" />
-          <span className="w-8 text-[10px] tabular-nums">{formatTime(dur)}</span>
-          <button onClick={cycleSpeed} aria-label="倍速" className="w-7 shrink-0 text-[10px] font-medium tabular-nums">{speed}x</button>
+          <span className={"shrink-0 tabular-nums " + (fs ? "w-10 text-xs" : "w-8 text-[10px]")}>{formatTime(dur)}</span>
+          <button onClick={cycleSpeed} aria-label="倍速" className={"shrink-0 font-medium tabular-nums " + (fs ? "w-9 text-xs" : "w-7 text-[10px]")}>{speed}x</button>
         </div>
       )}
     </div>

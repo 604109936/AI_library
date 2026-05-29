@@ -4,11 +4,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { ChevronLeft, Heart, ChevronRight, PenLine, Clock, Check } from "lucide-react";
+import { ChevronLeft, Heart, ChevronRight, ChevronDown, PenLine, Clock, Check } from "lucide-react";
 import { getBook, getChapters, getBookReviews } from "@/lib/api";
 import { BookCover } from "@/components/ui/BookCover";
 import { Stars } from "@/components/ui/Stars";
 import { Avatar } from "@/components/ui/Avatar";
+import { Motif, OrnDivider } from "@/components/ui/Motif";
 import { BookMediaHero } from "@/components/library/Players";
 import { Skeleton, ErrorState } from "@/components/ui/States";
 import { formatCount, formatDate } from "@/lib/utils";
@@ -50,47 +51,56 @@ export default function BookDetail({ params }: { params: { id: string } }) {
       transition={{ duration: 0.26, ease: [0.4, 0, 0.2, 1] }}
       className="min-h-[100dvh] pb-12"
     >
-      {/* 媒体台：封面即视频入口（竖屏友好 · 可全屏 · 可切音频） */}
-      <div className="relative">
+      {/* 媒体台：封面即视频入口（竖屏全屏 · 可切音频）· 古籍扉页 + 影院开场 */}
+      <div className="relative min-h-[74vh] overflow-hidden">
         <HeroBg book={book} />
+        {/* 银幕柔光 */}
+        <div className="pointer-events-none absolute left-1/2 top-[18%] h-72 w-72 -translate-x-1/2 rounded-full bg-celadon/18 blur-3xl dark:bg-celadon/14" />
+        {/* 朱印水印 */}
+        <Motif name="seal" size={26} className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 text-rouge/15 dark:text-rouge/12" />
         <button
           onClick={() => router.back()}
           aria-label="返回"
-          className="absolute left-2 top-3 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-snow/70 backdrop-blur dark:bg-dark-card/70"
+          className="absolute left-2 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-snow/70 backdrop-blur transition active:scale-90 dark:bg-dark-card/70"
+          style={{ top: "calc(env(safe-area-inset-top) + 8px)" }}
         >
           <ChevronLeft size={24} className="text-ink dark:text-dark-text" />
         </button>
         <BookMediaHero book={book} />
       </div>
 
-      {/* 标题信息 */}
-      <div className="flex flex-col items-center px-4 pt-3 text-center">
-        <h1 className="font-serif text-2xl text-ink dark:text-dark-text">{book.title}</h1>
-        <p className="mt-1 text-sm text-ink-500 dark:text-dark-text/55">{book.author}</p>
+      {/* 扉页题名 */}
+      <div className="flex flex-col items-center px-4 pt-4 text-center">
+        <h1 className="font-serif text-[26px] leading-tight tracking-[0.01em] text-ink dark:text-dark-text">{book.title}</h1>
+        <p className="mt-1 flex items-center justify-center gap-2 text-sm text-ink-500 dark:text-dark-text/55">
+          <OrnDivider className="scale-75 text-celadon/40" />
+          {book.author}
+          <OrnDivider className="scale-75 text-celadon/40" />
+        </p>
         <div className="mt-2 flex flex-wrap justify-center gap-1.5">
-          {book.tags.map((t) => (
-            <span key={t} className="rounded-full border border-line px-2 py-0.5 text-[11px] text-ink-500 dark:border-white/10 dark:text-dark-text/60">{t}</span>
+          {book.tags.map((t, i) => (
+            <span key={t} className="animate-fade-up rounded-full border border-line px-2.5 py-0.5 text-[11px] text-ink-500 dark:border-white/10 dark:text-dark-text/60" style={{ animationDelay: `${i * 0.04}s` }}>{t}</span>
           ))}
         </div>
-        <div className="mt-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-ink-500 dark:text-dark-text/55">
-          <span className="flex items-center gap-1"><Stars value={book.rating} size={13} /> {book.rating.toFixed(1)}</span>
-          <span>·</span>
+        <div className="mt-3 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 text-xs text-ink-500 tabular-nums dark:text-dark-text/55">
+          <span className="flex items-center gap-1"><Stars value={book.rating} size={13} /> <span className="text-rouge">{book.rating.toFixed(1)}</span></span>
+          <span className="h-1 w-1 rotate-45 bg-line dark:bg-white/15" />
           <span>{formatCount(book.readers)} 在读</span>
-          <span>·</span>
+          <span className="h-1 w-1 rotate-45 bg-line dark:bg-white/15" />
           <span>约 {formatCount(book.words)} 字</span>
-          <span>·</span>
+          <span className="h-1 w-1 rotate-45 bg-line dark:bg-white/15" />
           <span className="flex items-center gap-0.5"><Clock size={12} /> {book.durationMin} 分钟</span>
         </div>
       </div>
 
-      {/* 操作栏：收藏（胭脂爱心回弹） */}
-      <div className="mx-4">
+      {/* 收藏（胭脂藏书印） */}
+      <div className="relative mx-4 mt-4">
         <button
           onClick={onFav}
           aria-pressed={fav}
           className={
             "flex w-full items-center justify-center gap-2 rounded-2xl py-3 text-sm font-medium shadow-sm transition active:scale-[0.99] " +
-            (fav ? "bg-rouge/10 text-rouge" : "bg-snow text-ink dark:bg-dark-card dark:text-dark-text")
+            (fav ? "bg-rouge/10 text-rouge dark:bg-rouge/15" : "bg-snow text-ink dark:bg-dark-card dark:text-dark-text")
           }
         >
           <motion.span key={favTick} initial={favTick ? { scale: 0.5 } : false} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 500, damping: 13 }}>
@@ -98,23 +108,34 @@ export default function BookDetail({ params }: { params: { id: string } }) {
           </motion.span>
           {fav ? "已收藏" : "收藏"}
         </button>
+        {fav && favTick > 0 && (
+          <Heart key={favTick} size={16} className="pointer-events-none absolute left-1/2 top-1 -translate-x-1/2 animate-like-burst fill-rouge text-rouge" />
+        )}
       </div>
 
-      {/* 简介 */}
-      <div className="mx-4 mt-5">
-        <h2 className="mb-1.5 font-serif text-base text-ink dark:text-dark-text">简介</h2>
-        <p className={"text-sm leading-6 text-ink-700 dark:text-dark-text/70 " + (expand ? "" : "line-clamp-3")}>{book.summary}</p>
+      {/* 简介（序） */}
+      <div className="mx-4 mt-6">
+        <h2 className="mb-2 flex items-center font-serif text-base text-ink dark:text-dark-text">
+          <span className="mr-2.5 h-3.5 w-0.5 rounded bg-brass" /> 简介
+        </h2>
+        <p className={"text-sm leading-7 text-ink-700 dark:text-dark-text/70 " + (expand ? "" : "line-clamp-3")}>{book.summary}</p>
         {book.summary.length > 50 && (
-          <button onClick={() => setExpand((v) => !v)} className="mt-1 text-xs text-celadon-700 dark:text-celadon-300">
-            {expand ? "收起" : "展开全文"}
+          <button onClick={() => setExpand((v) => !v)} className="mt-1.5 inline-flex items-center gap-0.5 text-xs text-celadon-700 dark:text-celadon-300">
+            {expand ? "收起" : "展开全文"} <ChevronDown size={13} className={"transition-transform " + (expand ? "rotate-180" : "")} />
           </button>
         )}
       </div>
 
-      {/* 文字全文 */}
+      {/* 远山分隔 + 文字全文 */}
       {book.hasText && (
         <div className="mt-6 px-4">
-          <h2 className="mb-1 font-serif text-base text-ink dark:text-dark-text">文字全文</h2>
+          <Motif name="mountain" className="mx-auto my-3 w-40 text-celadon/25 dark:text-celadon/30" />
+          <div className="mb-1 flex items-center justify-between">
+            <h2 className="flex items-center font-serif text-base text-ink dark:text-dark-text">
+              <span className="mr-2.5 h-3.5 w-0.5 rounded bg-brass" /> 文字全文
+            </h2>
+            {chQ.data && <span className="text-xs text-ink-300">共 {chQ.data.length} 章</span>}
+          </div>
           {chQ.isError ? (
             <ErrorState title="章节加载失败" subtitle="点击重试" onRetry={() => chQ.refetch()} />
           ) : chQ.isLoading ? (
@@ -125,12 +146,14 @@ export default function BookDetail({ params }: { params: { id: string } }) {
                 <Link
                   key={c.id}
                   href={`/library/book/${book.id}/read?ch=${c.id}`}
-                  className="flex animate-fade-up items-center justify-between py-3"
+                  className="relative -mx-2 flex animate-fade-up items-center gap-3 rounded-lg px-2 py-3.5 transition active:bg-snow/60 dark:active:bg-white/[0.03]"
                   style={{ animationDelay: `${i * 0.03}s` }}
                 >
-                  <span className="text-sm text-ink-700 dark:text-dark-text/85">第{c.no}章 {c.title}</span>
+                  {c.status === "reading" && <span className="absolute left-0 top-1/2 h-6 w-0.5 -translate-y-1/2 rounded-full bg-celadon" />}
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-celadon-soft text-[11px] tabular-nums text-celadon-700 dark:bg-celadon/15 dark:text-celadon-300">{c.no}</span>
+                  <span className="flex-1 text-sm text-ink-700 dark:text-dark-text/85">{c.title}</span>
                   <span className="flex items-center gap-1">
-                    {c.status === "reading" && <span className="text-[11px] text-celadon">在读</span>}
+                    {c.status === "reading" && <span className="text-[11px] text-celadon-700 dark:text-celadon-300">在读</span>}
                     {c.status === "read" && <Check size={14} className="text-ink-300" />}
                     <ChevronRight size={16} className="text-ink-300" />
                   </span>
@@ -144,13 +167,16 @@ export default function BookDetail({ params }: { params: { id: string } }) {
       {/* 书评预览 */}
       <div className="mt-6 px-4">
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="font-serif text-base text-ink dark:text-dark-text">读者评价</h2>
+          <h2 className="flex items-center font-serif text-base text-ink dark:text-dark-text">
+            <span className="mr-2.5 h-3.5 w-0.5 rounded bg-brass" /> 读者评价
+          </h2>
           <Link href={`/library/book/${book.id}/reviews`} className="flex items-center text-xs text-ink-300">
             全部 <ChevronRight size={14} />
           </Link>
         </div>
         {rvQ.data && rvQ.data.length === 0 ? (
-          <div className="rounded-2xl bg-snow p-5 text-center text-sm text-ink-500 shadow-sm dark:bg-dark-card dark:text-dark-text/60">
+          <div className="flex flex-col items-center gap-2 rounded-2xl bg-snow p-6 text-center text-sm text-ink-500 shadow-sm dark:bg-dark-card dark:text-dark-text/60">
+            <Motif name="branch" className="w-16 text-celadon/30" />
             还没有书评，来写下第一条吧
           </div>
         ) : (
@@ -174,7 +200,7 @@ export default function BookDetail({ params }: { params: { id: string } }) {
         )}
         <button
           onClick={() => requireLogin(() => router.push(`/library/book/${book.id}/review/new`))}
-          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-2xl border border-celadon py-2.5 text-sm text-celadon-700 active:scale-[0.99] dark:text-celadon-300"
+          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-2xl border border-celadon py-2.5 text-sm text-celadon-700 transition active:scale-[0.99] dark:border-celadon/60 dark:text-celadon-300"
         >
           <PenLine size={15} /> 写书评
         </button>
@@ -189,8 +215,15 @@ function HeroBg({ book }: { book: Book }) {
   return (
     <div className="absolute inset-0 overflow-hidden">
       {book.heroUrl && ok ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={book.heroUrl} alt="" onError={() => setOk(false)} className="h-full w-full scale-105 object-cover opacity-80" />
+        <motion.img
+          src={book.heroUrl}
+          alt=""
+          onError={() => setOk(false)}
+          initial={{ scale: 1.1, filter: "brightness(0.75)" }}
+          animate={{ scale: 1.05, filter: "brightness(1)" }}
+          transition={{ duration: 1.0, ease: [0.22, 1, 0.36, 1] }}
+          className="h-full w-full object-cover opacity-80 will-change-transform dark:opacity-55"
+        />
       ) : (
         <BookCover title="" seed={book.coverSeed} src={book.cover} className="h-full w-full scale-125 opacity-60 blur-2xl" showText={false} rounded="rounded-none" />
       )}
@@ -203,8 +236,8 @@ function DetailSkeleton() {
   return (
     <main className="min-h-[100dvh] px-4 pt-16">
       <div className="flex flex-col items-center">
-        <Skeleton className="h-44 w-32 rounded-lg" />
-        <Skeleton className="mt-4 h-6 w-32 rounded" />
+        <Skeleton className="aspect-[9/16] w-[62%] max-w-[252px] rounded-3xl" />
+        <Skeleton className="mt-4 h-7 w-40 rounded" />
         <Skeleton className="mt-2 h-4 w-24 rounded" />
         <Skeleton className="mt-3 h-3 w-52 rounded" />
       </div>

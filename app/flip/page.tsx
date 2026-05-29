@@ -1,12 +1,14 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { motion } from "framer-motion";
 import { Heart, MessageSquare, ArrowRight, Play, Volume2, VolumeX } from "lucide-react";
 import { BottomNav } from "@/components/shell/BottomNav";
 import { BookCover } from "@/components/ui/BookCover";
+import { Motif } from "@/components/ui/Motif";
 import { getFlip } from "@/lib/api";
 import { formatCount } from "@/lib/utils";
-import { useAuth, useLibrary, useUI, requireLogin } from "@/lib/store";
+import { useLibrary, useUI, requireLogin } from "@/lib/store";
 import type { Book } from "@/lib/types";
 
 export default function FlipPage() {
@@ -37,13 +39,13 @@ export default function FlipPage() {
   }, [activeIdx, books.length, loading, loadMore]);
 
   return (
-    <main className="h-[100dvh] overflow-hidden bg-black">
+    <main className="h-[100dvh] overflow-hidden bg-dark-bg">
       {loading ? (
         <FlipSkeleton />
       ) : (
-        <div className="h-full snap-y snap-mandatory overflow-y-auto no-scrollbar">
+        <div className="h-full snap-y snap-mandatory overflow-y-auto overscroll-contain no-scrollbar">
           {books.map((b, i) => (
-            <FlipSlide key={b.id} book={b} index={i} muted={muted} onMute={() => setMuted((m) => !m)} onActive={() => setActiveIdx(i)} />
+            <FlipSlide key={b.id} book={b} muted={muted} onMute={() => setMuted((m) => !m)} onActive={() => setActiveIdx(i)} />
           ))}
         </div>
       )}
@@ -54,27 +56,36 @@ export default function FlipPage() {
 
 function FlipSkeleton() {
   return (
-    <div className="relative h-full w-full bg-gradient-to-b from-dark-card to-black">
-      <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/80 to-transparent" />
-      <div className="absolute bottom-24 left-4 right-16 space-y-2">
-        <div className="skeleton h-7 w-40 rounded" />
+    <div className="relative h-full w-full bg-gradient-to-b from-dark-card to-dark-bg">
+      <Motif name="mountain" className="absolute left-1/2 top-1/3 w-48 -translate-x-1/2 text-celadon/15" />
+      <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-dark-bg/85 to-transparent" />
+      <div className="absolute bottom-28 left-4 right-20 space-y-2.5">
+        <div className="skeleton h-7 w-44 rounded" />
         <div className="skeleton h-4 w-24 rounded" />
         <div className="skeleton h-4 w-56 rounded" />
       </div>
-      <div className="absolute bottom-28 right-3 flex flex-col items-center gap-5">
+      <div className="absolute bottom-44 right-3 flex flex-col items-center gap-6">
         <div className="skeleton h-14 w-11 rounded-xl" />
         <div className="skeleton h-11 w-11 rounded-full" />
         <div className="skeleton h-11 w-11 rounded-full" />
       </div>
+      <div className="skeleton absolute bottom-24 right-3 h-10 w-28 rounded-full" />
     </div>
   );
 }
 
-function FlipSlide({ book, index, muted, onMute, onActive }: { book: Book; index: number; muted: boolean; onMute: () => void; onActive: () => void }) {
+const reveal = (delay: number) => ({
+  initial: { opacity: 0, y: 14 },
+  transition: { type: "spring" as const, stiffness: 240, damping: 24, delay },
+});
+
+function FlipSlide({ book, muted, onMute, onActive }: { book: Book; muted: boolean; onMute: () => void; onActive: () => void }) {
   const router = useRouter();
   const ref = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(true);
+  const [ready, setReady] = useState(false);
+  const [shown, setShown] = useState(false);
   const [burst, setBurst] = useState(0);
   const [err, setErr] = useState(false);
   const lastTap = useRef(0);
@@ -83,7 +94,6 @@ function FlipSlide({ book, index, muted, onMute, onActive }: { book: Book; index
   const favorites = useLibrary((s) => s.favorites);
   const toggleFav = useLibrary((s) => s.toggleFav);
   const toast = useUI((s) => s.toast);
-  const user = useAuth((s) => s.user);
   const realId = book.id.split("__")[0];
   const fav = favorites.includes(realId);
 
@@ -96,10 +106,11 @@ function FlipSlide({ book, index, muted, onMute, onActive }: { book: Book; index
         const e = entries[0];
         if (e.isIntersecting) {
           onActive();
+          setShown(true);
           v?.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
-        } else if (v) {
-          v.pause();
-          v.currentTime = 0;
+        } else {
+          setShown(false);
+          if (v) { v.pause(); v.currentTime = 0; }
         }
       },
       { threshold: 0.6 }
@@ -121,8 +132,7 @@ function FlipSlide({ book, index, muted, onMute, onActive }: { book: Book; index
   function togglePlay() {
     const v = videoRef.current;
     if (!v) return;
-    if (v.paused) { v.play(); setPlaying(true); }
-    else { v.pause(); setPlaying(false); }
+    if (v.paused) { v.play(); setPlaying(true); } else { v.pause(); setPlaying(false); }
   }
   function onTap() {
     const now = Date.now();
@@ -137,106 +147,171 @@ function FlipSlide({ book, index, muted, onMute, onActive }: { book: Book; index
   }
 
   return (
-    <div ref={ref} className="relative h-[100dvh] w-full snap-start snap-always bg-black">
-      {/* 视频（海报作首帧/封面） */}
+    <div ref={ref} className="relative h-[100dvh] w-full snap-start snap-always overflow-hidden bg-dark-bg">
       {!err ? (
-        <video
-          ref={videoRef}
-          src={book.videoUrl}
-          poster={book.posterUrl}
-          className="h-full w-full object-cover"
-          loop
-          muted={muted}
-          playsInline
-          onClick={onTap}
-          onError={() => setErr(true)}
-        />
-      ) : (
-        <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center text-white/70">
-          {/* 海报兜底背景 */}
+        <>
+          <video
+            ref={videoRef}
+            src={book.videoUrl}
+            poster={book.posterUrl}
+            className="h-full w-full object-cover"
+            loop
+            muted={muted}
+            playsInline
+            onClick={onTap}
+            onCanPlay={() => setReady(true)}
+            onError={() => setErr(true)}
+          />
+          {/* 海报首帧 → 视频 淡入交接（消黑闪） */}
           {book.posterUrl && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={book.posterUrl} alt="" className="absolute inset-0 h-full w-full object-cover opacity-50" />
+            <img
+              src={book.posterUrl}
+              alt=""
+              className={"pointer-events-none absolute inset-0 h-full w-full object-cover transition-opacity duration-500 " + (ready ? "opacity-0" : "opacity-100")}
+            />
           )}
+        </>
+      ) : (
+        <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center text-dark-text/70">
+          {book.posterUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={book.posterUrl} alt="" className="absolute inset-0 h-full w-full object-cover opacity-40" />
+          )}
+          <Motif name="cloud" className="relative w-24 text-celadon/20" />
           <p className="relative">这本书的视频暂时无法播放</p>
-          <button onClick={() => router.push(`/library/book/${realId}`)} className="relative rounded-full bg-celadon px-5 py-2 text-sm text-white">看图文详情</button>
+          <button onClick={() => router.push(`/library/book/${realId}`)} className="relative rounded-full border border-celadon/50 bg-white/8 px-5 py-2 text-sm text-celadon-300 backdrop-blur-md active:scale-95">看图文详情</button>
         </div>
       )}
 
       {/* 暂停指示 */}
       {!playing && !err && (
         <button onClick={togglePlay} aria-label="播放" className="absolute inset-0 flex items-center justify-center">
-          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-black/40 backdrop-blur">
-            <Play size={30} className="ml-1 text-white" />
+          <span className="flex h-16 w-16 animate-scale-in items-center justify-center rounded-full bg-black/35 ring-1 ring-celadon/40 backdrop-blur-md">
+            <Play size={28} className="ml-1 text-dark-text" />
           </span>
         </button>
       )}
 
-      {/* 静音切换 */}
-      <button onClick={onMute} aria-label={muted ? "取消静音" : "静音"} className="absolute right-3 top-4 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/35 text-white backdrop-blur">
+      {/* 顶部画框黄铜线 */}
+      <div className="pointer-events-none absolute left-1/2 z-10 h-px w-16 -translate-x-1/2 bg-gradient-to-r from-transparent via-brass/70 to-transparent" style={{ top: "calc(env(safe-area-inset-top) + 10px)" }} />
+
+      {/* 静音切换（暖玻璃描边） */}
+      <button
+        onClick={onMute}
+        aria-label={muted ? "取消静音" : "静音"}
+        className="absolute right-3 z-20 flex h-9 w-9 items-center justify-center rounded-full bg-black/30 text-dark-text/90 ring-1 ring-brass/30 backdrop-blur-md transition active:scale-90"
+        style={{ top: "calc(env(safe-area-inset-top) + 12px)" }}
+      >
         {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
       </button>
 
-      {/* 双击点赞迸发 */}
+      {/* 双击点赞 · 墨痕迸发 */}
       {burst > 0 && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <Heart size={120} className="animate-like-burst fill-rouge text-rouge drop-shadow-lg" />
+          <span className="absolute h-28 w-28 animate-like-burst rounded-full bg-rouge/25 blur-md" />
+          <Heart size={120} className="animate-like-burst fill-rouge text-rouge drop-shadow-[0_4px_16px_rgba(168,66,58,0.5)]" />
         </div>
       )}
 
-      {/* 柔和渐变 */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-3/5 bg-gradient-to-t from-black/85 via-black/35 to-transparent" />
+      {/* 影院双层渐变 + 四角暗角 */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[22%] bg-gradient-to-b from-black/45 to-transparent" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[62%] bg-gradient-to-t from-dark-bg/92 via-dark-bg/35 to-transparent" />
+      <div className="pointer-events-none absolute inset-0" style={{ background: "radial-gradient(120% 80% at 50% 42%, transparent 55%, rgba(0,0,0,0.4))" }} />
+      <Motif name="branch" className="pointer-events-none absolute bottom-28 -left-4 w-28 text-brass/10" />
 
-      {/* 信息浮层（左下文案）+ 右下主操作「读这本书」 */}
-      <div className="absolute inset-x-0 bottom-0 pb-[72px]">
-        <div className="px-4 pr-[68px]">
-          <h2 className="font-serif text-[26px] leading-tight text-white drop-shadow-md">{book.title}</h2>
-          <p className="mt-1 text-sm text-white/70">{book.author} · {book.category}解读</p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {book.tags.slice(0, 3).map((t) => (
-              <span key={t} className="rounded-full border border-white/25 bg-white/10 px-2 py-0.5 text-[11px] text-white/90 backdrop-blur">{t}</span>
+      {/* 信息题跋（左下） */}
+      <div className="absolute inset-x-0 bottom-0 z-10 px-4 pr-[76px]" style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 130px)" }}>
+        <motion.div {...reveal(0)} animate={shown ? { opacity: 1, y: 0 } : { opacity: 0, y: 14 }}>
+          <div className="flex items-start">
+            <span className="mr-2 mt-1.5 h-6 w-0.5 shrink-0 rounded-full bg-celadon/80" />
+            <h2 className="font-serif text-[26px] leading-[1.15] tracking-wide text-dark-text drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)]">{book.title}</h2>
+          </div>
+          <p className="mt-1.5 text-[13px] text-dark-text/65">{book.author} · {book.category}解读</p>
+        </motion.div>
+        <motion.div {...reveal(0.07)} animate={shown ? { opacity: 1, y: 0 } : { opacity: 0, y: 14 }}>
+          <div className="mt-2.5 flex flex-wrap gap-1.5">
+            {book.tags.slice(0, 3).map((t, i) => (
+              <span key={t} className={"rounded-full border bg-white/8 px-2.5 py-1 text-[11px] font-medium tracking-wide backdrop-blur-md " + (i === 0 ? "border-celadon/30 text-celadon-300" : "border-brass/25 text-celadon-300")}>{t}</span>
             ))}
           </div>
-          <p className="mt-2.5 line-clamp-2 text-[13px] leading-5 text-white/85">{book.intro}</p>
-        </div>
-        <div className="mt-3.5 flex justify-end px-4">
-          <button
-            onClick={() => router.push(`/library/book/${realId}/read`)}
-            className="inline-flex items-center gap-1.5 rounded-full bg-celadon px-5 py-2.5 text-sm font-medium text-white shadow-celadon ring-1 ring-white/20 active:scale-95"
-          >
-            读这本书 <ArrowRight size={15} />
-          </button>
-        </div>
+          <p className="mt-2.5 line-clamp-2 text-[13px] leading-5 text-dark-text/85">{book.intro}</p>
+        </motion.div>
       </div>
 
-      {/* 右侧操作栏：书封缩略（进详情）+ 收藏 + 书评（上移，为右下 CTA 让位） */}
-      <div className="absolute bottom-[150px] right-3 flex flex-col items-center gap-5">
-        <button onClick={() => router.push(`/library/book/${realId}`)} aria-label="书籍详情" className="active:scale-95">
-          <BookCover title={book.title} seed={book.coverSeed} src={book.cover} showText={false} rounded="rounded-xl" className="w-11 shadow-lg ring-2 ring-white/40" />
+      {/* 右侧操作栏：书封缩略 + 收藏 + 书评（瓷釉托盘） */}
+      <motion.div
+        {...reveal(0.1)}
+        animate={shown ? { opacity: 1, y: 0 } : { opacity: 0, y: 14 }}
+        className="absolute right-3 z-10 flex flex-col items-center gap-6"
+        style={{ bottom: "calc(env(safe-area-inset-bottom) + 168px)" }}
+      >
+        <button onClick={() => router.push(`/library/book/${realId}`)} aria-label="书籍详情" className="transition active:scale-95">
+          <BookCover title={book.title} seed={book.coverSeed} src={book.cover} showText={false} rounded="rounded-xl" className="w-11 shadow-lg ring-2 ring-brass/45" />
         </button>
         <Action
-          icon={<Heart size={28} className={fav ? "fill-rouge text-rouge" : "text-white"} />}
+          icon={<Heart size={24} className={fav ? "fill-rouge text-rouge" : "text-dark-text"} />}
           label={formatCount(book.favCount + (fav ? 1 : 0))}
           ariaLabel={fav ? "已收藏" : "收藏"}
           pressed={fav}
+          trayClass={fav ? "ring-rouge/45 bg-rouge/12" : ""}
           onClick={() => requireLogin(() => { const n = toggleFav(realId); toast(n ? "已收藏" : "已取消收藏"); if (n) triggerBurst(); })}
         />
         <Action
-          icon={<MessageSquare size={28} className="text-white" />}
+          icon={<MessageSquare size={23} className="text-dark-text" />}
           label={formatCount(book.reviewCount)}
           ariaLabel="查看书评"
           onClick={() => router.push(`/library/book/${realId}/reviews`)}
         />
-      </div>
+      </motion.div>
+
+      {/* 右下主操作「读这本书」（青瓷玉牌） */}
+      <motion.div
+        {...reveal(0.16)}
+        animate={shown ? { opacity: 1, y: 0 } : { opacity: 0, y: 14 }}
+        className="absolute right-3 z-20 flex justify-end"
+        style={{ bottom: "calc(env(safe-area-inset-bottom) + 84px)" }}
+      >
+        <button
+          onClick={() => router.push(`/library/book/${realId}/read`)}
+          className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-b from-celadon to-celadon-700 px-5 py-2.5 text-sm font-medium text-white shadow-celadon ring-1 ring-brass/40 transition active:scale-95"
+        >
+          读这本书 <ArrowRight size={15} />
+        </button>
+      </motion.div>
     </div>
   );
 }
 
-function Action({ icon, label, onClick, ariaLabel, pressed }: { icon: React.ReactNode; label: string; onClick: () => void; ariaLabel: string; pressed?: boolean }) {
+function Action({
+  icon,
+  label,
+  onClick,
+  ariaLabel,
+  pressed,
+  trayClass,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  ariaLabel: string;
+  pressed?: boolean;
+  trayClass?: string;
+}) {
   return (
-    <button onClick={onClick} aria-label={ariaLabel} aria-pressed={pressed} className="flex flex-col items-center gap-1 active:scale-90">
-      {icon}
-      <span className="text-[11px] text-white/90">{label}</span>
+    <button onClick={onClick} aria-label={ariaLabel} aria-pressed={pressed} className="flex flex-col items-center gap-1 transition active:scale-90">
+      <span className={"flex h-11 w-11 items-center justify-center rounded-full bg-black/25 shadow-[0_2px_10px_rgba(0,0,0,0.25)] ring-1 ring-white/12 backdrop-blur-md " + (trayClass ?? "")}>
+        {icon}
+      </span>
+      <motion.span
+        key={label}
+        initial={{ y: 6, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ duration: 0.18 }}
+        className="text-[11px] font-medium tabular-nums text-dark-text/85 drop-shadow"
+      >
+        {label}
+      </motion.span>
     </button>
   );
 }
