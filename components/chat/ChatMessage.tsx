@@ -3,8 +3,9 @@ import { useState } from "react";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ThumbsUp, ThumbsDown, Copy, RotateCw, Sparkles } from "lucide-react";
+import { ThumbsUp, ThumbsDown, Copy, RotateCw } from "lucide-react";
 import { BookCover } from "@/components/ui/BookCover";
+import { Mascot } from "@/components/chat/Mascot";
 import { useUI } from "@/lib/store";
 import type { ChatMessage as TMsg } from "@/lib/types";
 
@@ -25,7 +26,7 @@ export function ChatMessage({
   if (msg.role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-rouge/10 px-3.5 py-2.5 text-sm leading-6 text-ink dark:text-dark-text">
+        <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-celadon-soft px-3.5 py-2.5 text-sm leading-6 text-ink dark:bg-celadon/20 dark:text-dark-text">
           {msg.content}
         </div>
       </div>
@@ -34,9 +35,7 @@ export function ChatMessage({
 
   return (
     <div className="flex gap-2">
-      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-celadon-soft">
-        <Sparkles size={16} className="text-celadon-700" />
-      </div>
+      <Mascot size={32} className="mt-0.5 shrink-0" />
       <div className="min-w-0 flex-1">
         <div className="rounded-2xl rounded-tl-sm bg-snow px-3.5 py-3 shadow-sm dark:bg-dark-card">
           <div className="prose-cn">
@@ -52,12 +51,12 @@ export function ChatMessage({
                 <Link
                   key={i}
                   href={`/library/book/${c.bookId}/read?ch=${c.bookId}-c${c.chapterNo}`}
-                  className="flex gap-2 rounded-lg border border-line p-2"
+                  className="flex gap-2 rounded-xl border border-line p-2 dark:border-white/10"
                 >
-                  <BookCover title={c.bookTitle} seed={c.coverSeed} className="w-9 shrink-0" showText={false} />
+                  <BookCover title={c.bookTitle} seed={c.coverSeed} src={c.cover} className="w-9 shrink-0" showText={false} />
                   <div className="min-w-0">
                     <p className="truncate text-xs font-medium text-ink dark:text-dark-text">《{c.bookTitle}》第{c.chapterNo}章 {c.chapterTitle}</p>
-                    <p className="mt-0.5 line-clamp-2 text-[11px] text-ink-500">{c.snippet}</p>
+                    <p className="mt-0.5 line-clamp-2 text-[11px] text-ink-500 dark:text-dark-text/55">{c.snippet}</p>
                   </div>
                 </Link>
               ))}
@@ -67,12 +66,13 @@ export function ChatMessage({
           {/* 推荐书目 */}
           {msg.recommendations && msg.recommendations.length > 0 && (
             <div className="mt-3">
-              <p className="mb-1.5 text-[11px] text-ink-300">推荐书目</p>
-              <div className="-mx-1 flex gap-2 overflow-x-auto px-1 no-scrollbar">
+              <p className="mb-2 text-xs font-medium text-ink-700 dark:text-dark-text/70">推荐书目</p>
+              <div className="-mx-1 flex gap-2.5 overflow-x-auto px-1 pb-1 no-scrollbar">
                 {msg.recommendations.map((b) => (
-                  <Link key={b.id} href={`/library/book/${b.id}`} className="w-16 shrink-0">
-                    <BookCover title={b.title} seed={b.coverSeed} className="w-16" showText={false} />
-                    <p className="mt-1 truncate text-[10px] text-ink-500">{b.title}</p>
+                  <Link key={b.id} href={`/library/book/${b.id}`} className="w-[88px] shrink-0">
+                    <BookCover title={b.title} seed={b.coverSeed} src={b.cover} className="w-[88px]" showText={false} />
+                    <p className="mt-1.5 truncate text-xs text-ink dark:text-dark-text">{b.title}</p>
+                    <p className="truncate text-[10px] text-ink-300">{b.author}</p>
                   </Link>
                 ))}
               </div>
@@ -83,13 +83,13 @@ export function ChatMessage({
         {/* 操作栏 */}
         {!msg.streaming && (
           <div className="mt-1.5 flex items-center gap-3 pl-1 text-ink-300">
-            <button onClick={() => { setFb("up"); toast("感谢反馈"); }}>
+            <button aria-label="赞" onClick={() => { setFb("up"); toast("感谢反馈"); }}>
               <ThumbsUp size={15} className={fb === "up" ? "text-celadon" : ""} />
             </button>
-            <button onClick={() => { setFb("down"); setShowFb(true); }}>
+            <button aria-label="踩" onClick={() => { setFb("down"); setShowFb(true); }}>
               <ThumbsDown size={15} className={fb === "down" ? "text-celadon" : ""} />
             </button>
-            <button onClick={() => { navigator.clipboard?.writeText(msg.content); toast("已复制"); }}>
+            <button aria-label="复制" onClick={() => { navigator.clipboard?.writeText(msg.content); toast("已复制"); }}>
               <Copy size={15} />
             </button>
             {onRegenerate && (

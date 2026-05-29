@@ -69,7 +69,7 @@ export function LoginSheet() {
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
             transition={{ type: "spring", stiffness: 320, damping: 32 }}
-            className="app-width relative rounded-t-xl bg-snow px-6 pb-8 pt-3 dark:bg-dark-card"
+            className="app-width relative rounded-t-[24px] bg-snow px-6 pb-8 pt-3 dark:bg-dark-card"
           >
             <div className="mx-auto mb-5 h-1 w-10 rounded-full bg-line" />
             <div className="mb-4 flex flex-col items-center">
@@ -88,33 +88,38 @@ export function LoginSheet() {
               </button>
             </div>
 
-            <div className="space-y-3">
+            <form onSubmit={(e) => { e.preventDefault(); submit(); }} className="space-y-3">
               <Field icon={<Mail size={16} />}>
                 <input
-                  className="w-full bg-transparent text-sm outline-none placeholder:text-ink-300"
+                  className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-ink-300 dark:text-dark-text"
                   placeholder="邮箱 / 账号"
+                  type="text"
+                  inputMode="email"
+                  autoComplete="username"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                 />
               </Field>
               <Field icon={<Lock size={16} />}>
                 <input
-                  className="w-full bg-transparent text-sm outline-none placeholder:text-ink-300"
+                  className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-ink-300 dark:text-dark-text"
                   placeholder="密码"
                   type={show ? "text" : "password"}
+                  autoComplete={mode === "login" ? "current-password" : "new-password"}
                   value={pwd}
                   onChange={(e) => setPwd(e.target.value)}
                 />
-                <button onClick={() => setShow((s) => !s)} className="text-ink-300">
+                <button type="button" aria-label={show ? "隐藏密码" : "显示密码"} onClick={() => setShow((s) => !s)} className="text-ink-300">
                   {show ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </Field>
               {mode === "register" && (
                 <Field icon={<Lock size={16} />}>
                   <input
-                    className="w-full bg-transparent text-sm outline-none placeholder:text-ink-300"
+                    className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-ink-300 dark:text-dark-text"
                     placeholder="确认密码"
                     type={show ? "text" : "password"}
+                    autoComplete="new-password"
                     value={pwd2}
                     onChange={(e) => setPwd2(e.target.value)}
                   />
@@ -123,36 +128,38 @@ export function LoginSheet() {
               {err && <p className="text-xs text-rouge">{err}</p>}
 
               <button
+                type="submit"
                 disabled={!canSubmit}
-                onClick={submit}
-                className="mt-1 w-full rounded-xl bg-ink py-3 text-sm font-medium text-snow transition active:scale-[0.98] disabled:opacity-40 dark:bg-celadon"
+                className="mt-1 w-full rounded-2xl bg-ink py-3 text-sm font-medium text-snow transition active:scale-[0.98] disabled:opacity-40 dark:bg-celadon"
               >
                 {loading ? "请稍候…" : mode === "login" ? "登录" : "注册"}
               </button>
 
               <div className="pt-1 text-center">
                 <button
+                  type="button"
                   className="text-xs text-rouge"
-                  onClick={() => {
-                    setMode((m) => (m === "login" ? "register" : "login"));
-                    setErr("");
-                  }}
+                  onClick={() => { setMode((m) => (m === "login" ? "register" : "login")); setErr(""); }}
                 >
                   {mode === "login" ? "没有账号？立即注册" : "已有账号？返回登录"}
                 </button>
               </div>
+
+              {/* 渐隐装饰分隔线 */}
+              <div className="my-1 flex items-center justify-center">
+                <span className="h-px w-full bg-gradient-to-r from-transparent via-brass/40 to-transparent" />
+              </div>
+
               <div className="text-center">
                 <button
+                  type="button"
                   className="text-xs text-ink-300"
-                  onClick={() => {
-                    close();
-                    reset();
-                  }}
+                  onClick={() => { close(); reset(); }}
                 >
                   先逛逛
                 </button>
               </div>
-            </div>
+            </form>
           </motion.div>
         </motion.div>
       )}

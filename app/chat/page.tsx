@@ -5,7 +5,10 @@ import { useSearchParams } from "next/navigation";
 import { Plus, History, Send, Square, Sparkles } from "lucide-react";
 import { BottomNav } from "@/components/shell/BottomNav";
 import { ChatMessage } from "@/components/chat/ChatMessage";
+import { Mascot } from "@/components/chat/Mascot";
+import { Motif } from "@/components/ui/Motif";
 import { buildChatReply, exampleQuestions } from "@/lib/api";
+import { sampleSessions } from "@/lib/mock/data";
 import { useChat } from "@/lib/store";
 import type { ChatMessage as TMsg } from "@/lib/types";
 
@@ -26,7 +29,7 @@ function ChatInner() {
   useEffect(() => {
     const sid = sp.get("s");
     if (!sid) return;
-    const found = sessions.find((x) => x.id === sid);
+    const found = sessions.find((x) => x.id === sid) ?? sampleSessions.find((x) => x.id === sid);
     if (found && found.messages.length) {
       sessionId.current = found.id;
       setMessages(found.messages);
@@ -120,12 +123,11 @@ function ChatInner() {
 
       <div className="px-4">
         {empty ? (
-          <div className="flex flex-col items-center pt-10">
-            <div className="flex h-20 w-20 items-center justify-center rounded-full bg-celadon-soft">
-              <Sparkles size={36} className="text-celadon-700" />
-            </div>
+          <div className="relative flex flex-col items-center pt-10">
+            <Motif name="bamboo" className="pointer-events-none absolute -top-2 right-0 h-20 w-20 text-celadon/30" />
+            <Mascot size={84} className="shadow-celadon" />
             <h1 className="mt-4 font-serif text-2xl text-ink dark:text-dark-text">智学</h1>
-            <p className="mt-1 text-sm text-ink-500">问我任何关于图书馆的问题</p>
+            <p className="mt-1 text-sm text-ink-500 dark:text-dark-text/60">问我任何关于图书馆的问题</p>
             <div className="mt-6 w-full space-y-2.5">
               {exampleQuestions.map((q) => (
                 <button
@@ -172,7 +174,7 @@ function ChatInner() {
             }}
             rows={1}
             placeholder="问我任何关于图书馆的问题"
-            className="max-h-24 flex-1 resize-none rounded-2xl border border-line bg-snow px-4 py-2.5 text-sm outline-none focus:border-celadon dark:bg-dark-card"
+            className="max-h-24 flex-1 resize-none rounded-2xl border border-line bg-snow px-4 py-2.5 text-sm text-ink outline-none focus:border-celadon dark:border-white/10 dark:bg-dark-card dark:text-dark-text dark:placeholder:text-dark-text/40"
           />
           <button
             onClick={() => send(input)}

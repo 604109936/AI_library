@@ -1,10 +1,12 @@
 "use client";
-import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronRight } from "lucide-react";
 import { Header } from "@/components/shell/Header";
 import { RequireAuth } from "@/components/shell/RequireAuth";
-import { useUI, useReader, type Theme, type ReaderBg } from "@/lib/store";
+import { Avatar } from "@/components/ui/Avatar";
+import { Motif } from "@/components/ui/Motif";
+import { useAuth, useUI, useReader, type Theme, type ReaderBg } from "@/lib/store";
+import type { ReadingMode } from "@/lib/types";
 
 const THEMES: { key: Theme; label: string }[] = [
   { key: "light", label: "浅色" },
@@ -14,34 +16,43 @@ const THEMES: { key: Theme; label: string }[] = [
 
 export default function SettingsPage() {
   const router = useRouter();
+  const user = useAuth((s) => s.user);
   const theme = useUI((s) => s.theme);
   const setTheme = useUI((s) => s.setTheme);
+  const notify = useUI((s) => s.notify);
+  const setNotify = useUI((s) => s.setNotify);
   const toast = useUI((s) => s.toast);
   const reader = useReader();
 
   return (
-    <main className="min-h-[100dvh] pb-10">
+    <main className="relative min-h-[100dvh] pb-10">
       <Header title="设置" />
+      <Motif name="branch" className="pointer-events-none absolute right-3 top-1 h-16 w-16 text-celadon/30" />
       <RequireAuth>
         <div className="space-y-5 p-4">
           {/* 个人信息 */}
           <Group title="个人信息">
-            {["头像", "昵称", "简介", "修改密码"].map((label) => (
-              <Item key={label} label={label} onClick={() => router.push("/me/settings/profile")} />
-            ))}
+            <button onClick={() => router.push("/me/settings/profile")} className="flex w-full items-center gap-3 border-b border-line px-4 py-3 dark:border-white/5">
+              <span className="flex-1 text-left text-sm text-ink dark:text-dark-text">头像</span>
+              <Avatar seed={user?.avatarSeed ?? 7} name={user?.nickname} src={user?.avatarUrl} size={28} />
+              <ChevronRight size={16} className="text-ink-300" />
+            </button>
+            <Item label="昵称" value={user?.nickname} onClick={() => router.push("/me/settings/profile")} />
+            <Item label="简介" value={user?.bio} onClick={() => router.push("/me/settings/profile")} />
+            <Item label="修改密码" onClick={() => toast("修改密码功能即将上线", "info")} />
           </Group>
 
           {/* 阅读偏好 */}
           <Group title="阅读偏好">
+            <SegRow label="默认阅读模式" value={reader.defaultMode} options={[
+              { v: "video", t: "视频" }, { v: "audio", t: "听书" }, { v: "text", t: "原文" },
+            ]} onPick={(v) => reader.setDefaultMode(v as ReadingMode)} />
             <SegRow label="默认字号" value={reader.fontSize} options={[
               { v: 16, t: "小" }, { v: 18, t: "中" }, { v: 20, t: "大" }, { v: 22, t: "超大" },
             ]} onPick={(v) => reader.setFontSize(v as number)} />
             <SegRow label="默认背景" value={reader.bg} options={[
               { v: "white", t: "白" }, { v: "moon", t: "米黄" }, { v: "green", t: "护眼" }, { v: "dark", t: "深灰" },
             ]} onPick={(v) => reader.setBg(v as ReaderBg)} />
-            <SegRow label="翻页方式" value={reader.pageMode} options={[
-              { v: "scroll", t: "滚动" }, { v: "page", t: "翻页" },
-            ]} onPick={(v) => reader.setPageMode(v as "scroll" | "page")} />
           </Group>
 
           {/* 主题 */}
@@ -50,11 +61,7 @@ export default function SettingsPage() {
               <span className="text-sm text-ink dark:text-dark-text">外观</span>
               <div className="flex overflow-hidden rounded-full bg-moon dark:bg-dark-bg">
                 {THEMES.map((t) => (
-                  <button
-                    key={t.key}
-                    onClick={() => setTheme(t.key)}
-                    className={"px-3 py-1.5 text-xs " + (theme === t.key ? "bg-celadon text-snow" : "text-ink-500")}
-                  >
+                  <button key={t.key} onClick={() => setTheme(t.key)} className={"px-3 py-1.5 text-xs " + (theme === t.key ? "bg-celadon text-snow" : "text-ink-500 dark:text-dark-text/60")}>
                     {t.label}
                   </button>
                 ))}
@@ -64,8 +71,8 @@ export default function SettingsPage() {
 
           {/* 通知 */}
           <Group title="通知设置">
-            <Toggle label="新书上线提醒" />
-            <Toggle label="书评互动通知" />
+            <Toggle label="新书上线提醒" on={notify.push} onToggle={() => setNotify({ push: !notify.push })} />
+            <Toggle label="书评互动通知" on={notify.weekly} onToggle={() => setNotify({ weekly: !notify.weekly })} />
           </Group>
 
           {/* 隐私与数据 */}
@@ -91,37 +98,36 @@ function Group({ title, children }: { title: string; children: React.ReactNode }
   return (
     <div>
       <p className="mb-1.5 px-1 text-xs text-ink-300">{title}</p>
-      <div className="overflow-hidden rounded-xl bg-snow shadow-sm dark:bg-dark-card">{children}</div>
+      <div className="overflow-hidden rounded-2xl bg-snow shadow-sm dark:bg-dark-card">{children}</div>
     </div>
   );
 }
 function Item({ label, value, danger, onClick }: { label: string; value?: string; danger?: boolean; onClick?: () => void }) {
   return (
-    <button onClick={onClick} className="flex w-full items-center gap-3 border-b border-line px-4 py-3.5 last:border-0 active:bg-moon/60 dark:active:bg-dark-bg">
-      <span className={"flex-1 text-left text-sm " + (danger ? "text-rouge" : "text-ink dark:text-dark-text")}>{label}</span>
-      {value && <span className="text-xs text-ink-300">{value}</span>}
-      {onClick && !value && <ChevronRight size={16} className="text-ink-300" />}
+    <button onClick={onClick} className="flex w-full items-center gap-3 border-b border-line px-4 py-3.5 last:border-0 active:bg-moon/60 dark:border-white/5 dark:active:bg-dark-bg">
+      <span className={"shrink-0 text-left text-sm " + (danger ? "text-rouge" : "text-ink dark:text-dark-text")}>{label}</span>
+      {value && <span className="ml-auto max-w-[55%] truncate text-xs text-ink-300">{value}</span>}
+      {onClick && <ChevronRight size={16} className={"text-ink-300 " + (value ? "" : "ml-auto")} />}
     </button>
   );
 }
 function SegRow({ label, value, options, onPick }: { label: string; value: string | number; options: { v: string | number; t: string }[]; onPick: (v: string | number) => void }) {
   return (
-    <div className="flex items-center justify-between border-b border-line px-4 py-3 last:border-0">
+    <div className="flex items-center justify-between border-b border-line px-4 py-3 last:border-0 dark:border-white/5">
       <span className="text-sm text-ink dark:text-dark-text">{label}</span>
       <div className="flex gap-1.5">
         {options.map((o) => (
-          <button key={String(o.v)} onClick={() => onPick(o.v)} className={"rounded-lg px-2.5 py-1 text-xs " + (value === o.v ? "bg-celadon text-snow" : "bg-moon text-ink-500 dark:bg-dark-bg")}>{o.t}</button>
+          <button key={String(o.v)} onClick={() => onPick(o.v)} className={"rounded-lg px-2.5 py-1 text-xs " + (value === o.v ? "bg-celadon text-snow" : "bg-moon text-ink-500 dark:bg-dark-bg dark:text-dark-text/60")}>{o.t}</button>
         ))}
       </div>
     </div>
   );
 }
-function Toggle({ label }: { label: string }) {
-  const [on, setOn] = useState(true);
+function Toggle({ label, on, onToggle }: { label: string; on: boolean; onToggle: () => void }) {
   return (
-    <div className="flex items-center justify-between border-b border-line px-4 py-3.5 last:border-0">
+    <div className="flex items-center justify-between border-b border-line px-4 py-3.5 last:border-0 dark:border-white/5">
       <span className="text-sm text-ink dark:text-dark-text">{label}</span>
-      <button onClick={() => setOn(!on)} className={"relative h-6 w-11 rounded-full transition " + (on ? "bg-celadon" : "bg-line")}>
+      <button onClick={onToggle} role="switch" aria-checked={on} aria-label={label} className={"relative h-6 w-11 rounded-full transition " + (on ? "bg-celadon" : "bg-line dark:bg-white/15")}>
         <span className={"absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all " + (on ? "left-[22px]" : "left-0.5")} />
       </button>
     </div>

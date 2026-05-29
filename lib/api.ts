@@ -23,7 +23,7 @@ export async function getHome(): Promise<{
   return {
     banners: books.filter((b) => b.featured),
     categories,
-    recommend: [...books].sort((a, b) => b.readers - a.readers).slice(0, 6),
+    recommend: [...books].sort((a, b) => b.readers - a.readers).slice(0, 12),
   };
 }
 
@@ -118,11 +118,13 @@ export async function search(q: string): Promise<SearchResult> {
 }
 
 export async function getFlip(seenIds: string[]): Promise<Book[]> {
-  // GET /api/flip（有视频书池 个性化打分；mock=洗牌去重）
+  // GET /api/flip（有视频书池 个性化打分；mock=洗牌后分批，支持持续下滑）
   await sleep(200);
-  const pool = books.filter((b) => b.hasVideo && !seenIds.includes(b.id));
-  const base = pool.length ? pool : books.filter((b) => b.hasVideo);
-  return [...base].sort(() => Math.random() - 0.5);
+  const videoBooks = books.filter((b) => b.hasVideo);
+  const round = Math.floor(seenIds.length / Math.max(1, videoBooks.length));
+  const shuffled = [...videoBooks].sort(() => Math.random() - 0.5);
+  // 复制本批并赋唯一 id 后缀，避免无限滚动时 key 冲突
+  return shuffled.map((b) => (round === 0 && seenIds.length === 0 ? b : { ...b, id: `${b.id}__f${seenIds.length}_${b.coverSeed}` }));
 }
 
 // 智学：mock 流式回答 + 引用 + 推荐
@@ -132,26 +134,34 @@ export function buildChatReply(question: string): {
   recommendations: Book[];
 } {
   const q = question || "";
-  const wantRecommend = /推荐|哪些|书单|类似|有没有/.test(q);
-  let target = books.find((b) => q.includes(b.title)) || books[0];
-  // 命中分类
-  const cat = categories.find((c) => q.includes(c.name));
-  if (cat) target = books.find((b) => b.categoryId === cat.id) || target;
+  const wantRecommend = /推荐|哪些|书单|类似|有没有|想读|读什么/.test(q);
 
+  // 命中优先级：书名 > 分类名 > 标签/简介关键词 > 随机（保证不总是同一本）
+  let target = books.find((b) => q.includes(b.title));
+  if (!target) {
+    const cat = categories.find((c) => q.includes(c.name));
+    if (cat) target = books.find((b) => b.categoryId === cat.id);
+  }
+  if (!target) {
+    target = books.find((b) => b.tags.some((t) => q.includes(t)) || (q.length > 1 && b.summary.includes(q.slice(0, 2))));
+  }
+  if (!target) target = books[Math.floor(Math.random() * books.length)];
+
+  const ch1 = chaptersByBook[target.id]?.[0];
   const answer = wantRecommend
-    ? `根据你的问题，我从馆藏里挑了几本很契合的书。\n\n首推 **《${target.title}》**（${target.author}）：${target.summary}\n\n> 来源：《${target.title}》第一章 ${chaptersByBook[target.id]?.[0]?.title ?? ""}\n\n你可以点下方的推荐书目卡片，直接开始阅读。`
-    : `关于「${q || target.title}」，我在馆藏中找到了相关内容。\n\n**《${target.title}》**（${target.author}）谈到：${target.summary}\n\n> 来源：《${target.title}》第一章 ${chaptersByBook[target.id]?.[0]?.title ?? ""}\n\n如果想深入，点击下方引用卡片可跳到原文对应章节。`;
+    ? `根据你的问题，我从馆藏里挑了几本很契合的书。\n\n首推 **《${target.title}》**（${target.author}）：${target.summary}\n\n> ${target.summary.slice(0, 40)}……\n\n你可以点下方的推荐书目卡片，直接开始阅读。`
+    : `关于「${q || target.title}」，我在馆藏中找到了相关内容。\n\n**《${target.title}》**（${target.author}）谈到：${target.summary}\n\n> 来源：《${target.title}》第${ch1?.no ?? 1}章 ${ch1?.title ?? ""}\n\n如果想深入，点击下方引用卡片可跳到原文对应章节。`;
 
-  const ch = chaptersByBook[target.id]?.[0];
-  const citations: Citation[] = ch
+  const citations: Citation[] = ch1
     ? [
         {
           bookId: target.id,
           bookTitle: target.title,
           coverSeed: target.coverSeed,
-          chapterNo: ch.no,
-          chapterTitle: ch.title,
-          snippet: ch.content.slice(0, 46) + "…",
+          cover: target.cover,
+          chapterNo: ch1.no,
+          chapterTitle: ch1.title,
+          snippet: ch1.content.slice(0, 50).replace(/\n/g, " ") + "…",
         },
       ]
     : [];

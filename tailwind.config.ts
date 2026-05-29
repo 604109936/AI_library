@@ -79,10 +79,20 @@ const config: Config = {
           "0%": { opacity: "0", transform: "scale(0.96)" },
           "100%": { opacity: "1", transform: "scale(1)" },
         },
+        "like-burst": {
+          "0%": { opacity: "0", transform: "scale(0.3)" },
+          "20%": { opacity: "1", transform: "scale(1.15)" },
+          "100%": { opacity: "0", transform: "scale(1) translateY(-22px)" },
+        },
+        "spin-slow": {
+          "100%": { transform: "rotate(360deg)" },
+        },
       },
       animation: {
         "fade-up": "fade-up 0.22s cubic-bezier(0.4,0,0.2,1)",
         "scale-in": "scale-in 0.18s cubic-bezier(0.4,0,0.2,1)",
+        "like-burst": "like-burst 0.8s cubic-bezier(0.4,0,0.2,1) forwards",
+        "spin-slow": "spin-slow 8s linear infinite",
       },
     },
   },

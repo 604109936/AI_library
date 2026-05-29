@@ -36,10 +36,11 @@ export function Stars({
   );
 }
 
+/** 支持半星：点击星左半 = x.5，右半 = x.0 */
 export function StarPicker({
   value,
   onChange,
-  size = 30,
+  size = 32,
 }: {
   value: number;
   onChange: (v: number) => void;
@@ -47,15 +48,23 @@ export function StarPicker({
 }) {
   return (
     <div className="flex items-center gap-2">
-      {Array.from({ length: 5 }).map((_, i) => (
-        <button key={i} type="button" onClick={() => onChange(i + 1)} className="active:scale-90 transition">
-          <Star
-            size={size}
-            className={i < value ? "text-rouge" : "text-rouge/25"}
-            fill="currentColor"
-          />
-        </button>
-      ))}
+      {Array.from({ length: 5 }).map((_, i) => {
+        const idx = i + 1;
+        const full = value >= idx;
+        const half = !full && value >= idx - 0.5;
+        return (
+          <span key={i} className="relative inline-block" style={{ width: size, height: size }}>
+            <Star size={size} className="text-rouge/25" fill="currentColor" />
+            {(full || half) && (
+              <span className="absolute left-0 top-0 overflow-hidden" style={{ width: half ? size / 2 : size, height: size }}>
+                <Star size={size} className="text-rouge" fill="currentColor" />
+              </span>
+            )}
+            <button type="button" aria-label={`${idx - 0.5} 星`} onClick={() => onChange(idx - 0.5)} className="absolute left-0 top-0 h-full w-1/2" />
+            <button type="button" aria-label={`${idx} 星`} onClick={() => onChange(idx)} className="absolute right-0 top-0 h-full w-1/2" />
+          </span>
+        );
+      })}
     </div>
   );
 }

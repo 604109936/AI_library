@@ -1,10 +1,14 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, Camera, ChevronRight } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+import { ChevronLeft, Camera, Check } from "lucide-react";
 import { RequireAuth } from "@/components/shell/RequireAuth";
 import { Avatar } from "@/components/ui/Avatar";
+import { Motif } from "@/components/ui/Motif";
 import { useAuth, useUI } from "@/lib/store";
+
+const PRESET_SEEDS = [1, 2, 3, 4, 5, 6, 7, 8];
 
 export default function ProfileEdit() {
   const router = useRouter();
@@ -13,29 +17,35 @@ export default function ProfileEdit() {
   const toast = useUI((s) => s.toast);
   const [nickname, setNickname] = useState(user?.nickname ?? "");
   const [bio, setBio] = useState(user?.bio ?? "");
+  const [seed, setSeed] = useState(user?.avatarSeed ?? 7);
+  const [picker, setPicker] = useState(false);
+
+  const dirty = nickname !== (user?.nickname ?? "") || bio !== (user?.bio ?? "") || seed !== (user?.avatarSeed ?? 7);
 
   function save() {
-    updateProfile({ nickname: nickname.trim() || "书友", bio: bio.trim() });
+    if (!nickname.trim()) { toast("昵称不能为空", "error"); return; }
+    if (!dirty) { router.back(); return; }
+    updateProfile({ nickname: nickname.trim(), bio: bio.trim(), avatarSeed: seed });
     toast("已保存");
     router.back();
   }
 
   return (
-    <main className="min-h-[100dvh]">
+    <main className="relative min-h-[100dvh] pb-28">
       <header className="sticky top-0 z-30 flex h-14 items-center bg-moon/90 px-2 backdrop-blur dark:bg-dark-bg/90">
-        <button onClick={() => router.back()} className="flex h-10 w-10 items-center justify-center rounded-full">
-          <ChevronLeft size={24} />
+        <button onClick={() => router.back()} aria-label="返回" className="flex h-10 w-10 items-center justify-center rounded-full">
+          <ChevronLeft size={24} className="text-ink dark:text-dark-text" />
         </button>
-        <h1 className="flex-1 text-center font-serif text-lg">编辑资料</h1>
-        <button onClick={save} className="rounded-full bg-celadon px-4 py-1.5 text-sm text-snow">保存</button>
+        <h1 className="flex-1 text-center font-serif text-lg text-ink dark:text-dark-text">编辑资料</h1>
+        <div className="w-10" />
       </header>
 
       <RequireAuth>
         <div className="p-4">
           {/* 头像 */}
           <div className="flex flex-col items-center py-4">
-            <button onClick={() => toast("更换头像功能即将上线", "info")} className="relative">
-              <Avatar seed={user?.avatarSeed ?? 7} name={nickname} size={84} />
+            <button onClick={() => setPicker(true)} aria-label="更换头像" className="relative">
+              <Avatar seed={seed} name={nickname} size={84} ring />
               <span className="absolute bottom-0 right-0 flex h-7 w-7 items-center justify-center rounded-full bg-celadon text-snow ring-2 ring-moon dark:ring-dark-bg">
                 <Camera size={14} />
               </span>
@@ -43,31 +53,58 @@ export default function ProfileEdit() {
             <p className="mt-2 text-xs text-ink-300">点击更换头像</p>
           </div>
 
-          <div className="overflow-hidden rounded-xl bg-snow shadow-sm dark:bg-dark-card">
+          <div className="overflow-hidden rounded-2xl bg-snow shadow-sm dark:bg-dark-card">
             <Row label="昵称">
-              <input value={nickname} onChange={(e) => setNickname(e.target.value.slice(0, 16))} className="w-full bg-transparent text-right text-sm outline-none" />
+              <input value={nickname} onChange={(e) => setNickname(e.target.value.slice(0, 16))} aria-label="昵称" className="w-full bg-transparent text-right text-sm text-ink outline-none dark:text-dark-text" />
             </Row>
-            <Row label="简介">
-              <input value={bio} onChange={(e) => setBio(e.target.value.slice(0, 30))} placeholder="一句话介绍自己" className="w-full bg-transparent text-right text-sm outline-none placeholder:text-ink-300" />
+            <div className="border-b border-line px-4 py-3.5 dark:border-white/5">
+              <div className="mb-1.5 flex items-center justify-between">
+                <span className="text-sm text-ink-500 dark:text-dark-text/60">简介</span>
+                <span className="text-[11px] text-ink-300">{bio.length}/30</span>
+              </div>
+              <textarea value={bio} onChange={(e) => setBio(e.target.value.slice(0, 30))} rows={2} placeholder="一句话介绍自己" aria-label="简介" className="w-full resize-none bg-transparent text-sm text-ink outline-none placeholder:text-ink-300 dark:text-dark-text" />
+            </div>
+            <Row label="账号">
+              <span className="text-sm text-ink-300">{user?.account ?? user?.email}</span>
             </Row>
-            <Row label="邮箱">
-              <span className="text-sm text-ink-300">{user?.email}</span>
-            </Row>
-            <button onClick={() => toast("修改密码功能即将上线", "info")} className="flex w-full items-center px-4 py-3.5">
-              <span className="flex-1 text-left text-sm text-ink dark:text-dark-text">修改密码</span>
-              <ChevronRight size={16} className="text-ink-300" />
-            </button>
           </div>
+
+          {/* 底部大号保存按钮 */}
+          <button onClick={save} className="mt-6 w-full rounded-2xl bg-celadon py-3.5 text-sm font-medium text-snow shadow-celadon active:scale-[0.99]">
+            保存
+          </button>
         </div>
       </RequireAuth>
+
+      <Motif name="mountain" className="pointer-events-none absolute bottom-2 left-1/2 h-14 w-56 -translate-x-1/2 text-celadon/20" />
+
+      {/* 预设头像选择 */}
+      <AnimatePresence>
+        {picker && (
+          <motion.div className="fixed inset-0 z-50 flex items-end justify-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <div className="absolute inset-0 bg-ink/30" onClick={() => setPicker(false)} />
+            <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="app-width relative rounded-t-[24px] bg-snow p-5 dark:bg-dark-card">
+              <h3 className="mb-4 text-center font-serif text-base text-ink dark:text-dark-text">选择头像</h3>
+              <div className="grid grid-cols-4 gap-4">
+                {PRESET_SEEDS.map((sd) => (
+                  <button key={sd} onClick={() => { setSeed(sd); setPicker(false); }} className="relative flex items-center justify-center">
+                    <Avatar seed={sd} size={56} ring={sd === seed} />
+                    {sd === seed && <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-celadon text-snow"><Check size={12} /></span>}
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </main>
   );
 }
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-3 border-b border-line px-4 py-3.5">
-      <span className="w-14 shrink-0 text-sm text-ink-500">{label}</span>
+    <div className="flex items-center gap-3 border-b border-line px-4 py-3.5 last:border-0 dark:border-white/5">
+      <span className="w-14 shrink-0 text-sm text-ink-500 dark:text-dark-text/60">{label}</span>
       <div className="flex-1">{children}</div>
     </div>
   );

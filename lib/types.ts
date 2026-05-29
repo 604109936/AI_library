@@ -5,8 +5,11 @@ export interface Book {
   id: string;
   title: string;
   author: string;
-  cover: string; // 渐变/纯色占位（新中式极简封面）由前端按 coverSeed 渲染
+  cover: string; // 真实封面图路径（/covers/{id}.png）；为空时前端按 coverSeed 渲染 CSS 兜底封面
   coverSeed: number;
+  heroUrl?: string; // 详情页氛围大图（台座/竹影）
+  posterUrl?: string; // 乱翻竖屏视频海报/首帧
+  avatarUrl?: string; // 作者/博主头像
   category: string;
   categoryId: string;
   tags: string[];
@@ -20,6 +23,9 @@ export interface Book {
   hasText: boolean;
   videoUrl?: string;
   audioUrl?: string;
+  likes: number; // 乱翻点赞数
+  favCount: number; // 收藏数
+  reviewCount: number; // 书评数
   featured: boolean;
   intro: string; // 乱翻一句话
 }
@@ -31,6 +37,7 @@ export interface Chapter {
   title: string;
   content: string; // 正文（mock）
   status?: ReadStatus;
+  audioStart?: number; // 该章在整书音频中的起始秒（mock 切章 seek 用）
 }
 
 export interface Category {
@@ -45,9 +52,11 @@ export interface Review {
   bookId: string;
   bookTitle?: string;
   bookCoverSeed?: number;
+  bookCover?: string;
   userId: string;
   nickname: string;
   avatarSeed: number;
+  avatarUrl?: string;
   rating: number;
   title?: string;
   content: string;
@@ -74,6 +83,7 @@ export interface Citation {
   bookId: string;
   bookTitle: string;
   coverSeed: number;
+  cover?: string;
   chapterNo: number;
   chapterTitle: string;
   snippet: string;
@@ -99,7 +109,9 @@ export interface ChatSession {
 export interface HistoryItem {
   bookId: string;
   bookTitle: string;
+  author?: string;
   coverSeed: number;
+  cover?: string;
   mode: ReadingMode;
   progress: number; // 0-100
   lastAt: string;
@@ -118,7 +130,9 @@ export interface UserProfile {
   nickname: string;
   bio: string;
   email: string;
+  account?: string; // 登录账号（账号密码登录时填入）
   avatarSeed: number;
+  avatarUrl?: string;
   stats: { hours: number; read: number; notes: number; reviews: number };
 }
 

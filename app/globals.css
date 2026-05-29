@@ -83,6 +83,19 @@ body {
   }
 }
 
+/* 骨架屏暗色适配（浅色白高光在暗底会穿帮） */
+.dark .skeleton {
+  background: rgba(255, 255, 255, 0.06);
+}
+.dark .skeleton::after {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.1),
+    transparent
+  );
+}
+
 /* 阅读背景主题 */
 .reader-bg-white {
   background: #ffffff;
@@ -138,4 +151,30 @@ body {
 }
 .prose-cn code {
   @apply bg-line/60 px-1 py-0.5 rounded text-[13px];
+}
+
+/* prose 暗色适配（修复深色卡片上正文不可见） */
+.dark .prose-cn {
+  @apply text-dark-text/85;
+}
+.dark .prose-cn h1,
+.dark .prose-cn h2,
+.dark .prose-cn h3,
+.dark .prose-cn strong {
+  @apply text-dark-text;
+}
+.dark .prose-cn blockquote {
+  @apply border-celadon text-dark-text/70 bg-celadon/10;
+}
+.dark .prose-cn code {
+  @apply bg-white/10 text-dark-text;
+}
+
+/* 阅读器顶部装饰带（淡墨竹影氛围，跟随主题色） */
+.reader-deco {
+  position: absolute;
+  top: 0;
+  right: 0;
+  opacity: 0.08;
+  pointer-events: none;
 }

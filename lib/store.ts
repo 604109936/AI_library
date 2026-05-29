@@ -22,7 +22,7 @@ import {
 interface AuthState {
   user: UserProfile | null;
   hydrated: boolean;
-  login: (email: string) => void;
+  login: (account: string) => void;
   logout: () => void;
   setHydrated: () => void;
   updateProfile: (patch: Partial<UserProfile>) => void;
@@ -32,9 +32,23 @@ export const useAuth = create<AuthState>()(
     (set, get) => ({
       user: null,
       hydrated: false,
-      login: (account: string) =>
-        set({ user: { ...profile, email: account.includes("@") ? account : profile.email } }),
-      logout: () => set({ user: null }),
+      login: (account: string) => {
+        const isEmail = account.includes("@");
+        set({
+          user: {
+            ...profile,
+            account,
+            email: isEmail ? account : profile.email,
+          },
+        });
+        // 登录即载入“我的”同步数据（演示）
+        useLibrary.getState().seed();
+      },
+      logout: () => {
+        set({ user: null });
+        // 退出登录清空本地“我的”数据，避免换账号串号
+        useLibrary.getState().reset();
+      },
       setHydrated: () => set({ hydrated: true }),
       updateProfile: (patch) => {
         const u = get().user;
@@ -48,16 +62,25 @@ export const useAuth = create<AuthState>()(
   )
 );
 
-/* ---------------- UI / Theme / Toast / LoginSheet ---------------- */
+/* ---------------- UI / Theme / Toast / LoginSheet / 通知 / 搜索历史 ---------------- */
 export type Theme = "light" | "dark" | "system";
 export interface Toast {
   id: number;
   type: "success" | "error" | "info";
   msg: string;
 }
+export interface NotifyPrefs {
+  push: boolean;
+  weekly: boolean;
+}
 interface UIState {
   theme: Theme;
   setTheme: (t: Theme) => void;
+  notify: NotifyPrefs;
+  setNotify: (patch: Partial<NotifyPrefs>) => void;
+  recentSearches: string[];
+  addRecent: (q: string) => void;
+  clearRecent: () => void;
   toasts: Toast[];
   toast: (msg: string, type?: Toast["type"]) => void;
   dismiss: (id: number) => void;
@@ -72,6 +95,15 @@ export const useUI = create<UIState>()(
     (set, get) => ({
       theme: "light",
       setTheme: (t) => set({ theme: t }),
+      notify: { push: true, weekly: true },
+      setNotify: (patch) => set({ notify: { ...get().notify, ...patch } }),
+      recentSearches: [],
+      addRecent: (q) => {
+        const v = q.trim();
+        if (!v) return;
+        set({ recentSearches: [v, ...get().recentSearches.filter((x) => x !== v)].slice(0, 10) });
+      },
+      clearRecent: () => set({ recentSearches: [] }),
       toasts: [],
       toast: (msg, type = "success") => {
         const id = toastId++;
@@ -84,52 +116,82 @@ export const useUI = create<UIState>()(
       openLogin: (pending) => set({ loginOpen: true, pending: pending ?? null }),
       closeLogin: () => set({ loginOpen: false, pending: null }),
     }),
-    { name: "ail-ui", partialize: (s) => ({ theme: s.theme }) }
+    {
+      name: "ail-ui",
+      partialize: (s) => ({ theme: s.theme, notify: s.notify, recentSearches: s.recentSearches }),
+    }
   )
 );
 
 /* ---------------- Library: 用户数据 ---------------- */
 interface LibState {
+  hydrated: boolean;
   favorites: string[];
   notes: NoteItem[];
   progress: Record<string, Progress>;
   history: HistoryItem[];
   likedReviews: string[];
+  likedBooks: string[];
   myReviews: Review[];
+  setHydrated: () => void;
+  seed: () => void; // 载入演示数据（登录时）
+  reset: () => void; // 清空（退出登录时）
   isFav: (id: string) => boolean;
   toggleFav: (id: string) => boolean; // 返回切换后是否已收藏
   addNote: (n: NoteItem) => void;
   removeNote: (id: string) => void;
+  notesOfChapter: (bookId: string, chapterId: string) => NoteItem[];
   setProgress: (p: Progress) => void;
   pushHistory: (h: HistoryItem) => void;
   clearHistory: () => void;
   removeHistory: (bookId: string) => void;
-  toggleLike: (id: string) => void;
+  toggleLike: (id: string) => void; // 书评点赞
+  isBookLiked: (id: string) => boolean;
+  toggleBookLike: (id: string) => boolean; // 乱翻/书籍点赞
   addReview: (r: Review) => void;
   removeReview: (id: string) => void;
 }
+const real = (id: string) => id.split("__")[0];
 export const useLibrary = create<LibState>()(
   persist(
     (set, get) => ({
-      favorites: myFavorites,
-      notes: myNotes,
+      hydrated: false,
+      favorites: [],
+      notes: [],
       progress: {},
-      history: myHistory,
+      history: [],
       likedReviews: [],
-      myReviews,
-      isFav: (id) => get().favorites.includes(id.split("__")[0]),
-      toggleFav: (id) => {
-        const real = id.split("__")[0];
-        const has = get().favorites.includes(real);
+      likedBooks: [],
+      myReviews: [],
+      setHydrated: () => set({ hydrated: true }),
+      seed: () =>
         set({
-          favorites: has
-            ? get().favorites.filter((x) => x !== real)
-            : [real, ...get().favorites],
-        });
+          favorites: [...myFavorites],
+          notes: [...myNotes],
+          history: [...myHistory],
+          myReviews: [...myReviews],
+        }),
+      reset: () =>
+        set({
+          favorites: [],
+          notes: [],
+          history: [],
+          myReviews: [],
+          progress: {},
+          likedReviews: [],
+          likedBooks: [],
+        }),
+      isFav: (id) => get().favorites.includes(real(id)),
+      toggleFav: (id) => {
+        const r = real(id);
+        const has = get().favorites.includes(r);
+        set({ favorites: has ? get().favorites.filter((x) => x !== r) : [r, ...get().favorites] });
         return !has;
       },
       addNote: (n) => set({ notes: [n, ...get().notes] }),
       removeNote: (id) => set({ notes: get().notes.filter((n) => n.id !== id) }),
+      notesOfChapter: (bookId, chapterId) =>
+        get().notes.filter((n) => n.bookId === real(bookId) && n.chapterId === chapterId),
       setProgress: (p) => set({ progress: { ...get().progress, [p.bookId]: p } }),
       pushHistory: (h) =>
         set({
@@ -144,73 +206,82 @@ export const useLibrary = create<LibState>()(
             ? get().likedReviews.filter((x) => x !== id)
             : [id, ...get().likedReviews],
         }),
+      isBookLiked: (id) => get().likedBooks.includes(real(id)),
+      toggleBookLike: (id) => {
+        const r = real(id);
+        const has = get().likedBooks.includes(r);
+        set({ likedBooks: has ? get().likedBooks.filter((x) => x !== r) : [r, ...get().likedBooks] });
+        return !has;
+      },
       addReview: (r) => set({ myReviews: [r, ...get().myReviews] }),
       removeReview: (id) =>
         set({ myReviews: get().myReviews.filter((r) => r.id !== id) }),
     }),
-    { name: "ail-library" }
+    {
+      name: "ail-library",
+      onRehydrateStorage: () => (state) => state?.setHydrated(),
+    }
   )
 );
 
 /* ---------------- Reader Prefs ---------------- */
 export type ReaderBg = "white" | "moon" | "green" | "dark";
 interface ReaderState {
+  hydrated: boolean;
   fontSize: number; // 16/18/20/22
   bg: ReaderBg;
   pageMode: "scroll" | "page";
+  brightness: number; // 0.5 - 1
+  defaultMode: ReadingMode;
+  setHydrated: () => void;
   setFontSize: (n: number) => void;
   setBg: (b: ReaderBg) => void;
   setPageMode: (m: "scroll" | "page") => void;
+  setBrightness: (n: number) => void;
+  setDefaultMode: (m: ReadingMode) => void;
 }
 export const useReader = create<ReaderState>()(
   persist(
     (set) => ({
+      hydrated: false,
       fontSize: 18,
       bg: "moon",
       pageMode: "scroll",
+      brightness: 1,
+      defaultMode: "text",
+      setHydrated: () => set({ hydrated: true }),
       setFontSize: (n) => set({ fontSize: n }),
       setBg: (b) => set({ bg: b }),
       setPageMode: (m) => set({ pageMode: m }),
+      setBrightness: (n) => set({ brightness: n }),
+      setDefaultMode: (m) => set({ defaultMode: m }),
     }),
-    { name: "ail-reader" }
+    {
+      name: "ail-reader",
+      onRehydrateStorage: () => (state) => state?.setHydrated(),
+    }
   )
 );
 
 /* ---------------- Chat ---------------- */
 interface ChatState {
   sessions: ChatSession[];
-  currentId: string | null;
-  newSession: () => string;
-  setCurrent: (id: string | null) => void;
   upsertSession: (s: ChatSession) => void;
   removeSession: (id: string) => void;
-  renameSession: (id: string, title: string) => void;
+  clearSessions: () => void;
 }
 export const useChat = create<ChatState>()(
   persist(
     (set, get) => ({
       sessions: [],
-      currentId: null,
-      newSession: () => {
-        const id = "sess-" + Date.now();
-        const s: ChatSession = { id, title: "新对话", updatedAt: new Date().toISOString(), messages: [] };
-        set({ sessions: [s, ...get().sessions], currentId: id });
-        return id;
-      },
-      setCurrent: (id) => set({ currentId: id }),
       upsertSession: (s) =>
         set({
           sessions: [s, ...get().sessions.filter((x) => x.id !== s.id)].sort(
             (a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt)
           ),
         }),
-      removeSession: (id) =>
-        set({
-          sessions: get().sessions.filter((x) => x.id !== id),
-          currentId: get().currentId === id ? null : get().currentId,
-        }),
-      renameSession: (id, title) =>
-        set({ sessions: get().sessions.map((x) => (x.id === id ? { ...x, title } : x)) }),
+      removeSession: (id) => set({ sessions: get().sessions.filter((x) => x.id !== id) }),
+      clearSessions: () => set({ sessions: [] }),
     }),
     { name: "ail-chat" }
   )

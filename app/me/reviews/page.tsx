@@ -1,6 +1,6 @@
 "use client";
 import { useRouter } from "next/navigation";
-import { Trash2, ChevronRight } from "lucide-react";
+import { Trash2, ChevronRight, Heart } from "lucide-react";
 import { Header } from "@/components/shell/Header";
 import { RequireAuth } from "@/components/shell/RequireAuth";
 import { BookCover } from "@/components/ui/BookCover";
@@ -21,25 +21,25 @@ export default function MyReviewsPage() {
       <Header title="我的书评" />
       <RequireAuth>
         {list.length === 0 ? (
-          <EmptyState title="还没有写过书评" subtitle="读完一本书，写下你的想法吧" actionText="去泡馆逛逛" actionHref="/library" />
+          <EmptyState icon="review" title="还没有写过书评" subtitle="读完一本书，写下你的想法吧" actionText="去泡馆逛逛" actionHref="/library" />
         ) : (
           <div className="space-y-3 p-4">
-            {list.map((r) => (
-              <div key={r.id} className="rounded-xl bg-snow p-3.5 shadow-sm dark:bg-dark-card">
+            {list.map((r, i) => (
+              <div key={r.id} className="animate-fade-up rounded-2xl bg-snow p-3.5 shadow-sm dark:bg-dark-card" style={{ animationDelay: `${i * 0.04}s` }}>
                 <button onClick={() => router.push(`/library/book/${r.bookId}/reviews`)} className="flex w-full gap-3 text-left">
-                  <BookCover title={r.bookTitle ?? ""} seed={r.bookCoverSeed ?? 1} className="w-12 shrink-0" showText={false} />
+                  <BookCover title={r.bookTitle ?? ""} seed={r.bookCoverSeed ?? 1} src={r.bookCover} className="w-12 shrink-0" showText={false} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="font-serif text-sm text-ink dark:text-dark-text">{r.bookTitle}</span>
                       <ChevronRight size={14} className="text-ink-300" />
                     </div>
                     <Stars value={r.rating} size={12} className="mt-1" />
-                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-ink-500">{r.content}</p>
+                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-ink-500 dark:text-dark-text/60">{r.content}</p>
                   </div>
                 </button>
-                <div className="mt-2 flex items-center justify-between border-t border-line pt-2 text-[11px] text-ink-300">
-                  <span>♥ {formatCount(r.likes)} · {formatDate(r.createdAt)}</span>
-                  <button onClick={() => { removeReview(r.id); toast("已删除"); }} className="flex items-center gap-1 active:text-rouge">
+                <div className="mt-2 flex items-center justify-between border-t border-line pt-2 text-[11px] text-ink-300 dark:border-white/5">
+                  <span className="flex items-center gap-1"><Heart size={12} className="text-rouge" /> {formatCount(r.likes)} · {formatDate(r.createdAt)}</span>
+                  <button aria-label="删除书评" onClick={() => { removeReview(r.id); toast("已删除"); }} className="flex items-center gap-1 active:text-rouge">
                     <Trash2 size={13} /> 删除
                   </button>
                 </div>
