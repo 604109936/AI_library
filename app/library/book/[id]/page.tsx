@@ -76,7 +76,7 @@ export default function BookDetail({ params }: { params: { id: string } }) {
             <span key={t} className="animate-fade-up rounded-full border border-line px-2.5 py-0.5 text-[11px] text-ink-500 dark:border-white/10 dark:text-dark-text/60" style={{ animationDelay: `${i * 0.04}s` }}>{t}</span>
           ))}
         </div>
-        <div className="mt-3 flex items-end justify-between gap-3">
+        <div className="mt-3 flex items-center justify-between gap-3">
           <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-ink-500 tabular-nums dark:text-dark-text/55">
             <span className="flex items-center gap-1"><Stars value={book.rating} size={13} /> <span className="text-rouge">{book.rating.toFixed(1)}</span></span>
             <span className="h-1 w-1 rotate-45 bg-line dark:bg-white/15" />
@@ -137,12 +137,11 @@ export default function BookDetail({ params }: { params: { id: string } }) {
                 <Link
                   key={c.id}
                   href={`/library/book/${book.id}/read?ch=${c.id}`}
-                  className="relative -mx-2 flex animate-fade-up items-center gap-3 rounded-lg px-2 py-3.5 transition active:bg-snow/60 dark:active:bg-white/[0.03]"
+                  className="-mx-2 flex animate-fade-up items-center gap-3 rounded-lg px-2 py-3.5 transition active:bg-snow/60 dark:active:bg-white/[0.03]"
                   style={{ animationDelay: `${i * 0.03}s` }}
                 >
-                  {c.status === "reading" && <span className="absolute left-0 top-1/2 h-6 w-0.5 -translate-y-1/2 rounded-full bg-celadon" />}
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-celadon-soft text-[11px] tabular-nums text-celadon-700 dark:bg-celadon/15 dark:text-celadon-300">{c.no}</span>
-                  <span className="flex-1 text-sm text-ink-700 dark:text-dark-text/85">{c.title}</span>
+                  <span className={"flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] tabular-nums " + (c.status === "reading" ? "bg-celadon text-snow" : "bg-celadon-soft text-celadon-700 dark:bg-celadon/15 dark:text-celadon-300")}>{c.no}</span>
+                  <span className={"flex-1 text-sm " + (c.status === "reading" ? "font-medium text-celadon-700 dark:text-celadon-300" : "text-ink-700 dark:text-dark-text/85")}>{c.title}</span>
                   <span className="flex items-center gap-1">
                     {c.status === "reading" && <span className="text-[11px] text-celadon-700 dark:text-celadon-300">在读</span>}
                     {c.status === "read" && <Check size={14} className="text-ink-300" />}

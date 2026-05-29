@@ -249,7 +249,7 @@ function FlipSlide({ book, muted, onMute, onActive }: { book: Book; muted: boole
         </div>
         <button
           onClick={() => router.push(`/library/book/${realId}`)}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-celadon px-5 py-2.5 text-sm font-medium text-white shadow-celadon ring-1 ring-brass/40 transition active:scale-95"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-celadon/80 px-4 py-2 text-[13px] font-medium text-white ring-1 ring-white/25 backdrop-blur-md transition active:scale-95"
         >
           读这本书 <ArrowRight size={15} />
         </button>

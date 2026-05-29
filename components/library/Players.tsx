@@ -217,7 +217,7 @@ function AudioStage({ book }: { book: Book }) {
       />
 
       {/* 唱片台座 */}
-      <div className="relative h-48 w-48">
+      <div className="relative h-40 w-40">
         <div className="absolute inset-0 rounded-full bg-gradient-to-br from-celadon-soft to-snow shadow-lg dark:from-celadon/20 dark:to-dark-card" />
         <div className="absolute inset-4 rounded-full border border-celadon/20" />
         <div className={"absolute inset-7 overflow-hidden rounded-full shadow-inner " + (playing ? "animate-spin-slow" : "")}>
@@ -238,7 +238,11 @@ function AudioStage({ book }: { book: Book }) {
 
       <div className="mt-4 flex w-full max-w-[320px] items-center gap-2">
         <span className="w-10 text-right text-[11px] text-ink-300 tabular-nums">{formatTime(cur)}</span>
-        <input type="range" min={0} max={dur || 1} value={cur} aria-label="播放进度" onChange={(e) => { if (ref.current) ref.current.currentTime = +e.target.value; }} className="h-1 flex-1 accent-celadon" />
+        <div className="relative h-1.5 flex-1">
+          <div className="absolute inset-0 rounded-full bg-line dark:bg-white/10" />
+          <div className="absolute inset-y-0 left-0 rounded-full bg-celadon" style={{ width: `${pct * 100}%` }} />
+          <input type="range" min={0} max={dur || 1} value={cur} aria-label="播放进度" onChange={(e) => { if (ref.current) ref.current.currentTime = +e.target.value; }} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+        </div>
         <span className="w-10 text-[11px] text-ink-300 tabular-nums">{formatTime(dur)}</span>
       </div>
 
@@ -263,9 +267,10 @@ function AudioStage({ book }: { book: Book }) {
         </button>
       </div>
 
-      <div className="mt-3 flex gap-1">
+      <div className="mt-3 flex items-center gap-1.5">
+        <span className="mr-0.5 text-[10px] text-ink-300">倍速</span>
         {SPEEDS.map((s) => (
-          <button key={s} onClick={() => setSpeed(s)} className={"rounded px-1.5 py-0.5 text-[11px] " + (speed === s ? "bg-celadon text-snow" : "text-ink-300")}>{s}x</button>
+          <button key={s} onClick={() => setSpeed(s)} className={"rounded-full px-2 py-0.5 text-[11px] font-medium transition " + (speed === s ? "bg-celadon text-snow" : "bg-snow text-ink-500 ring-1 ring-line dark:bg-dark-card dark:text-dark-text/70 dark:ring-white/10")}>{s}x</button>
         ))}
       </div>
     </div>
