@@ -28,6 +28,8 @@ export default function CategoryPage({ params }: { params: { id: string } }) {
   const [status, setStatus] = useState<Status>("all");
   const [sort, setSort] = useState<Sort>("new");
   const [sortOpen, setSortOpen] = useState(false);
+  const [navTitle, setNavTitle] = useState(false);
+  const titleRef = useRef<HTMLHeadingElement>(null);
   const user = useAuth((s) => s.user);
   const history = useLibrary((s) => s.history);
 
@@ -68,6 +70,15 @@ export default function CategoryPage({ params }: { params: { id: string } }) {
     }
   }, [status, filtered.length, q.hasNextPage, q.isFetchingNextPage]); // eslint-disable-line
 
+  // 大标题滚出视口后，顶栏标题淡入（iOS 大标题收起，避免与大字重复）
+  useEffect(() => {
+    const el = titleRef.current;
+    if (!el) return;
+    const ob = new IntersectionObserver(([e]) => setNavTitle(!e.isIntersecting), { rootMargin: "-56px 0px 0px 0px", threshold: 0 });
+    ob.observe(el);
+    return () => ob.disconnect();
+  }, []);
+
   function pickStatus(s: Status) {
     if (s !== "all" && !user) {
       requireLogin(() => setStatus(s));
@@ -80,12 +91,12 @@ export default function CategoryPage({ params }: { params: { id: string } }) {
 
   return (
     <main className="min-h-[100dvh] pb-10">
-      {/* 顶栏（不透明吸顶，滚动时与筛选栏严丝合缝、不再露出列表）*/}
-      <Header title={cat?.name ?? "分类"} />
+      {/* 顶栏：不透明吸顶；大标题滚出后才淡入分类名，避免与下方大字重复 */}
+      <Header title={cat?.name ?? "分类"} titleShown={navTitle} />
       {/* 装饰页头 */}
       <div className="relative flex flex-col items-center pb-3 pt-1">
         <Motif name="branch" className="pointer-events-none absolute -top-1 right-4 h-16 w-16 text-celadon/30" />
-        <h1 className="font-serif text-2xl text-ink dark:text-dark-text">{cat?.name ?? "分类"}</h1>
+        <h1 ref={titleRef} className="font-serif text-2xl text-ink dark:text-dark-text">{cat?.name ?? "分类"}</h1>
         <div className="mt-1.5 flex items-center gap-2.5">
           <OrnDivider />
           <span className="text-xs text-ink-500 dark:text-dark-text/55">共 {cat?.count ?? 0} 本</span>
