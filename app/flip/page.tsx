@@ -1,9 +1,9 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Heart, Bookmark, MessageSquare, ArrowRight, Play, Volume2, VolumeX } from "lucide-react";
+import { Heart, MessageSquare, ArrowRight, Play, Volume2, VolumeX, BookOpen } from "lucide-react";
 import { BottomNav } from "@/components/shell/BottomNav";
-import { Avatar } from "@/components/ui/Avatar";
+import { BookCover } from "@/components/ui/BookCover";
 import { getFlip } from "@/lib/api";
 import { formatCount } from "@/lib/utils";
 import { useAuth, useLibrary, useUI, requireLogin } from "@/lib/store";
@@ -62,7 +62,9 @@ function FlipSkeleton() {
         <div className="skeleton h-4 w-56 rounded" />
       </div>
       <div className="absolute bottom-28 right-3 flex flex-col items-center gap-5">
-        {Array.from({ length: 4 }).map((_, i) => <div key={i} className="skeleton h-11 w-11 rounded-full" />)}
+        <div className="skeleton h-14 w-11 rounded-xl" />
+        <div className="skeleton h-11 w-11 rounded-full" />
+        <div className="skeleton h-11 w-11 rounded-full" />
       </div>
     </div>
   );
@@ -78,15 +80,12 @@ function FlipSlide({ book, index, muted, onMute, onActive }: { book: Book; index
   const lastTap = useRef(0);
   const tapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const isFav = useLibrary((s) => s.isFav);
+  const favorites = useLibrary((s) => s.favorites);
   const toggleFav = useLibrary((s) => s.toggleFav);
-  const likedBooks = useLibrary((s) => s.likedBooks);
-  const toggleBookLike = useLibrary((s) => s.toggleBookLike);
   const toast = useUI((s) => s.toast);
   const user = useAuth((s) => s.user);
   const realId = book.id.split("__")[0];
-  const fav = user ? isFav(realId) : false;
-  const liked = likedBooks.includes(realId);
+  const fav = favorites.includes(realId);
 
   useEffect(() => {
     const el = ref.current;
@@ -113,9 +112,9 @@ function FlipSlide({ book, index, muted, onMute, onActive }: { book: Book; index
     setBurst((n) => n + 1);
     setTimeout(() => setBurst((n) => Math.max(0, n - 1)), 800);
   }
-  function likeOnly() {
+  function favOnly() {
     requireLogin(() => {
-      if (!liked) toggleBookLike(realId);
+      if (!fav) { toggleFav(realId); toast("已收藏"); }
       triggerBurst();
     });
   }
@@ -130,7 +129,7 @@ function FlipSlide({ book, index, muted, onMute, onActive }: { book: Book; index
     if (now - lastTap.current < 280) {
       if (tapTimer.current) clearTimeout(tapTimer.current);
       lastTap.current = 0;
-      likeOnly();
+      favOnly();
     } else {
       lastTap.current = now;
       tapTimer.current = setTimeout(() => { togglePlay(); lastTap.current = 0; }, 280);
@@ -185,47 +184,47 @@ function FlipSlide({ book, index, muted, onMute, onActive }: { book: Book; index
         </div>
       )}
 
-      {/* 渐变 + 信息浮层 */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/80 to-transparent" />
-      <div className="absolute bottom-0 left-0 right-16 px-4 pb-[82px]">
-        <h2 className="font-serif text-2xl text-white drop-shadow">{book.title}</h2>
-        <p className="mt-1 text-sm text-white/80">{book.author}</p>
+      {/* 柔和渐变 */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-3/5 bg-gradient-to-t from-black/85 via-black/35 to-transparent" />
+
+      {/* 信息浮层 */}
+      <div className="absolute bottom-0 left-0 right-[76px] px-4 pb-[84px]">
+        <span className="inline-flex items-center gap-1 rounded-full bg-celadon/85 px-2.5 py-0.5 text-[11px] font-medium text-white shadow backdrop-blur">
+          <BookOpen size={11} /> {book.category}解读
+        </span>
+        <h2 className="mt-2 font-serif text-[26px] leading-tight text-white drop-shadow-md">{book.title}</h2>
+        <p className="mt-1 text-sm text-white/75">{book.author}</p>
         <div className="mt-2 flex flex-wrap gap-1.5">
           {book.tags.slice(0, 3).map((t) => (
-            <span key={t} className="rounded-full border border-celadon-300/50 bg-white/10 px-2 py-0.5 text-[11px] text-white/90 backdrop-blur">{t}</span>
+            <span key={t} className="rounded-full border border-white/25 bg-white/10 px-2 py-0.5 text-[11px] text-white/90 backdrop-blur">{t}</span>
           ))}
         </div>
-        <p className="mt-2 line-clamp-2 text-sm text-white/85">{book.intro}</p>
+        <p className="mt-2.5 line-clamp-2 text-[13px] leading-5 text-white/85">{book.intro}</p>
         <button
           onClick={() => router.push(`/library/book/${realId}/read`)}
-          className="mt-3 inline-flex items-center gap-1 rounded-full bg-celadon px-4 py-2 text-sm font-medium text-white shadow-celadon active:scale-95"
+          className="mt-3.5 inline-flex items-center gap-1.5 rounded-full bg-celadon px-5 py-2.5 text-sm font-medium text-white shadow-celadon ring-1 ring-white/20 active:scale-95"
         >
-          读这本书 <ArrowRight size={14} />
+          读这本书 <ArrowRight size={15} />
         </button>
       </div>
 
-      {/* 右侧操作栏 */}
-      <div className="absolute bottom-[88px] right-3 flex flex-col items-center gap-5">
-        <Avatar seed={book.coverSeed} name={book.author} src={book.avatarUrl} size={44} ring />
+      {/* 右侧操作栏：书封缩略（进详情）+ 收藏 + 书评 */}
+      <div className="absolute bottom-[92px] right-3 flex flex-col items-center gap-5">
+        <button onClick={() => router.push(`/library/book/${realId}`)} aria-label="书籍详情" className="active:scale-95">
+          <BookCover title={book.title} seed={book.coverSeed} src={book.cover} showText={false} rounded="rounded-xl" className="w-11 shadow-lg ring-2 ring-white/40" />
+        </button>
         <Action
-          icon={<Heart size={28} className={liked ? "fill-rouge text-rouge" : "text-white"} />}
-          label={formatCount(book.likes + (liked ? 1 : 0))}
-          ariaLabel={liked ? "已点赞" : "点赞"}
-          pressed={liked}
-          onClick={() => requireLogin(() => { const n = toggleBookLike(realId); if (n) triggerBurst(); })}
-        />
-        <Action
-          icon={<Bookmark size={28} className={fav ? "fill-brass text-brass" : "text-white"} />}
+          icon={<Heart size={28} className={fav ? "fill-rouge text-rouge" : "text-white"} />}
           label={formatCount(book.favCount + (fav ? 1 : 0))}
           ariaLabel={fav ? "已收藏" : "收藏"}
           pressed={fav}
-          onClick={() => requireLogin(() => { const n = toggleFav(realId); toast(n ? "已收藏" : "已取消收藏"); })}
+          onClick={() => requireLogin(() => { const n = toggleFav(realId); toast(n ? "已收藏" : "已取消收藏"); if (n) triggerBurst(); })}
         />
         <Action
           icon={<MessageSquare size={28} className="text-white" />}
           label={formatCount(book.reviewCount)}
-          ariaLabel="写书评"
-          onClick={() => requireLogin(() => router.push(`/library/book/${realId}/review/new`))}
+          ariaLabel="查看书评"
+          onClick={() => router.push(`/library/book/${realId}/reviews`)}
         />
       </div>
     </div>

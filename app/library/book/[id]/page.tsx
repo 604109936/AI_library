@@ -142,29 +142,33 @@ export default function BookDetail({ params }: { params: { id: string } }) {
         </div>
 
         <div className="pt-4">
-          {chQ.isError && <ErrorState title="章节加载失败" subtitle="点击重试" onRetry={() => chQ.refetch()} />}
-          {chQ.data && activeMode === "video" && <VideoMode book={book} chapters={chQ.data} />}
-          {chQ.data && activeMode === "audio" && <AudioMode book={book} chapters={chQ.data} />}
-          {chQ.data && activeMode === "text" && (
-            <div className="divide-y divide-line dark:divide-white/10">
-              {chQ.data.map((c, i) => (
-                <Link
-                  key={c.id}
-                  href={`/library/book/${book.id}/read?ch=${c.id}`}
-                  className="flex animate-fade-up items-center justify-between py-3"
-                  style={{ animationDelay: `${i * 0.03}s` }}
-                >
-                  <span className="text-sm text-ink-700 dark:text-dark-text/85">第{c.no}章 {c.title}</span>
-                  <span className="flex items-center gap-1">
-                    {c.status === "reading" && <span className="text-[11px] text-celadon">在读</span>}
-                    {c.status === "read" && <Check size={14} className="text-ink-300" />}
-                    <ChevronRight size={16} className="text-ink-300" />
-                  </span>
-                </Link>
-              ))}
-            </div>
+          {activeMode === "video" && <VideoMode book={book} />}
+          {activeMode === "audio" && <AudioMode book={book} />}
+          {activeMode === "text" && (
+            chQ.isError ? (
+              <ErrorState title="章节加载失败" subtitle="点击重试" onRetry={() => chQ.refetch()} />
+            ) : chQ.isLoading ? (
+              <Skeleton className="h-40 w-full rounded-2xl" />
+            ) : (
+              <div className="divide-y divide-line dark:divide-white/10">
+                {chQ.data?.map((c, i) => (
+                  <Link
+                    key={c.id}
+                    href={`/library/book/${book.id}/read?ch=${c.id}`}
+                    className="flex animate-fade-up items-center justify-between py-3"
+                    style={{ animationDelay: `${i * 0.03}s` }}
+                  >
+                    <span className="text-sm text-ink-700 dark:text-dark-text/85">第{c.no}章 {c.title}</span>
+                    <span className="flex items-center gap-1">
+                      {c.status === "reading" && <span className="text-[11px] text-celadon">在读</span>}
+                      {c.status === "read" && <Check size={14} className="text-ink-300" />}
+                      <ChevronRight size={16} className="text-ink-300" />
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            )
           )}
-          {chQ.isLoading && <Skeleton className="h-40 w-full rounded-2xl" />}
         </div>
       </div>
 

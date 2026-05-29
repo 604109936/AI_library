@@ -1,8 +1,9 @@
 "use client";
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Heart } from "lucide-react";
+import { Heart, PenLine } from "lucide-react";
 import { Header } from "@/components/shell/Header";
 import { Avatar } from "@/components/ui/Avatar";
 import { Stars } from "@/components/ui/Stars";
@@ -13,6 +14,7 @@ import { useLibrary, requireLogin } from "@/lib/store";
 
 export default function ReviewListPage({ params }: { params: { id: string } }) {
   const { id } = params;
+  const router = useRouter();
   const [sort, setSort] = useState<"hot" | "new">("hot");
   const { data, isLoading } = useQuery({ queryKey: ["reviews", id, sort], queryFn: () => getBookReviews(id, sort) });
   const liked = useLibrary((s) => s.likedReviews);
@@ -41,10 +43,10 @@ export default function ReviewListPage({ params }: { params: { id: string } }) {
           </div>
         }
       />
-      <div className="space-y-3 p-4">
+      <div className="space-y-3 p-4 pb-28">
         {isLoading && Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-2xl" />)}
         {!isLoading && list.length === 0 && (
-          <EmptyState icon="review" title="还没有书评" subtitle="成为第一个分享想法的人" actionText="写书评" actionHref={`/library/book/${id}/review/new`} />
+          <EmptyState icon="review" title="还没有书评" subtitle="成为第一个分享想法的人" />
         )}
         {list.map((r) => {
           const isLiked = liked.includes(r.id);
@@ -74,6 +76,16 @@ export default function ReviewListPage({ params }: { params: { id: string } }) {
             </div>
           );
         })}
+      </div>
+
+      {/* 常驻「写书评」入口 */}
+      <div className="app-width fixed bottom-0 left-1/2 z-30 -translate-x-1/2 border-t border-line bg-moon/95 p-3 pb-safe backdrop-blur dark:border-white/5 dark:bg-dark-bg/95">
+        <button
+          onClick={() => requireLogin(() => router.push(`/library/book/${id}/review/new`))}
+          className="flex w-full items-center justify-center gap-1.5 rounded-2xl bg-celadon py-3 text-sm font-medium text-snow shadow-celadon active:scale-[0.99]"
+        >
+          <PenLine size={16} /> 写书评
+        </button>
       </div>
     </main>
   );
