@@ -89,8 +89,8 @@ export default function BookDetail({ params }: { params: { id: string } }) {
               onClick={onFav}
               aria-pressed={fav}
               className={
-                "flex items-center gap-1 rounded-full border px-3.5 py-1.5 text-xs font-medium transition active:scale-95 " +
-                (fav ? "border-rouge/40 bg-rouge/10 text-rouge dark:bg-rouge/15" : "border-celadon text-celadon-700 dark:border-celadon/60 dark:text-celadon-300")
+                "flex items-center gap-1 rounded-full px-4 py-1.5 text-xs font-medium shadow-sm transition active:scale-95 " +
+                (fav ? "bg-rouge/15 text-rouge" : "bg-celadon-soft text-celadon-700 dark:bg-celadon/20 dark:text-celadon-300")
               }
             >
               <motion.span key={favTick} initial={favTick ? { scale: 0.5 } : false} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 500, damping: 13 }}>

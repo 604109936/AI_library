@@ -238,9 +238,10 @@ function AudioStage({ book }: { book: Book }) {
 
       <div className="mt-4 flex w-full max-w-[320px] items-center gap-2">
         <span className="w-10 text-right text-[11px] text-ink-300 tabular-nums">{formatTime(cur)}</span>
-        <div className="relative h-1.5 flex-1">
-          <div className="absolute inset-0 rounded-full bg-line dark:bg-white/10" />
+        <div className="relative h-2 flex-1">
+          <div className="absolute inset-0 rounded-full bg-ink/15 dark:bg-white/15" />
           <div className="absolute inset-y-0 left-0 rounded-full bg-celadon" style={{ width: `${pct * 100}%` }} />
+          <div className="absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-celadon shadow ring-2 ring-snow dark:ring-dark-card" style={{ left: `${pct * 100}%` }} />
           <input type="range" min={0} max={dur || 1} value={cur} aria-label="播放进度" onChange={(e) => { if (ref.current) ref.current.currentTime = +e.target.value; }} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
         </div>
         <span className="w-10 text-[11px] text-ink-300 tabular-nums">{formatTime(dur)}</span>
