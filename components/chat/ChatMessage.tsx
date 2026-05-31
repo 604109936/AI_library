@@ -14,9 +14,11 @@ const FEEDBACK = ["提示词不准", "事实错误", "格式问题", "其他"];
 export function ChatMessage({
   msg,
   onRegenerate,
+  onFeedback,
 }: {
   msg: TMsg;
   onRegenerate?: () => void;
+  onFeedback?: (value: "up" | "down" | null) => void;
 }) {
   const toast = useUI((s) => s.toast);
   const [fb, setFb] = useState<"up" | "down" | null>(msg.feedback ?? null);
@@ -83,13 +85,41 @@ export function ChatMessage({
         {/* 操作栏 */}
         {!msg.streaming && (
           <div className="mt-1.5 flex items-center gap-3 pl-1 text-ink-300">
-            <button aria-label="赞" onClick={() => { setFb("up"); toast("感谢反馈"); }}>
+            <button
+              aria-label="赞"
+              aria-pressed={fb === "up"}
+              onClick={() => {
+                const v = fb === "up" ? null : "up";
+                setFb(v);
+                setShowFb(false);
+                onFeedback?.(v);
+                if (v) toast("感谢反馈");
+              }}
+            >
               <ThumbsUp size={15} className={fb === "up" ? "text-celadon" : ""} />
             </button>
-            <button aria-label="踩" onClick={() => { setFb("down"); setShowFb(true); }}>
+            <button
+              aria-label="踩"
+              aria-pressed={fb === "down"}
+              onClick={() => {
+                const v = fb === "down" ? null : "down";
+                setFb(v);
+                setShowFb(v === "down");
+                onFeedback?.(v);
+              }}
+            >
               <ThumbsDown size={15} className={fb === "down" ? "text-celadon" : ""} />
             </button>
-            <button aria-label="复制" onClick={() => { navigator.clipboard?.writeText(msg.content); toast("已复制"); }}>
+            <button
+              aria-label="复制"
+              onClick={() => {
+                if (navigator.clipboard?.writeText) {
+                  navigator.clipboard.writeText(msg.content).then(() => toast("已复制")).catch(() => toast("复制失败", "error"));
+                } else {
+                  toast("复制失败", "error");
+                }
+              }}
+            >
               <Copy size={15} />
             </button>
             {onRegenerate && (

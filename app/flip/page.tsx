@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { Heart, MessageSquare, ArrowRight, Play, Volume2, VolumeX } from "lucide-react";
 import { BottomNav } from "@/components/shell/BottomNav";
 import { Motif } from "@/components/ui/Motif";
+import { EmptyState, ErrorState } from "@/components/ui/States";
 import { getFlip } from "@/lib/api";
 import { formatCount } from "@/lib/utils";
 import { useLibrary, useUI, requireLogin } from "@/lib/store";
@@ -13,24 +14,30 @@ import type { Book } from "@/lib/types";
 export default function FlipPage() {
   const [books, setBooks] = useState<Book[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [muted, setMuted] = useState(true);
   const [activeIdx, setActiveIdx] = useState(0);
   const fetching = useRef(false);
+  const booksRef = useRef<Book[]>([]);
+  useEffect(() => { booksRef.current = books; }, [books]);
 
-  useEffect(() => {
-    getFlip([]).then((b) => { setBooks(b); setLoading(false); });
+  const load = useCallback(() => {
+    setLoading(true);
+    setError(false);
+    getFlip([])
+      .then((b) => { setBooks(b); setLoading(false); })
+      .catch(() => { setError(true); setLoading(false); });
   }, []);
+
+  useEffect(() => { load(); }, [load]);
 
   const loadMore = useCallback(() => {
     if (fetching.current) return;
     fetching.current = true;
-    setBooks((prev) => {
-      getFlip(prev.map((b) => b.id)).then((more) => {
-        setBooks((cur) => [...cur, ...more]);
-        fetching.current = false;
-      });
-      return prev;
-    });
+    // 副作用放在更新函数外，避免 StrictMode 重入导致同一 seenIds 重复拉取、产生重复 key
+    getFlip(booksRef.current.map((b) => b.id))
+      .then((more) => setBooks((cur) => [...cur, ...more]))
+      .finally(() => { fetching.current = false; });
   }, []);
 
   useEffect(() => {
@@ -41,6 +48,14 @@ export default function FlipPage() {
     <main className="h-[100dvh] overflow-hidden bg-dark-bg">
       {loading ? (
         <FlipSkeleton />
+      ) : error ? (
+        <div className="flex h-full items-center justify-center text-dark-text">
+          <ErrorState title="内容加载失败" subtitle="请检查网络后重试" onRetry={load} />
+        </div>
+      ) : books.length === 0 ? (
+        <div className="flex h-full items-center justify-center text-dark-text">
+          <EmptyState icon="book" title="暂无视频解读" subtitle="去泡馆挑一本书读读吧" actionText="去泡馆逛逛" actionHref="/library" />
+        </div>
       ) : (
         <div className="h-full snap-y snap-mandatory overflow-y-auto overscroll-contain no-scrollbar">
           {books.map((b, i) => (
@@ -124,7 +139,7 @@ function FlipSlide({ book, muted, onMute, onActive }: { book: Book; muted: boole
   function togglePlay() {
     const v = videoRef.current;
     if (!v) return;
-    if (v.paused) { v.play(); setPlaying(true); } else { v.pause(); setPlaying(false); }
+    if (v.paused) { v.play().then(() => setPlaying(true)).catch(() => setPlaying(false)); } else { v.pause(); setPlaying(false); }
   }
   function onTap() {
     const now = Date.now();

@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
@@ -23,6 +23,7 @@ export default function BookDetail({ params }: { params: { id: string } }) {
   const user = useAuth((s) => s.user);
   const isFav = useLibrary((s) => s.isFav);
   const toggleFav = useLibrary((s) => s.toggleFav);
+  const myReviews = useLibrary((s) => s.myReviews);
 
   const bookQ = useQuery({ queryKey: ["book", id], queryFn: () => getBook(id) });
   const chQ = useQuery({ queryKey: ["chapters", id], queryFn: () => getChapters(id) });
@@ -32,6 +33,13 @@ export default function BookDetail({ params }: { params: { id: string } }) {
   const fav = book && user ? isFav(book.id) : false;
   const [favTick, setFavTick] = useState(0);
   const [expand, setExpand] = useState(false);
+
+  // 预览合并本地新发布书评，避免刚写完返回详情页看不到（与「全部」列表页一致）
+  const reviewPreview = useMemo(() => {
+    const real = id.split("__")[0];
+    const mine = myReviews.filter((r) => r.bookId === real);
+    return [...mine, ...(rvQ.data ?? [])].slice(0, 2);
+  }, [myReviews, rvQ.data, id]);
 
   if (bookQ.isLoading) return <DetailSkeleton />;
   if (bookQ.isError || !book) return <ErrorState onRetry={() => bookQ.refetch()} />;
@@ -164,14 +172,16 @@ export default function BookDetail({ params }: { params: { id: string } }) {
             全部 <ChevronRight size={14} />
           </Link>
         </div>
-        {rvQ.data && rvQ.data.length === 0 ? (
+        {rvQ.isError ? (
+          <ErrorState title="书评加载失败" subtitle="点击重试" onRetry={() => rvQ.refetch()} />
+        ) : rvQ.data && reviewPreview.length === 0 ? (
           <div className="flex flex-col items-center gap-2 rounded-2xl bg-snow p-6 text-center text-sm text-ink-500 shadow-sm dark:bg-dark-card dark:text-dark-text/60">
             <Motif name="branch" className="w-16 text-celadon/30" />
             还没有书评，来写下第一条吧
           </div>
         ) : (
           <div className="space-y-3">
-            {rvQ.data?.slice(0, 2).map((r) => (
+            {reviewPreview.map((r) => (
               <div key={r.id} className="rounded-2xl bg-snow p-3.5 shadow-sm dark:bg-dark-card">
                 <div className="flex items-center gap-2">
                   <Avatar seed={r.avatarSeed} name={r.nickname} src={r.avatarUrl} size={28} />

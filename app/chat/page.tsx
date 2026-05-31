@@ -10,7 +10,7 @@ import { Motif } from "@/components/ui/Motif";
 import { buildChatReply, exampleQuestions } from "@/lib/api";
 import { sampleSessions } from "@/lib/mock/data";
 import { useChat } from "@/lib/store";
-import type { ChatMessage as TMsg } from "@/lib/types";
+import type { Book, Citation, ChatMessage as TMsg } from "@/lib/types";
 
 function ChatInner() {
   const sp = useSearchParams();
@@ -19,6 +19,9 @@ function ChatInner() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const busyRef = useRef(false); // 同步闸门：拦住同一事件循环内的重复发送（busy state 异步、挡不住快速双击）
+  const seq = useRef(0); // 单调自增，保证消息 id 不会同毫秒碰撞
+  const pendingReply = useRef<{ id: string; citations: Citation[]; recommendations: Book[] } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const upsertSession = useChat((s) => s.upsertSession);
   const sessionId = useRef<string>("sess-" + Date.now());
@@ -59,15 +62,19 @@ function ChatInner() {
 
   function send(text: string) {
     const q = text.trim();
-    if (!q || busy) return;
+    if (!q || busyRef.current) return;
+    busyRef.current = true;
     setInput("");
-    const userMsg: TMsg = { id: "u" + Date.now(), role: "user", content: q };
-    const aId = "a" + Date.now();
+    // 时间戳 + 自增计数器：跨会话/重开历史不撞（时间戳变），同毫秒快速连发也不撞（计数器变）
+    const n = `${Date.now()}-${seq.current++}`;
+    const userMsg: TMsg = { id: "u" + n, role: "user", content: q };
+    const aId = "a" + n;
     const aMsg: TMsg = { id: aId, role: "assistant", content: "", streaming: true };
     setMessages((prev) => [...prev, userMsg, aMsg]);
     setBusy(true);
 
     const { answer, citations, recommendations } = buildChatReply(q);
+    pendingReply.current = { id: aId, citations, recommendations }; // 暂存，停止生成时回写引用/推荐
     let i = 0;
     timer.current = setInterval(() => {
       i += 2;
@@ -80,6 +87,8 @@ function ChatInner() {
             m.id === aId ? { ...m, content: answer, citations, recommendations, streaming: false } : m
           )
         );
+        pendingReply.current = null;
+        busyRef.current = false;
         setBusy(false);
       }
     }, 16);
@@ -87,8 +96,25 @@ function ChatInner() {
 
   function stop() {
     if (timer.current) clearInterval(timer.current);
-    setMessages((prev) => prev.map((m) => (m.streaming ? { ...m, streaming: false } : m)));
+    const pr = pendingReply.current;
+    // 停止时也把已算好的引用/推荐回写到被中断的回答，保持与正常完成一致（否则正文里“点下方引用卡”会指向不存在的卡）
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (!m.streaming) return m;
+        if (pr && m.id === pr.id) return { ...m, citations: pr.citations, recommendations: pr.recommendations, streaming: false };
+        return { ...m, streaming: false };
+      })
+    );
+    pendingReply.current = null;
+    busyRef.current = false;
     setBusy(false);
+  }
+
+  // 赞/踩写回消息并持久化，重开历史对话时可正确回显
+  function setFeedback(id: string, v: "up" | "down" | null) {
+    const next = messages.map((m) => (m.id === id ? { ...m, feedback: v ?? undefined } : m));
+    setMessages(next);
+    persist(next);
   }
 
   function regenerate() {
@@ -148,6 +174,7 @@ function ChatInner() {
                 key={m.id}
                 msg={m}
                 onRegenerate={!busy && m.role === "assistant" && i === messages.length - 1 ? regenerate : undefined}
+                onFeedback={(v) => setFeedback(m.id, v)}
               />
             ))}
             <div ref={bottomRef} />

@@ -57,10 +57,11 @@ export async function getBooks(opts: {
   // 为了演示无限滚动，复制一份扩充
   const expanded = [...list, ...list, ...list];
   const cursor = opts.cursor ?? 0;
-  const items = expanded.slice(cursor, cursor + PAGE).map((b, i) => ({
-    ...b,
-    id: cursor === 0 ? b.id : `${b.id}__${cursor}_${i}`, // 保持唯一 key
-  }));
+  const items = expanded.slice(cursor, cursor + PAGE).map((b, i) => {
+    const absolute = cursor + i;
+    // 仅“第一份”原始书保留真实 id，之后所有副本一律加唯一后缀，避免首屏（含分类书数<PAGE 时）撞 key
+    return { ...b, id: absolute < list.length ? b.id : `${b.id}__${absolute}` };
+  });
   const next = cursor + PAGE;
   return { items, nextCursor: next < expanded.length ? next : null, hasMore: next < expanded.length };
 }

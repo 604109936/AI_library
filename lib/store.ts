@@ -74,6 +74,8 @@ export interface NotifyPrefs {
   weekly: boolean;
 }
 interface UIState {
+  hydrated: boolean;
+  setHydrated: () => void;
   theme: Theme;
   setTheme: (t: Theme) => void;
   notify: NotifyPrefs;
@@ -93,6 +95,8 @@ let toastId = 1;
 export const useUI = create<UIState>()(
   persist(
     (set, get) => ({
+      hydrated: false,
+      setHydrated: () => set({ hydrated: true }),
       theme: "light",
       setTheme: (t) => set({ theme: t }),
       notify: { push: true, weekly: true },
@@ -119,6 +123,7 @@ export const useUI = create<UIState>()(
     {
       name: "ail-ui",
       partialize: (s) => ({ theme: s.theme, notify: s.notify, recentSearches: s.recentSearches }),
+      onRehydrateStorage: () => (state) => state?.setHydrated(),
     }
   )
 );

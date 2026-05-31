@@ -7,7 +7,7 @@ import { ChevronRight, BookMarked, Settings, Info, LogOut, Clock, BookOpen, Note
 import { BottomNav } from "@/components/shell/BottomNav";
 import { Avatar } from "@/components/ui/Avatar";
 import { Motif } from "@/components/ui/Motif";
-import { useAuth, useLibrary, useUI } from "@/lib/store";
+import { useAuth, useUI } from "@/lib/store";
 
 export default function MePage() {
   const router = useRouter();
@@ -29,7 +29,7 @@ export default function MePage() {
   const menu = [
     { icon: BookMarked, label: "我的收藏", href: "/me/favorites" },
     { icon: Settings, label: "设置", href: "/me/settings" },
-    { icon: Info, label: "关于", href: "/me/settings" },
+    { icon: Info, label: "关于", href: "/me/legal?doc=about" },
   ];
 
   return (
@@ -62,16 +62,24 @@ export default function MePage() {
         <div className="relative mt-5 grid grid-cols-4 gap-2">
           {stats.map((st) => {
             const Icon = st.icon;
-            return (
-              <Link
-                key={st.label}
-                href={user && st.href ? st.href : "#"}
-                onClick={(e) => { if (!user || !st.href) { e.preventDefault(); if (!user) openLogin(); } }}
-                className="flex flex-col items-center rounded-xl bg-moon py-3 dark:bg-dark-bg"
-              >
+            const cls = "flex flex-col items-center rounded-xl bg-moon py-3 dark:bg-dark-bg";
+            const inner = (
+              <>
                 <Icon size={15} className="text-celadon-700 dark:text-celadon-300" />
                 <p className="mt-1 font-serif text-lg leading-none text-ink dark:text-dark-text">{st.value}</p>
                 <p className="mt-1 text-[11px] text-ink-300">{st.label}</p>
+              </>
+            );
+            // 无对应详情页（总时长）：纯展示、不可点；其余三项登录后跳转、未登录引导登录
+            if (!st.href) return <div key={st.label} className={cls}>{inner}</div>;
+            return (
+              <Link
+                key={st.label}
+                href={user ? st.href : "#"}
+                onClick={(e) => { if (!user) { e.preventDefault(); openLogin(); } }}
+                className={cls}
+              >
+                {inner}
               </Link>
             );
           })}

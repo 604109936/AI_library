@@ -14,7 +14,6 @@ const MAX = 2000;
 export default function ReviewEditor({ params }: { params: { id: string } }) {
   const { id } = params;
   const router = useRouter();
-  const user = useAuth((s) => s.user);
   const openLogin = useUI((s) => s.openLogin);
   const toast = useUI((s) => s.toast);
   const addReview = useLibrary((s) => s.addReview);
@@ -27,13 +26,10 @@ export default function ReviewEditor({ params }: { params: { id: string } }) {
   const canPublish = rating > 0 && content.trim().length >= 10;
   const hint = rating === 0 ? "请先打分" : content.trim().length < 10 ? `还需 ${10 - content.trim().length} 字即可发布` : "";
 
-  function publish() {
-    if (!book) return;
-    if (!user) {
-      openLogin(publish); // 未登录强制登录后再发布
-      return;
-    }
-    if (!canPublish) return;
+  // 实际发布：登录态用 store getState 实时读取，避免闭包捕获登录前的 null（登录后由 pending 回调触发也能拿到最新用户）
+  function doPublish() {
+    const u = useAuth.getState().user;
+    if (!u || !book || !canPublish) return;
     addReview({
       id: "mr" + Date.now(),
       bookId: book.id.split("__")[0],
@@ -41,9 +37,9 @@ export default function ReviewEditor({ params }: { params: { id: string } }) {
       bookCoverSeed: book.coverSeed,
       bookCover: book.cover,
       userId: "me",
-      nickname: user.nickname,
-      avatarSeed: user.avatarSeed,
-      avatarUrl: user.avatarUrl,
+      nickname: u.nickname,
+      avatarSeed: u.avatarSeed,
+      avatarUrl: u.avatarUrl,
       rating,
       title: title.trim() || undefined,
       content: content.trim(),
@@ -53,6 +49,13 @@ export default function ReviewEditor({ params }: { params: { id: string } }) {
     });
     toast("书评已发布");
     router.back();
+  }
+  function publish() {
+    if (!useAuth.getState().user) {
+      openLogin(doPublish); // 未登录：登录成功后由 pending 回调执行 doPublish
+      return;
+    }
+    doPublish();
   }
 
   const nearLimit = content.length > MAX * 0.9;

@@ -19,6 +19,7 @@ const ICONS: Record<string, typeof Brain> = { Brain, TrendingUp, Feather, Landma
 
 export default function LibraryHome() {
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: ["home"], queryFn: getHome });
+  const hydrated = useLibrary((s) => s.hydrated);
   const history = useLibrary((s) => s.history);
   const [recoStart, setRecoStart] = useState(0);
 
@@ -55,8 +56,8 @@ export default function LibraryHome() {
             ))}
           </section>
 
-          {/* 继续阅读（游客本地历史也展示） */}
-          {history.length > 0 && (
+          {/* 继续阅读（游客本地历史也展示）· 等持久化水合后再渲染，避免 SSR/CSR 首帧不一致闪烁 */}
+          {hydrated && history.length > 0 && (
             <section>
               <h2 className="mb-2.5 font-serif text-base text-ink dark:text-dark-text">继续阅读</h2>
               <div className="-mx-4 flex gap-3 overflow-x-auto px-4 no-scrollbar">

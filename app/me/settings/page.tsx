@@ -84,8 +84,8 @@ export default function SettingsPage() {
           {/* 关于 */}
           <Group title="关于">
             <Item label="版本" value="v1.0.0" />
-            <Item label="用户协议" onClick={() => toast("用户协议", "info")} />
-            <Item label="隐私政策" onClick={() => toast("隐私政策", "info")} />
+            <Item label="用户协议" onClick={() => router.push("/me/legal?doc=terms")} />
+            <Item label="隐私政策" onClick={() => router.push("/me/legal?doc=privacy")} />
             <Item label="意见反馈" onClick={() => toast("感谢反馈", "info")} />
           </Group>
         </div>

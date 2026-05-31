@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, Search as SearchIcon, X, BookMarked, Flame } from "lucide-react";
 import { BookRow } from "@/components/library/BookCard";
-import { Skeleton, EmptyState } from "@/components/ui/States";
+import { Skeleton, EmptyState, ErrorState } from "@/components/ui/States";
 import { search, hotSearches } from "@/lib/api";
 import { useUI } from "@/lib/store";
 
@@ -13,6 +13,7 @@ export default function SearchPage() {
   const router = useRouter();
   const [input, setInput] = useState("");
   const [q, setQ] = useState("");
+  const hydrated = useUI((s) => s.hydrated);
   const recent = useUI((s) => s.recentSearches);
   const addRecent = useUI((s) => s.addRecent);
   const clearRecent = useUI((s) => s.clearRecent);
@@ -23,7 +24,7 @@ export default function SearchPage() {
     return () => clearTimeout(t);
   }, [input]);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["search", q],
     queryFn: () => search(q),
     enabled: q.length > 0,
@@ -31,21 +32,25 @@ export default function SearchPage() {
 
   const hasResult = data && (data.books.length > 0 || data.chapters.length > 0);
 
-  // 真实键入且有结果时写入历史
+  // 仅“有结果”时写入历史（提交/点击只切换 q，由此 effect 统一记录，避免零结果词污染最近搜索）
   useEffect(() => {
     if (q && hasResult) addRecent(q);
-  }, [q, hasResult]); // eslint-disable-line
+  }, [q, hasResult, addRecent]);
 
   function submit(term: string) {
     setInput(term);
-    setQ(term.trim()); // 跳过防抖，立即进入结果态
-    addRecent(term);
+    setQ(term.trim()); // 跳过防抖，立即进入结果态；是否写历史交由上面的 effect 判断
+  }
+
+  function goBack() {
+    if (typeof window !== "undefined" && window.history.length > 1) router.back();
+    else router.push("/library");
   }
 
   return (
     <main className="min-h-[100dvh]">
       <header className="sticky top-0 z-30 flex h-14 items-center gap-2 bg-moon/90 px-2 backdrop-blur dark:bg-dark-bg/90">
-        <button onClick={() => router.back()} aria-label="返回" className="flex h-10 w-10 items-center justify-center rounded-full">
+        <button onClick={goBack} aria-label="返回" className="flex h-10 w-10 items-center justify-center rounded-full">
           <ChevronLeft size={24} className="text-ink dark:text-dark-text" />
         </button>
         <form onSubmit={(e) => { e.preventDefault(); submit(input); }} className="flex flex-1 items-center gap-2 rounded-full border border-line bg-snow px-3.5 py-2 dark:border-white/10 dark:bg-dark-card">
@@ -59,13 +64,13 @@ export default function SearchPage() {
           />
           {input && <button type="button" aria-label="清除" onClick={() => setInput("")}><X size={16} className="text-ink-300" /></button>}
         </form>
-        <button onClick={() => router.back()} className="px-2 text-sm text-ink-500 dark:text-dark-text/60">取消</button>
+        <button onClick={goBack} className="px-2 text-sm text-ink-500 dark:text-dark-text/60">取消</button>
       </header>
 
       <div className="p-4">
         {!q ? (
           <div className="space-y-6">
-            {recent.length > 0 && (
+            {hydrated && recent.length > 0 && (
               <section>
                 <div className="mb-2 flex items-center justify-between">
                   <h2 className="text-sm text-ink dark:text-dark-text">最近搜过</h2>
@@ -98,6 +103,8 @@ export default function SearchPage() {
           <div className="space-y-3">
             {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-2xl" />)}
           </div>
+        ) : isError ? (
+          <ErrorState onRetry={() => refetch()} />
         ) : !hasResult ? (
           <EmptyState icon="search" title="没有找到相关内容" subtitle="换个关键词试试" />
         ) : (

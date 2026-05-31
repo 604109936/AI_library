@@ -76,6 +76,8 @@ export interface NoteItem {
   excerpt: string; // 原文摘录
   note: string; // 我的笔记
   color: string; // 高亮色
+  start?: number; // 摘录在本章正文中的起始字符偏移（精确定位重复文本；旧数据无此字段时回退 indexOf）
+  end?: number; // 结束字符偏移
   createdAt: string;
 }
 

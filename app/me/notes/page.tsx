@@ -42,7 +42,7 @@ export default function NotesPage() {
         <div className="px-4">
           <div className="flex items-center gap-2 rounded-2xl border border-line bg-snow px-3.5 py-2.5 dark:border-white/10 dark:bg-dark-card">
             <Search size={16} className="text-ink-300" />
-            <input value={q} onChange={(e) => setQ(e.target.value)} aria-label="搜索笔记或书名" placeholder="搜索笔记或书名" className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-ink-300 dark:text-dark-text" />
+            <input value={q} onChange={(e) => { setQ(e.target.value); setExpanded(null); }} aria-label="搜索笔记或书名" placeholder="搜索笔记或书名" className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-ink-300 dark:text-dark-text" />
           </div>
 
           {groups.length === 0 ? (

@@ -12,14 +12,27 @@ function useHistoryReporter(book: Book, mode: "video" | "audio") {
   const pushHistory = useLibrary((s) => s.pushHistory);
   const setProgress = useLibrary((s) => s.setProgress);
   const last = useRef(0);
-  return (cur: number, dur: number) => {
-    const now = Date.now();
-    if (dur <= 0 || now - last.current < 5000) return;
-    last.current = now;
+  const latest = useRef({ cur: 0, dur: 0 });
+  const write = (cur: number, dur: number) => {
+    if (dur <= 0) return;
     const pct = Math.max(1, Math.round((cur / dur) * 100));
     pushHistory({ bookId: book.id, bookTitle: book.title, author: book.author, coverSeed: book.coverSeed, cover: book.cover, mode, progress: pct, lastAt: new Date().toISOString() });
     setProgress({ bookId: book.id, chapterId: `${book.id}-${mode}`, chapterNo: 1, pct, mode });
   };
+  // 节流上报（5 秒一次）
+  const report = (cur: number, dur: number) => {
+    latest.current = { cur, dur };
+    const now = Date.now();
+    if (now - last.current < 5000) return;
+    last.current = now;
+    write(cur, dur);
+  };
+  // 暂停/切走/卸载时绕过节流，确保最新进度落库
+  const flush = () => write(latest.current.cur, latest.current.dur);
+  const flushRef = useRef(flush);
+  flushRef.current = flush;
+  useEffect(() => () => flushRef.current(), []);
+  return { report, flush };
 }
 
 /* ============================ 详情页顶部媒体台 ============================ */
@@ -83,7 +96,7 @@ function VideoStage({ book }: { book: Book }) {
   const [fs, setFs] = useState(false);
   const [cur, setCur] = useState(0);
   const [dur, setDur] = useState(0);
-  const report = useHistoryReporter(book, "video");
+  const { report, flush } = useHistoryReporter(book, "video");
 
   useEffect(() => { if (ref.current) ref.current.playbackRate = speed; }, [speed]);
   // 竖屏全屏 = 铺满「手机列宽 × 视口高」的浮层（不调用原生全屏，避免桌面被拉成横屏）；开启时锁背景滚动
@@ -97,7 +110,7 @@ function VideoStage({ book }: { book: Book }) {
   function toggle() {
     const v = ref.current;
     if (!v) return;
-    if (v.paused) { v.play(); setStarted(true); } else v.pause();
+    if (v.paused) { setStarted(true); v.play().catch(() => setStarted(false)); } else v.pause();
   }
   function cycleSpeed() {
     const i = SPEEDS.indexOf(speed);
@@ -121,7 +134,7 @@ function VideoStage({ book }: { book: Book }) {
         className={fs ? "h-full w-full object-contain" : "h-full w-full object-cover"}
         onClick={toggle}
         onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
+        onPause={() => { setPlaying(false); flush(); }}
         onTimeUpdate={(e) => { setCur(e.currentTarget.currentTime); report(e.currentTarget.currentTime, e.currentTarget.duration || 0); }}
         onLoadedMetadata={(e) => setDur(e.currentTarget.duration || 0)}
       />
@@ -186,14 +199,15 @@ function AudioStage({ book }: { book: Book }) {
   const [dur, setDur] = useState(0);
   const [speed, setSpeed] = useState(1);
   const [coverOk, setCoverOk] = useState(true);
-  const report = useHistoryReporter(book, "audio");
+  const { report, flush } = useHistoryReporter(book, "audio");
 
   useEffect(() => { if (ref.current) ref.current.playbackRate = speed; }, [speed]);
 
   function toggle() {
     const a = ref.current;
     if (!a) return;
-    if (playing) a.pause(); else a.play();
+    // 按元素真实状态判断，避免本地 playing 标志与实际脱节；并兜底 play() 的 Promise 拒绝
+    if (a.paused) a.play().catch(() => {}); else a.pause();
   }
   function skip(sec: number) {
     const a = ref.current;
@@ -211,7 +225,7 @@ function AudioStage({ book }: { book: Book }) {
         ref={ref}
         src={book.audioUrl}
         onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
+        onPause={() => { setPlaying(false); flush(); }}
         onTimeUpdate={(e) => { setCur(e.currentTarget.currentTime); report(e.currentTarget.currentTime, e.currentTarget.duration || 0); }}
         onLoadedMetadata={(e) => setDur(e.currentTarget.duration || 0)}
       />

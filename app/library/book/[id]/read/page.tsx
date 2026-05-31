@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronLeft, Type, List, Palette, Sun, Check, Trash2 } from "lucide-react";
 import { getBook, getChapters } from "@/lib/api";
-import { Skeleton } from "@/components/ui/States";
+import { Skeleton, ErrorState } from "@/components/ui/States";
 import { Motif } from "@/components/ui/Motif";
 import { useLibrary, useReader, useUI, requireLogin, type ReaderBg } from "@/lib/store";
 import type { Chapter, NoteItem } from "@/lib/types";
@@ -39,21 +39,34 @@ function ReaderInner({ id }: { id: string }) {
 
   const [toc, setToc] = useState(false);
   const [settings, setSettings] = useState(false);
-  const [menu, setMenu] = useState<{ x: number; y: number; text: string; below: boolean } | null>(null);
-  const [notePanel, setNotePanel] = useState<{ excerpt: string; color: string } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; text: string; below: boolean; start: number } | null>(null);
+  const [notePanel, setNotePanel] = useState<{ excerpt: string; color: string; start: number } | null>(null);
   const [noteText, setNoteText] = useState("");
   const [activeNote, setActiveNote] = useState<NoteItem | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [pct, setPct] = useState(0);
   const pctRef = useRef(0);
+  const resumed = useRef(false);
 
   const bgCls = BG_OPTIONS.find((b) => b.key === reader.bg)?.cls ?? "reader-bg-moon";
   const chapterNotes = cur ? notes.filter((n) => n.bookId === id.split("__")[0] && n.chapterId === cur.id) : [];
 
+  // 进入阅读页若未指定章节，恢复上次阅读到的章节（一次性，避免覆盖用户手动切章）
+  useEffect(() => {
+    if (resumed.current || !chapters.length) return;
+    resumed.current = true;
+    if (curId || sp.get("ch")) return; // 已手动切章 / 深链指定了章节
+    const saved = useLibrary.getState().progress[id.split("__")[0]]?.chapterId;
+    if (saved && chapters.some((c) => c.id === saved)) setCurId(saved);
+  }, [chapters, curId, sp, id]);
+
   // 历史 + 进度上报：进入即记录，之后每 5 秒一次，离开/切章再记录
   useEffect(() => {
     if (!bookQ.data || !cur) return;
+    // 切章时重置本章进度，避免沿用上一章的 pct（旧章离开值已在上一个 effect 的 cleanup 中按真实值上报）
+    pctRef.current = 0;
+    setPct(0);
     const b = bookQ.data;
     const report = () => {
       const prog = Math.max(1, Math.round(pctRef.current));
@@ -77,12 +90,19 @@ function ReaderInner({ id }: { id: string }) {
 
   function readSelection() {
     const sel = window.getSelection();
-    const text = sel?.toString().trim() ?? "";
-    if (!text || !contentRef.current) { setMenu(null); return; }
+    const raw = sel?.toString() ?? "";
+    const text = raw.trim();
+    if (!text || !contentRef.current || !sel || sel.rangeCount === 0) { setMenu(null); return; }
     try {
-      const rect = sel!.getRangeAt(0).getBoundingClientRect();
+      const range = sel.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
       const below = rect.top < 90; // 靠近顶栏时翻到选区下方
-      setMenu({ x: rect.left + rect.width / 2, y: below ? rect.bottom + 8 : rect.top - 8, text, below });
+      // 计算选区在本章正文中的字符偏移（精确定位，含 trim 前导空白补偿）
+      const pre = range.cloneRange();
+      pre.selectNodeContents(contentRef.current);
+      pre.setEnd(range.startContainer, range.startOffset);
+      const start = pre.toString().length + (raw.length - raw.trimStart().length);
+      setMenu({ x: rect.left + rect.width / 2, y: below ? rect.bottom + 8 : rect.top - 8, text, below, start });
     } catch { setMenu(null); }
   }
   // 移动端 touchend 后选区可能尚未稳定，稍延迟读取
@@ -90,14 +110,15 @@ function ReaderInner({ id }: { id: string }) {
 
   function doHighlight(color: string) {
     const text = menu?.text ?? "";
+    const start = menu?.start;
     requireLogin(() => {
-      addNote(makeNote(text, "", color));
+      addNote(makeNote(text, "", color, start));
       toast("已高亮");
     });
     setMenu(null);
     window.getSelection()?.removeAllRanges();
   }
-  function makeNote(excerpt: string, note: string, color: string): NoteItem {
+  function makeNote(excerpt: string, note: string, color: string, start?: number): NoteItem {
     return {
       id: "n" + Date.now(),
       bookId: bookQ.data!.id.split("__")[0],
@@ -106,19 +127,21 @@ function ReaderInner({ id }: { id: string }) {
       chapterId: cur!.id,
       chapterTitle: `第${cur!.no}章 ${cur!.title}`,
       excerpt, note, color,
+      start,
+      end: typeof start === "number" ? start + excerpt.length : undefined,
       createdAt: new Date().toISOString(),
     };
   }
   function openNote() {
     if (!menu) return;
-    setNotePanel({ excerpt: menu.text, color: HL_COLORS[0] });
+    setNotePanel({ excerpt: menu.text, color: HL_COLORS[0], start: menu.start });
     setNoteText("");
     setMenu(null);
   }
   function saveNote() {
     if (!notePanel) return;
     requireLogin(() => {
-      addNote(makeNote(notePanel.excerpt, noteText, notePanel.color));
+      addNote(makeNote(notePanel.excerpt, noteText, notePanel.color, notePanel.start));
       toast("笔记已保存");
     });
     setNotePanel(null);
@@ -130,6 +153,12 @@ function ReaderInner({ id }: { id: string }) {
       <main className="min-h-[100dvh] p-4">
         <Skeleton className="h-6 w-40 rounded" />
         <Skeleton className="mt-4 h-80 w-full rounded" />
+      </main>
+    );
+  if (bookQ.isError || chQ.isError)
+    return (
+      <main className="min-h-[100dvh]">
+        <ErrorState title="内容加载失败" subtitle="点击重试" onRetry={() => { bookQ.refetch(); chQ.refetch(); }} />
       </main>
     );
   if (!bookQ.data || !cur) return <div className="p-8 text-center text-ink-500">未找到内容</div>;
@@ -320,7 +349,11 @@ function renderHighlighted(text: string, notes: NoteItem[], onClick: (n: NoteIte
   const marks: { start: number; end: number; note: NoteItem }[] = [];
   notes.forEach((n) => {
     if (!n.excerpt) return;
-    const i = text.indexOf(n.excerpt);
+    // 优先用保存的字符偏移精确定位（重复文本不再串位）；旧数据无 offset 时回退 indexOf
+    const i =
+      typeof n.start === "number" && text.slice(n.start, n.end) === n.excerpt
+        ? n.start
+        : text.indexOf(n.excerpt);
     if (i >= 0) marks.push({ start: i, end: i + n.excerpt.length, note: n });
   });
   if (!marks.length) return text;
