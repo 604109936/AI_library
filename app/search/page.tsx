@@ -91,7 +91,7 @@ export default function SearchPage() {
                       <button
                         aria-label="移除"
                         onClick={() => removeRecent(t)}
-                        className="ml-1 flex h-6 w-6 items-center justify-center rounded-full active:bg-line/50 dark:active:bg-white/10"
+                        className="ml-1 flex h-7 w-7 items-center justify-center rounded-full active:bg-line/50 dark:active:bg-white/10"
                       >
                         <X size={14} className="text-ink-300" />
                       </button>

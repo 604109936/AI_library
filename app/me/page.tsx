@@ -9,7 +9,6 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Motif } from "@/components/ui/Motif";
 import { BottomSheet } from "@/components/ui/BottomSheet";
 import { useAuth, useLibrary, useUI } from "@/lib/store";
-import { isFinished } from "@/lib/utils";
 
 export default function MePage() {
   const router = useRouter();
@@ -30,8 +29,8 @@ export default function MePage() {
   const stats = [
     // 总时长暂无真实数据源，沿用 mock；无落地页（href: undefined → 渲染为静态 div）
     { label: "总时长", value: user ? `${user.stats.hours}h` : "—", icon: Clock, href: undefined as string | undefined },
-    // 「已读」口径与子页对齐：用统一 isFinished 判定读完的书数（F74）
-    { label: "已读", value: ready ? String(history.filter((h) => isFinished(h.progress)).length) : "—", icon: BookOpen, href: "/me/history" },
+    // 「阅读」口径与「阅读历史」页一致：统计有阅读记录的书数（含在读+已读），点击进历史（F74）
+    { label: "阅读", value: ready ? String(history.length) : "—", icon: BookOpen, href: "/me/history" },
     { label: "笔记", value: ready ? String(notes.length) : "—", icon: NotebookPen, href: "/me/notes" },
     { label: "书评", value: ready ? String(myReviews.length) : "—", icon: Star, href: "/me/reviews" },
   ];

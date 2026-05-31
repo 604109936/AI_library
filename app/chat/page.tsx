@@ -13,9 +13,9 @@ import { useChat } from "@/lib/store";
 import { genId } from "@/lib/utils";
 import type { ChatMessage as TMsg } from "@/lib/types";
 
-// 纯前端 mock：偶发回答失败，用于演示「失败可重试」态（接真实接口后由网络结果替代）
+// 纯前端 mock：极低概率回答失败，仅用于演示「失败可重试」态（接真实接口后由网络结果替代）
 function shouldChatFail() {
-  return Math.random() < 0.12;
+  return Math.random() < 0.05;
 }
 
 function ChatInner() {

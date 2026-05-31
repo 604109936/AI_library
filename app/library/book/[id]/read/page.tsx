@@ -261,7 +261,7 @@ function ReaderInner({ id }: { id: string }) {
         {notePanel && (
           <motion.div className="fixed inset-0 z-50 flex items-end justify-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <div className="absolute inset-0 bg-ink/30" onClick={() => setNotePanel(null)} />
-            <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className={"app-width relative rounded-t-[24px] p-5 " + (panelDark ? "bg-dark-card" : "bg-snow")}>
+            <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className={"app-width relative rounded-t-2xl p-5 " + (panelDark ? "bg-dark-card" : "bg-snow")}>
               <p className={"mb-2 rounded-lg border-l-[3px] px-3 py-2 text-xs " + (panelDark ? "text-dark-text/75" : "text-ink-700")} style={{ borderColor: notePanel.color, background: notePanel.color + "22" }}>{notePanel.excerpt}</p>
               <div className="mb-2 flex items-center gap-3">
                 <span className={"text-xs " + (panelDark ? "text-dark-text/60" : "text-ink-500")}>标记色</span>
@@ -281,7 +281,7 @@ function ReaderInner({ id }: { id: string }) {
         {activeNote && (
           <motion.div className="fixed inset-0 z-50 flex items-end justify-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <div className="absolute inset-0 bg-ink/30" onClick={() => setActiveNote(null)} />
-            <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className={"app-width relative rounded-t-[24px] p-5 " + (panelDark ? "bg-dark-card" : "bg-snow")}>
+            <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className={"app-width relative rounded-t-2xl p-5 " + (panelDark ? "bg-dark-card" : "bg-snow")}>
               <p className={"mb-2 rounded-lg border-l-[3px] px-3 py-2 text-sm " + (panelDark ? "text-dark-text/75" : "text-ink-700")} style={{ borderColor: activeNote.color, background: activeNote.color + "22" }}>{activeNote.excerpt}</p>
               {activeNote.note ? (
                 <p className={"text-sm " + (panelDark ? "text-dark-text" : "text-ink")}>{activeNote.note}</p>
@@ -333,7 +333,7 @@ function ReaderInner({ id }: { id: string }) {
         {settings && (
           <motion.div className="fixed inset-0 z-50 flex items-end justify-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <div className="absolute inset-0 bg-ink/20" onClick={() => setSettings(false)} />
-            <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className={"app-width relative rounded-t-[24px] p-5 " + (panelDark ? "bg-dark-card" : "bg-snow")}>
+            <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className={"app-width relative rounded-t-2xl p-5 " + (panelDark ? "bg-dark-card" : "bg-snow")}>
               <h3 className={"mb-3 text-center font-serif text-base " + (panelDark ? "text-dark-text" : "text-ink")}>阅读设置</h3>
               <Row label="字号" panelDark={panelDark}>
                 <div className="flex gap-2">
