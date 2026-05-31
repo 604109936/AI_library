@@ -1,8 +1,8 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Search, Brain, TrendingUp, Feather, Landmark, Cpu, Sprout, ArrowRight, RefreshCw, Play } from "lucide-react";
+import { Search, Brain, TrendingUp, Feather, Landmark, Cpu, Sprout, ArrowRight, RefreshCw } from "lucide-react";
 import { getHome } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import { BottomNav } from "@/components/shell/BottomNav";
@@ -20,13 +20,24 @@ const ICONS: Record<string, typeof Brain> = { Brain, TrendingUp, Feather, Landma
 export default function LibraryHome() {
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: ["home"], queryFn: getHome });
   const history = useLibrary((s) => s.history);
-  const [recoStart, setRecoStart] = useState(0);
+  const [recoPage, setRecoPage] = useState(0);
+  const [heroActive, setHeroActive] = useState(0);
+  const heroRef = useRef<HTMLDivElement>(null);
 
+  // 推荐按整页（每页5本）翻，不重叠；不足一页时不展示"换一批"
+  const recommendLen = data?.recommend?.length ?? 0;
+  const recoPageCount = Math.max(1, Math.ceil(recommendLen / 5));
   const reco = useMemo(() => {
     const list = data?.recommend ?? [];
-    if (!list.length) return [];
-    return Array.from({ length: Math.min(5, list.length) }, (_, i) => list[(recoStart + i) % list.length]);
-  }, [data, recoStart]);
+    const start = (recoPage % Math.max(1, Math.ceil(list.length / 5))) * 5;
+    return list.slice(start, start + 5);
+  }, [data, recoPage]);
+
+  function onHeroScroll(e: React.UIEvent<HTMLDivElement>) {
+    const el = e.currentTarget;
+    const step = el.clientWidth * 0.88 + 12; // 单卡宽(88%) + gap-3
+    setHeroActive(Math.round(el.scrollLeft / step));
+  }
 
   return (
     <main className="min-h-[100dvh] pb-24">
@@ -49,10 +60,30 @@ export default function LibraryHome() {
       {data && (
         <div className="space-y-7 px-4 pt-3">
           {/* Hero 大图轮播 */}
-          <section className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 no-scrollbar">
-            {data.banners.map((b) => (
-              <HeroCard key={b.id} book={b} />
-            ))}
+          <section>
+            <div
+              ref={heroRef}
+              onScroll={onHeroScroll}
+              className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 no-scrollbar"
+            >
+              {data.banners.map((b, i) => (
+                <HeroCard key={b.id} book={b} eager={i === 0} />
+              ))}
+            </div>
+            {/* 分页指示器：仅多张时显示 */}
+            {data.banners.length > 1 && (
+              <div className="mt-2.5 flex items-center justify-center gap-1.5">
+                {data.banners.map((b, i) => (
+                  <span
+                    key={b.id}
+                    className={cn(
+                      "h-1.5 rounded-full transition-all duration-300",
+                      i === heroActive ? "w-4 bg-celadon" : "w-1.5 bg-ink/15 dark:bg-white/20"
+                    )}
+                  />
+                ))}
+              </div>
+            )}
           </section>
 
           {/* 继续阅读（游客本地历史也展示） */}
@@ -69,12 +100,12 @@ export default function LibraryHome() {
                     <BookCover title={h.bookTitle} seed={h.coverSeed} src={h.cover} className="w-[46px] shrink-0" showText={false} />
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-serif text-sm text-ink dark:text-dark-text">{h.bookTitle}</p>
-                      {h.author && <p className="mt-0.5 truncate text-[11px] text-ink-300">{h.author}</p>}
+                      {h.author && <p className="mt-0.5 truncate text-caption text-ink-500 dark:text-dark-text/55">{h.author}</p>}
                       <div className="mt-1.5 flex items-center gap-2">
                         <div className="h-1 flex-1 overflow-hidden rounded-full bg-line dark:bg-white/10">
                           <div className="h-full rounded-full bg-celadon" style={{ width: `${h.progress}%` }} />
                         </div>
-                        <span className="text-[10px] text-ink-300">{h.progress}%</span>
+                        <span className="text-micro text-ink-500 dark:text-dark-text/55">{h.progress}%</span>
                       </div>
                     </div>
                   </Link>
@@ -100,7 +131,7 @@ export default function LibraryHome() {
                     </span>
                     <div>
                       <p className="text-sm text-ink dark:text-dark-text">{c.name}</p>
-                      <p className="text-[11px] text-ink-300">{c.count} 本</p>
+                      <p className="text-caption text-ink-500 dark:text-dark-text/55">{c.count} 本</p>
                     </div>
                   </Link>
                 );
@@ -112,15 +143,17 @@ export default function LibraryHome() {
           <section>
             <div className="mb-2.5 flex items-center justify-between">
               <h2 className="font-serif text-base text-ink dark:text-dark-text">热门好书</h2>
-              <button
-                onClick={() => setRecoStart((s) => s + 5)}
-                className="flex items-center gap-1 text-xs text-celadon-700 active:scale-95 dark:text-celadon-300"
-              >
-                <RefreshCw size={13} /> 换一批
-              </button>
+              {recommendLen > 5 && (
+                <button
+                  onClick={() => setRecoPage((p) => (p + 1) % recoPageCount)}
+                  className="flex items-center gap-1 text-xs text-celadon-700 active:scale-95 dark:text-celadon-300"
+                >
+                  <RefreshCw size={13} /> 换一批
+                </button>
+              )}
             </div>
             <motion.div
-              key={recoStart}
+              key={recoPage}
               variants={staggerContainer}
               initial="hidden"
               animate="show"
@@ -141,8 +174,8 @@ export default function LibraryHome() {
   );
 }
 
-/** 首屏 Hero 大卡：氛围底图 + 立体书封 + 书名 + 立即阅读（进详情页） */
-function HeroCard({ book }: { book: Book }) {
+/** 首屏 Hero 大卡：氛围底图 + 立体书封 + 书名 + 查看详情（进详情页） */
+function HeroCard({ book, eager = false }: { book: Book; eager?: boolean }) {
   const [bgOk, setBgOk] = useState(true);
   return (
     <Link
@@ -156,6 +189,8 @@ function HeroCard({ book }: { book: Book }) {
         <img
           src={book.heroUrl}
           alt=""
+          loading={eager ? "eager" : "lazy"}
+          fetchPriority={eager ? "high" : "auto"}
           onError={() => setBgOk(false)}
           className="absolute inset-0 h-full w-full object-cover"
         />
@@ -169,7 +204,7 @@ function HeroCard({ book }: { book: Book }) {
           <h3 className="mt-1 font-serif text-2xl leading-tight text-white drop-shadow-sm">{book.title}</h3>
           <p className="mt-1 line-clamp-1 text-sm text-white/85">{book.intro}</p>
           <span className="mt-4 inline-flex w-fit items-center gap-1 rounded-full bg-white px-4 py-1.5 text-xs font-medium text-celadon-700 shadow active:scale-95">
-            <Play size={12} className="fill-celadon-700" /> 立即阅读
+            查看详情 <ArrowRight size={12} />
           </span>
         </div>
         <BookCover
@@ -187,17 +222,18 @@ function HeroCard({ book }: { book: Book }) {
 function HomeSkeleton() {
   return (
     <div className="space-y-7 px-4 pt-3">
-      <Skeleton className="h-[208px] w-full rounded-3xl" />
-      <div className="flex gap-3">
-        <Skeleton className="h-20 w-[248px] shrink-0 rounded-2xl" />
-        <Skeleton className="h-20 w-[120px] shrink-0 rounded-2xl" />
+      {/* Hero：与真实卡同为 88% 宽，露出右侧下一张的边，避免数据回来后位移 */}
+      <Skeleton className="h-[208px] w-[88%] rounded-3xl" />
+      <div className="space-y-2.5">
+        <Skeleton className="h-5 w-16 rounded" />
+        <div className="grid grid-cols-2 gap-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-16 rounded-2xl" />
+          ))}
+        </div>
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <Skeleton key={i} className="h-16 rounded-2xl" />
-        ))}
-      </div>
-      <div className="space-y-3">
+      <div className="space-y-2.5">
+        <Skeleton className="h-5 w-20 rounded" />
         {Array.from({ length: 3 }).map((_, i) => (
           <Skeleton key={i} className="h-28 rounded-2xl" />
         ))}

@@ -14,6 +14,10 @@ const THEMES: { key: Theme; label: string }[] = [
   { key: "system", label: "跟随系统" },
 ];
 
+// 阅读模式术语统一（F14）：全 APP 口径对齐为「视频/音频/原文」，与详情页播放器、阅读历史一致，避免「听书/文字」并存的歧义
+const READING_MODE_LABEL: Record<ReadingMode, string> = { video: "视频", audio: "音频", text: "原文" };
+const READING_MODE_OPTIONS = (["video", "audio", "text"] as ReadingMode[]).map((v) => ({ v, t: READING_MODE_LABEL[v] }));
+
 export default function SettingsPage() {
   const router = useRouter();
   const user = useAuth((s) => s.user);
@@ -44,9 +48,7 @@ export default function SettingsPage() {
 
           {/* 阅读偏好 */}
           <Group title="阅读偏好">
-            <SegRow label="默认阅读模式" value={reader.defaultMode} options={[
-              { v: "video", t: "视频" }, { v: "audio", t: "听书" }, { v: "text", t: "原文" },
-            ]} onPick={(v) => reader.setDefaultMode(v as ReadingMode)} />
+            <SegRow label="默认阅读模式" value={reader.defaultMode} options={READING_MODE_OPTIONS} onPick={(v) => reader.setDefaultMode(v as ReadingMode)} />
             <SegRow label="默认字号" value={reader.fontSize} options={[
               { v: 16, t: "小" }, { v: 18, t: "中" }, { v: 20, t: "大" }, { v: 22, t: "超大" },
             ]} onPick={(v) => reader.setFontSize(v as number)} />
@@ -61,7 +63,7 @@ export default function SettingsPage() {
               <span className="text-sm text-ink dark:text-dark-text">外观</span>
               <div className="flex overflow-hidden rounded-full bg-moon dark:bg-dark-bg">
                 {THEMES.map((t) => (
-                  <button key={t.key} onClick={() => setTheme(t.key)} className={"px-3 py-1.5 text-xs " + (theme === t.key ? "bg-celadon text-snow" : "text-ink-500 dark:text-dark-text/60")}>
+                  <button key={t.key} onClick={() => setTheme(t.key)} aria-pressed={theme === t.key} className={"px-3 py-1.5 text-xs " + (theme === t.key ? "bg-celadon text-snow" : "text-ink-500 dark:text-dark-text/60")}>
                     {t.label}
                   </button>
                 ))}
@@ -70,9 +72,11 @@ export default function SettingsPage() {
           </Group>
 
           {/* 通知 */}
+          {/* F73：仅校正显示文案令其与底层字段语义一致并统一「提醒」结尾——push=即时推送→新书上线提醒；weekly=每周聚合→每周精选提醒。
+              不改 persist 字段名（push/weekly），避免旧缓存键失配的迁移风险。 */}
           <Group title="通知设置">
             <Toggle label="新书上线提醒" on={notify.push} onToggle={() => setNotify({ push: !notify.push })} />
-            <Toggle label="书评互动通知" on={notify.weekly} onToggle={() => setNotify({ weekly: !notify.weekly })} />
+            <Toggle label="每周精选提醒" on={notify.weekly} onToggle={() => setNotify({ weekly: !notify.weekly })} />
           </Group>
 
           {/* 隐私与数据 */}
@@ -84,9 +88,10 @@ export default function SettingsPage() {
           {/* 关于 */}
           <Group title="关于">
             <Item label="版本" value="v1.0.0" />
-            <Item label="用户协议" onClick={() => toast("用户协议", "info")} />
-            <Item label="隐私政策" onClick={() => toast("隐私政策", "info")} />
-            <Item label="意见反馈" onClick={() => toast("感谢反馈", "info")} />
+            {/* F72：协议/隐私/反馈尚未落地，统一对齐「即将上线」措辞，不再把 label 当 toast 回显造成「点了等于没点」 */}
+            <Item label="用户协议" onClick={() => toast("用户协议即将上线", "info")} />
+            <Item label="隐私政策" onClick={() => toast("隐私政策即将上线", "info")} />
+            <Item label="意见反馈" onClick={() => toast("意见反馈功能即将上线", "info")} />
           </Group>
         </div>
       </RequireAuth>
@@ -97,7 +102,7 @@ export default function SettingsPage() {
 function Group({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <p className="mb-1.5 px-1 text-xs text-ink-300">{title}</p>
+      <p className="mb-1.5 px-1 text-xs text-ink-500 dark:text-dark-text/55">{title}</p>
       <div className="overflow-hidden rounded-2xl bg-snow shadow-sm dark:bg-dark-card">{children}</div>
     </div>
   );
@@ -106,7 +111,7 @@ function Item({ label, value, danger, onClick }: { label: string; value?: string
   return (
     <button onClick={onClick} className="flex w-full items-center gap-3 border-b border-line px-4 py-3.5 last:border-0 active:bg-moon/60 dark:border-white/5 dark:active:bg-dark-bg">
       <span className={"shrink-0 text-left text-sm " + (danger ? "text-rouge" : "text-ink dark:text-dark-text")}>{label}</span>
-      {value && <span className="ml-auto max-w-[55%] truncate text-xs text-ink-300">{value}</span>}
+      {value && <span className="ml-auto max-w-[55%] truncate text-xs text-ink-500 dark:text-dark-text/55">{value}</span>}
       {onClick && <ChevronRight size={16} className={"text-ink-300 " + (value ? "" : "ml-auto")} />}
     </button>
   );
@@ -117,7 +122,7 @@ function SegRow({ label, value, options, onPick }: { label: string; value: strin
       <span className="text-sm text-ink dark:text-dark-text">{label}</span>
       <div className="flex gap-1.5">
         {options.map((o) => (
-          <button key={String(o.v)} onClick={() => onPick(o.v)} className={"rounded-lg px-2.5 py-1 text-xs " + (value === o.v ? "bg-celadon text-snow" : "bg-moon text-ink-500 dark:bg-dark-bg dark:text-dark-text/60")}>{o.t}</button>
+          <button key={String(o.v)} onClick={() => onPick(o.v)} aria-pressed={value === o.v} className={"rounded-lg px-2.5 py-1 text-xs " + (value === o.v ? "bg-celadon text-snow" : "bg-moon text-ink-500 dark:bg-dark-bg dark:text-dark-text/60")}>{o.t}</button>
         ))}
       </div>
     </div>

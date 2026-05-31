@@ -7,26 +7,32 @@ import { Heart, PenLine } from "lucide-react";
 import { Header } from "@/components/shell/Header";
 import { Avatar } from "@/components/ui/Avatar";
 import { Stars } from "@/components/ui/Stars";
-import { Skeleton, EmptyState } from "@/components/ui/States";
+import { Skeleton, EmptyState, ErrorState } from "@/components/ui/States";
 import { getBookReviews } from "@/lib/api";
-import { formatDate, formatCount } from "@/lib/utils";
+import { formatDate, formatCount, realId } from "@/lib/utils";
 import { useLibrary, requireLogin } from "@/lib/store";
+import type { Review } from "@/lib/types";
 
 export default function ReviewListPage({ params }: { params: { id: string } }) {
   const { id } = params;
   const router = useRouter();
   const [sort, setSort] = useState<"hot" | "new">("hot");
-  const { data, isLoading } = useQuery({ queryKey: ["reviews", id, sort], queryFn: () => getBookReviews(id, sort) });
+  const { data, isLoading, isError, refetch } = useQuery({ queryKey: ["reviews", id, sort], queryFn: () => getBookReviews(id, sort) });
   const liked = useLibrary((s) => s.likedReviews);
   const toggleLike = useLibrary((s) => s.toggleLike);
   const myReviews = useLibrary((s) => s.myReviews);
 
   const list = useMemo(() => {
-    const mine = myReviews.filter((r) => r.bookId === id.split("__")[0]);
+    const mine = myReviews.filter((r) => r.bookId === realId(id));
     const base = data ?? [];
     const merged = [...mine, ...base];
-    if (sort === "hot") return [...merged].sort((a, b) => b.likes - a.likes);
-    return [...merged].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
+    // 排序口径：最热按点赞、最新按时间
+    const cmp = (a: Review, b: Review) =>
+      sort === "hot" ? b.likes - a.likes : +new Date(b.createdAt) - +new Date(a.createdAt);
+    // 「我的」书评始终置顶，避免新发书评在「最热」下点赞数为 0 沉底找不到
+    const ours = merged.filter((r) => r.mine).sort(cmp);
+    const others = merged.filter((r) => !r.mine).sort(cmp);
+    return [...ours, ...others];
   }, [data, myReviews, id, sort]);
 
   return (
@@ -45,13 +51,15 @@ export default function ReviewListPage({ params }: { params: { id: string } }) {
       />
       <div className="space-y-3 p-4 pb-28">
         {isLoading && Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-2xl" />)}
-        {!isLoading && list.length === 0 && (
+        {/* 加载失败错误态：避免把请求失败误显为「还没有书评」空态 */}
+        {!isLoading && isError && <ErrorState onRetry={() => refetch()} />}
+        {!isLoading && !isError && list.length === 0 && (
           <EmptyState icon="review" title="还没有书评" subtitle="成为第一个分享想法的人" />
         )}
         {list.map((r) => {
           const isLiked = liked.includes(r.id);
           return (
-            <div key={r.id} className="animate-fade-up rounded-2xl bg-snow p-3.5 shadow-sm dark:bg-dark-card">
+            <div key={r.id} className={"animate-fade-up rounded-2xl bg-snow p-3.5 shadow-sm dark:bg-dark-card" + (r.mine ? " ring-1 ring-celadon/30" : "")}>{/* 「我的」书评青瓷描边，便于一眼定位 */}
               <div className="flex items-center gap-2">
                 <Avatar seed={r.avatarSeed} name={r.nickname} src={r.avatarUrl} size={30} />
                 <span className="text-sm text-ink dark:text-dark-text">{r.nickname}</span>
@@ -59,7 +67,7 @@ export default function ReviewListPage({ params }: { params: { id: string } }) {
                 <Stars value={r.rating} size={12} className="ml-auto" />
               </div>
               {r.title && <p className="mt-2 text-sm font-medium text-ink dark:text-dark-text">{r.title}</p>}
-              <p className="mt-1 text-sm leading-6 text-ink-700 dark:text-dark-text/85">{r.content}</p>
+              <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-ink-700 dark:text-dark-text/85">{r.content}</p>
               <div className="mt-2 flex items-center justify-between text-xs text-ink-300">
                 <button
                   onClick={() => requireLogin(() => toggleLike(r.id))}

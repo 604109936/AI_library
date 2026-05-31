@@ -2,12 +2,14 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AnimatePresence, motion } from "framer-motion";
-import { ChevronRight, BookMarked, Settings, Info, LogOut, Clock, BookOpen, NotebookPen, Star } from "lucide-react";
+import { motion } from "framer-motion";
+import { ChevronRight, BookMarked, Settings, LogOut, Clock, BookOpen, NotebookPen, Star } from "lucide-react";
 import { BottomNav } from "@/components/shell/BottomNav";
 import { Avatar } from "@/components/ui/Avatar";
 import { Motif } from "@/components/ui/Motif";
+import { BottomSheet } from "@/components/ui/BottomSheet";
 import { useAuth, useLibrary, useUI } from "@/lib/store";
+import { isFinished } from "@/lib/utils";
 
 export default function MePage() {
   const router = useRouter();
@@ -16,26 +18,34 @@ export default function MePage() {
   const logout = useAuth((s) => s.logout);
   const openLogin = useUI((s) => s.openLogin);
   const toast = useUI((s) => s.toast);
+  // 订阅库数据，使首页统计随子页增删实时一致（F12）
+  const notes = useLibrary((s) => s.notes);
+  const myReviews = useLibrary((s) => s.myReviews);
+  const history = useLibrary((s) => s.history);
+  const libHydrated = useLibrary((s) => s.hydrated);
   const [confirmOut, setConfirmOut] = useState(false);
 
-  const s = user?.stats;
+  // 两套数据都水合后再显数字，避免首帧闪 0/—
+  const ready = hydrated && libHydrated && !!user;
   const stats = [
-    { label: "总时长", value: s ? `${s.hours}h` : "—", icon: Clock, href: undefined as string | undefined },
-    { label: "已读", value: s ? String(s.read) : "—", icon: BookOpen, href: "/me/history" },
-    { label: "笔记", value: s ? String(s.notes) : "—", icon: NotebookPen, href: "/me/notes" },
-    { label: "书评", value: s ? String(s.reviews) : "—", icon: Star, href: "/me/reviews" },
+    // 总时长暂无真实数据源，沿用 mock；无落地页（href: undefined → 渲染为静态 div）
+    { label: "总时长", value: user ? `${user.stats.hours}h` : "—", icon: Clock, href: undefined as string | undefined },
+    // 「已读」口径与子页对齐：用统一 isFinished 判定读完的书数（F74）
+    { label: "已读", value: ready ? String(history.filter((h) => isFinished(h.progress)).length) : "—", icon: BookOpen, href: "/me/history" },
+    { label: "笔记", value: ready ? String(notes.length) : "—", icon: NotebookPen, href: "/me/notes" },
+    { label: "书评", value: ready ? String(myReviews.length) : "—", icon: Star, href: "/me/reviews" },
   ];
 
+  // F13：删除与「设置」href 重复的「关于」项（关于内容已在设置页内）
   const menu = [
     { icon: BookMarked, label: "我的收藏", href: "/me/favorites" },
     { icon: Settings, label: "设置", href: "/me/settings" },
-    { icon: Info, label: "关于", href: "/me/settings" },
   ];
 
   return (
     <main className="min-h-[100dvh] pb-24">
       {/* 头部（竹影装饰背景） */}
-      <div className="relative overflow-hidden bg-snow px-5 pb-6 pt-12 dark:bg-dark-card">
+      <div className="relative overflow-hidden bg-snow px-5 pb-6 pt-[calc(env(safe-area-inset-top)+3rem)] dark:bg-dark-card">
         <Motif name="bamboo" className="pointer-events-none absolute -left-2 top-0 h-24 w-24 text-celadon/25" />
         <Motif name="branch" className="pointer-events-none absolute right-0 top-1 h-24 w-24 text-celadon/25" />
 
@@ -58,20 +68,27 @@ export default function MePage() {
           </button>
         )}
 
-        {/* 数据卡 */}
+        {/* 数据卡：无 href 的「总时长」渲染为静态 div（消除伪可点死区，F74） */}
         <div className="relative mt-5 grid grid-cols-4 gap-2">
           {stats.map((st) => {
             const Icon = st.icon;
+            const cls = "flex flex-col items-center rounded-xl bg-moon py-3 dark:bg-dark-bg";
+            const inner = (
+              <>
+                <Icon size={15} className="text-celadon-700 dark:text-celadon-300" />
+                <p className="mt-1 font-serif text-lg leading-none text-ink dark:text-dark-text">{st.value}</p>
+                <p className="mt-1 text-caption text-ink-500 dark:text-dark-text/55">{st.label}</p>
+              </>
+            );
+            if (!st.href) return <div key={st.label} className={cls}>{inner}</div>;
             return (
               <Link
                 key={st.label}
-                href={user && st.href ? st.href : "#"}
-                onClick={(e) => { if (!user || !st.href) { e.preventDefault(); if (!user) openLogin(); } }}
-                className="flex flex-col items-center rounded-xl bg-moon py-3 dark:bg-dark-bg"
+                href={user ? st.href : "#"}
+                onClick={(e) => { if (!user) { e.preventDefault(); openLogin(); } }}
+                className={cls + " active:scale-[0.97]"}
               >
-                <Icon size={15} className="text-celadon-700 dark:text-celadon-300" />
-                <p className="mt-1 font-serif text-lg leading-none text-ink dark:text-dark-text">{st.value}</p>
-                <p className="mt-1 text-[11px] text-ink-300">{st.label}</p>
+                {inner}
               </Link>
             );
           })}
@@ -104,22 +121,15 @@ export default function MePage() {
 
       <Motif name="mountain" className="mx-auto mt-8 h-14 w-56 text-celadon/20" />
 
-      {/* 退出二次确认 */}
-      <AnimatePresence>
-        {confirmOut && (
-          <motion.div className="fixed inset-0 z-50 flex items-end justify-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <div className="absolute inset-0 bg-ink/30" onClick={() => setConfirmOut(false)} />
-            <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="app-width relative rounded-t-[24px] bg-snow p-5 dark:bg-dark-card">
-              <p className="text-center text-sm text-ink dark:text-dark-text">确认退出登录？</p>
-              <p className="mt-1 text-center text-xs text-ink-300">退出后本地的收藏、笔记将清空</p>
-              <div className="mt-4 flex gap-3">
-                <button onClick={() => setConfirmOut(false)} className="flex-1 rounded-2xl bg-moon py-3 text-sm text-ink-700 dark:bg-dark-bg dark:text-dark-text/80">取消</button>
-                <button onClick={() => { logout(); setConfirmOut(false); toast("已退出登录"); }} className="flex-1 rounded-2xl bg-rouge py-3 text-sm text-snow">退出</button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* 退出二次确认（统一用 BottomSheet：遮罩/滚动锁定/ESC/焦点/底部安全区，F61） */}
+      <BottomSheet open={confirmOut} onClose={() => setConfirmOut(false)} label="退出登录确认">
+        <p className="text-center text-sm text-ink dark:text-dark-text">确认退出登录？</p>
+        <p className="mt-1 text-center text-xs text-ink-500 dark:text-dark-text/55">退出后本地的收藏、笔记将清空</p>
+        <div className="mt-4 flex gap-3">
+          <button onClick={() => setConfirmOut(false)} className="flex-1 rounded-2xl bg-moon py-3 text-sm text-ink-700 dark:bg-dark-bg dark:text-dark-text/80">取消</button>
+          <button onClick={() => { logout(); setConfirmOut(false); toast("已退出登录"); }} className="flex-1 rounded-2xl bg-rouge py-3 text-sm text-snow">退出</button>
+        </div>
+      </BottomSheet>
 
       <BottomNav active="me" />
     </main>

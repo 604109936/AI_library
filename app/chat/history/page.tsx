@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Search, MessageCircle, Trash2 } from "lucide-react";
 import { Header } from "@/components/shell/Header";
 import { EmptyState } from "@/components/ui/States";
+import { IconButton } from "@/components/ui/IconButton";
 import { Motif } from "@/components/ui/Motif";
 import { useChat, useUI } from "@/lib/store";
 import { sampleSessions } from "@/lib/mock/data";
@@ -23,6 +24,7 @@ export default function ChatHistory() {
   const sessions = useChat((s) => s.sessions);
   const removeSession = useChat((s) => s.removeSession);
   const clearSessions = useChat((s) => s.clearSessions);
+  const hydrated = useChat((s) => s.hydrated);
   const toast = useUI((s) => s.toast);
   const [q, setQ] = useState("");
   const [confirm, setConfirm] = useState<{ type: "one"; id: string } | { type: "all" } | null>(null);
@@ -30,13 +32,15 @@ export default function ChatHistory() {
   const hasReal = sessions.length > 0;
 
   const all = useMemo(() => {
+    // 水合完成前不合并示例会话，避免 SSR/客户端首屏不一致闪烁
+    if (!hydrated) return [] as (ChatSession & { real: boolean })[];
     const realIds = new Set(sessions.map((s) => s.id));
     const merged = [
       ...sessions.map((s) => ({ ...s, real: true })),
       ...sampleSessions.filter((s) => !realIds.has(s.id)).map((s) => ({ ...s, real: false })),
     ];
     return merged.sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt));
-  }, [sessions]);
+  }, [sessions, hydrated]);
 
   const kw = q.trim();
   const list = kw
@@ -87,19 +91,19 @@ export default function ChatHistory() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <p className="min-w-0 flex-1 truncate text-sm text-ink dark:text-dark-text">{s.title}</p>
-                      <span className="shrink-0 text-[11px] text-ink-300">{formatChatTime(s.updatedAt)}</span>
+                      <span className="shrink-0 text-[11px] text-ink-500 dark:text-dark-text/60">{formatChatTime(s.updatedAt)}</span>
                     </div>
-                    <p className="mt-0.5 truncate text-[12px] text-ink-300">{preview(s) || "（示例对话）"}</p>
+                    <p className="mt-0.5 truncate text-[12px] text-ink-500 dark:text-dark-text/60">{preview(s) || "（示例对话）"}</p>
                   </div>
                 </button>
                 {s.real && (
-                  <button
-                    aria-label={`删除对话 ${s.title}`}
+                  <IconButton
+                    label={`删除对话 ${s.title}`}
                     onClick={() => setConfirm({ type: "one", id: s.id })}
-                    className="p-1 text-ink-300 active:text-rouge"
+                    className="-mr-1 text-ink-300 active:text-rouge"
                   >
                     <Trash2 size={16} />
-                  </button>
+                  </IconButton>
                 )}
               </div>
             ))}
@@ -113,7 +117,7 @@ export default function ChatHistory() {
         {confirm && (
           <motion.div className="fixed inset-0 z-50 flex items-end justify-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <div className="absolute inset-0 bg-ink/30" onClick={() => setConfirm(null)} />
-            <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="app-width relative rounded-t-[24px] bg-snow p-5 dark:bg-dark-card">
+            <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="app-width relative rounded-t-2xl bg-snow p-5 dark:bg-dark-card">
               <p className="text-center text-sm text-ink dark:text-dark-text">
                 {confirm.type === "all" ? "确认清空全部对话记录？" : "确认删除这条对话？"}
               </p>

@@ -1,27 +1,42 @@
 "use client";
-import { useState } from "react";
+import { useState, useRef, useLayoutEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { ChevronLeft, Heart, ChevronRight, ChevronDown, PenLine, Check } from "lucide-react";
+import { ChevronLeft, Heart, ChevronRight, ChevronDown, PenLine, Check, BookOpen, Video, Headphones } from "lucide-react";
 import { getBook, getChapters, getBookReviews } from "@/lib/api";
 import { BookCover } from "@/components/ui/BookCover";
 import { Stars } from "@/components/ui/Stars";
 import { Avatar } from "@/components/ui/Avatar";
 import { Motif } from "@/components/ui/Motif";
 import { BookMediaHero } from "@/components/library/Players";
-import { Skeleton, ErrorState } from "@/components/ui/States";
-import { formatCount, formatDate } from "@/lib/utils";
-import { useAuth, useLibrary, useUI, requireLogin } from "@/lib/store";
+import { Skeleton, ErrorState, EmptyState } from "@/components/ui/States";
+import { formatCount, formatDate, realId } from "@/lib/utils";
+import { useLibrary, useUI, requireLogin } from "@/lib/store";
 import type { Book } from "@/lib/types";
+
+/** 返回栏：加载/错误/不存在/成功四态均常驻，保证任何时刻可返回（含刘海安全区避让） */
+function BackBar() {
+  const router = useRouter();
+  return (
+    <button
+      onClick={() => router.back()}
+      aria-label="返回"
+      className="absolute left-2 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-snow/80 text-ink backdrop-blur transition active:scale-90 dark:bg-dark-card/70 dark:text-dark-text"
+      style={{ top: "calc(env(safe-area-inset-top) + 8px)" }}
+    >
+      <ChevronLeft size={24} />
+    </button>
+  );
+}
 
 export default function BookDetail({ params }: { params: { id: string } }) {
   const { id } = params;
   const router = useRouter();
   const toast = useUI((s) => s.toast);
-  const user = useAuth((s) => s.user);
-  const isFav = useLibrary((s) => s.isFav);
+  // 订阅 favorites 数组：任何来源（乱翻页等）改收藏后返回本页都会自动同步
+  const favorites = useLibrary((s) => s.favorites);
   const toggleFav = useLibrary((s) => s.toggleFav);
 
   const bookQ = useQuery({ queryKey: ["book", id], queryFn: () => getBook(id) });
@@ -29,18 +44,56 @@ export default function BookDetail({ params }: { params: { id: string } }) {
   const rvQ = useQuery({ queryKey: ["reviews", id, "hot"], queryFn: () => getBookReviews(id, "hot") });
 
   const book = bookQ.data;
-  const fav = book && user ? isFav(book.id) : false;
-  const [favTick, setFavTick] = useState(0);
+  // 派生收藏态（与 store 的 real 规则一致，去 __ 后缀）；登出 reset 已清空 favorites，无需 user 门控
+  const fav = !!book && favorites.includes(realId(book.id));
+  const [justFaved, setJustFaved] = useState(false);
   const [expand, setExpand] = useState(false);
 
+  // 简介真实溢出检测：与 line-clamp-3 同口径，替代 length>50 魔法数（hooks 必须在条件 return 之前声明）
+  const summaryRef = useRef<HTMLParagraphElement>(null);
+  const [clamped, setClamped] = useState(false);
+  useLayoutEffect(() => {
+    const el = summaryRef.current;
+    if (!el) return;
+    const check = () => {
+      // 仅未展开（line-clamp-3 生效）时比较是否溢出
+      if (!expand) setClamped(el.scrollHeight > el.clientHeight + 1);
+    };
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, [book?.summary, expand]);
+
   if (bookQ.isLoading) return <DetailSkeleton />;
-  if (bookQ.isError || !book) return <ErrorState onRetry={() => bookQ.refetch()} />;
+  if (bookQ.isError)
+    return (
+      <main className="relative min-h-[100dvh]">
+        <BackBar />
+        <ErrorState onRetry={() => bookQ.refetch()} />
+      </main>
+    );
+  if (!book)
+    return (
+      <main className="relative min-h-[100dvh]">
+        <BackBar />
+        <EmptyState
+          icon="book"
+          title="这本书不存在或已下架"
+          subtitle="去泡馆看看别的好书"
+          actionText="返回泡馆"
+          actionHref="/library"
+        />
+      </main>
+    );
 
   function onFav() {
     requireLogin(() => {
       const now = toggleFav(book!.id);
-      setFavTick((t) => t + 1);
-      toast(now ? "已加入我的收藏" : "已取消收藏");
+      if (now) {
+        setJustFaved(true);
+        setTimeout(() => setJustFaved(false), 350);
+      }
+      toast(now ? "已收藏" : "已取消收藏");
     });
   }
 
@@ -52,18 +105,11 @@ export default function BookDetail({ params }: { params: { id: string } }) {
       className="min-h-[100dvh] pb-12"
     >
       {/* 媒体台：封面即视频入口（竖屏全屏 · 可切音频）· 影院沉浸 */}
-      <div className="relative overflow-hidden">
+      <div id="media" className="relative overflow-hidden scroll-mt-2">
         <HeroBg book={book} />
         {/* 柔光 */}
         <div className="pointer-events-none absolute left-1/2 top-[24%] h-72 w-72 -translate-x-1/2 rounded-full bg-celadon/18 blur-[80px]" />
-        <button
-          onClick={() => router.back()}
-          aria-label="返回"
-          className="absolute left-2 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-snow/80 text-ink backdrop-blur transition active:scale-90 dark:bg-dark-card/70 dark:text-dark-text"
-          style={{ top: "calc(env(safe-area-inset-top) + 8px)" }}
-        >
-          <ChevronLeft size={24} />
-        </button>
+        <BackBar />
         <BookMediaHero book={book} />
       </div>
 
@@ -76,6 +122,28 @@ export default function BookDetail({ params }: { params: { id: string } }) {
             <span key={t} className="animate-fade-up rounded-full border border-line px-2.5 py-0.5 text-[11px] text-ink-500 dark:border-white/10 dark:text-dark-text/60" style={{ animationDelay: `${i * 0.04}s` }}>{t}</span>
           ))}
         </div>
+
+        {/* 三模态对等入口：视频/音频锚点回顶部媒体台，原文跳阅读页（按需出现，权重对等） */}
+        {(book.hasVideo || book.hasAudio || book.hasText) && (
+          <div className="mt-3 flex gap-2">
+            {book.hasVideo && (
+              <a href="#media" className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-celadon-soft px-3 py-2 text-xs font-medium text-celadon-700 transition active:scale-95 dark:bg-celadon/20 dark:text-celadon-300">
+                <Video size={14} /> 视频解读
+              </a>
+            )}
+            {book.hasAudio && (
+              <a href="#media" className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-celadon-soft px-3 py-2 text-xs font-medium text-celadon-700 transition active:scale-95 dark:bg-celadon/20 dark:text-celadon-300">
+                <Headphones size={14} /> 音频伴读
+              </a>
+            )}
+            {book.hasText && (
+              <Link href={`/library/book/${book.id}/read`} className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-celadon-soft px-3 py-2 text-xs font-medium text-celadon-700 transition active:scale-95 dark:bg-celadon/20 dark:text-celadon-300">
+                <BookOpen size={14} /> 读原文
+              </Link>
+            )}
+          </div>
+        )}
+
         <div className="mt-3 flex items-center justify-between gap-3">
           <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-ink-500 tabular-nums dark:text-dark-text/55">
             <span className="flex items-center gap-1"><Stars value={book.rating} size={13} /> <span className="text-rouge">{book.rating.toFixed(1)}</span></span>
@@ -84,7 +152,7 @@ export default function BookDetail({ params }: { params: { id: string } }) {
             <span className="h-1 w-1 rotate-45 bg-line dark:bg-white/15" />
             <span>约 {formatCount(book.words)} 字</span>
           </div>
-          <div className="relative shrink-0">
+          <div className="shrink-0">
             <button
               onClick={onFav}
               aria-pressed={fav}
@@ -93,14 +161,12 @@ export default function BookDetail({ params }: { params: { id: string } }) {
                 (fav ? "bg-rouge/15 text-rouge" : "bg-celadon-soft text-celadon-700 dark:bg-celadon/20 dark:text-celadon-300")
               }
             >
-              <motion.span key={favTick} initial={favTick ? { scale: 0.5 } : false} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 500, damping: 13 }}>
+              {/* 单一克制反馈：收藏成功时图标一次性弹跳（去掉上方飞出的 like-burst，避免「弹+飞」叠加） */}
+              <motion.span key={justFaved ? "on" : "off"} initial={justFaved ? { scale: 0.5 } : false} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 500, damping: 13 }}>
                 <Heart size={14} className={fav ? "fill-rouge text-rouge" : ""} />
               </motion.span>
               {fav ? "已收藏" : "收藏"}
             </button>
-            {fav && favTick > 0 && (
-              <Heart key={favTick} size={14} className="pointer-events-none absolute -top-1 left-1/2 -translate-x-1/2 animate-like-burst fill-rouge text-rouge" />
-            )}
           </div>
         </div>
       </div>
@@ -110,8 +176,9 @@ export default function BookDetail({ params }: { params: { id: string } }) {
         <h2 className="mb-2 flex items-center font-serif text-lg tracking-wide text-ink dark:text-dark-text">
           <span className="mr-2 h-4 w-[3px] rounded-full bg-celadon" /> 简介
         </h2>
-        <p className={"text-sm leading-7 text-ink-700 dark:text-dark-text/70 " + (expand ? "" : "line-clamp-3")}>{book.summary}</p>
-        {book.summary.length > 50 && (
+        <p ref={summaryRef} className={"text-sm leading-7 text-ink-700 dark:text-dark-text/70 " + (expand ? "" : "line-clamp-3")}>{book.summary}</p>
+        {/* 真实溢出才显示按钮（与 line-clamp-3 同口径），展开后保留「收起」 */}
+        {(clamped || expand) && (
           <button onClick={() => setExpand((v) => !v)} className="mt-1.5 inline-flex items-center gap-0.5 text-xs text-celadon-700 dark:text-celadon-300">
             {expand ? "收起" : "展开全文"} <ChevronDown size={13} className={"transition-transform " + (expand ? "rotate-180" : "")} />
           </button>
@@ -208,6 +275,8 @@ function HeroBg({ book }: { book: Book }) {
         <motion.img
           src={book.heroUrl}
           alt=""
+          loading="lazy"
+          decoding="async"
           onError={() => setOk(false)}
           initial={{ scale: 1.08, opacity: 0 }}
           animate={{ scale: 1.02, opacity: 0.28 }}
@@ -222,19 +291,31 @@ function HeroBg({ book }: { book: Book }) {
   );
 }
 
+/** 骨架贴合真实结构：全宽 hero（内含居中竖封面）+ 左对齐题名/作者/标签药丸/评分/简介，减少数据回来瞬间的重排闪烁 */
 function DetailSkeleton() {
   return (
-    <main className="min-h-[100dvh] px-4 pt-16">
-      <div className="flex flex-col items-center">
+    <main className="relative min-h-[100dvh] pb-12">
+      <BackBar />
+      {/* 顶部全宽 hero 占位，其内居中竖封面骨架（对齐媒体台高度与封面宽比） */}
+      <div className="relative flex h-[360px] w-full items-center justify-center overflow-hidden bg-celadon-soft/40 dark:bg-celadon/10">
         <Skeleton className="aspect-[3/4] w-[78%] max-w-[300px] rounded-3xl" />
-        <Skeleton className="mt-4 h-7 w-40 self-start rounded" />
-        <Skeleton className="mt-2 h-4 w-24 self-start rounded" />
-        <Skeleton className="mt-3 h-3 w-52 self-start rounded" />
       </div>
-      <Skeleton className="mt-6 h-12 w-full rounded-2xl" />
-      <Skeleton className="mt-5 h-16 w-full rounded-2xl" />
-      <Skeleton className="mt-4 h-8 w-40 rounded" />
-      <Skeleton className="mt-4 h-40 w-full rounded-2xl" />
+      {/* 题名区：题名 / 作者 / 一行标签药丸 / 评分行 */}
+      <div className="px-4 pt-4">
+        <Skeleton className="h-7 w-40 rounded" />
+        <Skeleton className="mt-2 h-4 w-24 rounded" />
+        <div className="mt-2 flex gap-1.5">
+          <Skeleton className="h-6 w-14 rounded-full" />
+          <Skeleton className="h-6 w-16 rounded-full" />
+          <Skeleton className="h-6 w-12 rounded-full" />
+        </div>
+        <Skeleton className="mt-3 h-4 w-52 rounded" />
+      </div>
+      {/* 简介块 */}
+      <div className="mx-4 mt-6">
+        <Skeleton className="h-5 w-16 rounded" />
+        <Skeleton className="mt-3 h-20 w-full rounded-2xl" />
+      </div>
     </main>
   );
 }

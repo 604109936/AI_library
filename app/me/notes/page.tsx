@@ -16,7 +16,8 @@ export default function NotesPage() {
   const removeNote = useLibrary((s) => s.removeNote);
   const toast = useUI((s) => s.toast);
   const [q, setQ] = useState("");
-  const [expanded, setExpanded] = useState<string | null>(null);
+  // 三态展开：undefined=未操作(默认展开首组) / null=显式全收起 / string=指定书（F84，替代魔法串）
+  const [openId, setOpenId] = useState<string | null | undefined>(undefined);
 
   const groups = useMemo(() => {
     const kw = q.trim();
@@ -32,8 +33,8 @@ export default function NotesPage() {
     return Array.from(map.entries());
   }, [notes, q]);
 
-  // 默认展开首个分组（搜索后随结果变化），而非硬编码 id
-  const openId = expanded ?? groups[0]?.[0];
+  // 默认展开首个分组（搜索后随结果变化），而非硬编码 id；null 表示已显式全收起
+  const cur = openId === undefined ? groups[0]?.[0] : openId;
 
   return (
     <main className="min-h-[100dvh]">
@@ -50,11 +51,11 @@ export default function NotesPage() {
           ) : (
             <div className="mt-3 space-y-3">
               {groups.map(([bookId, items]) => {
-                const isOpen = openId === bookId;
+                const isOpen = cur === bookId;
                 const cover = books.find((b) => b.id === bookId)?.cover;
                 return (
                   <div key={bookId} className="overflow-hidden rounded-2xl bg-snow shadow-sm dark:bg-dark-card">
-                    <button onClick={() => setExpanded(isOpen ? "__none__" : bookId)} className="flex w-full items-center gap-3 p-3">
+                    <button onClick={() => setOpenId(isOpen ? null : bookId)} className="flex w-full items-center gap-3 p-3">
                       <BookCover title={items[0].bookTitle} seed={items[0].bookCoverSeed} src={cover} className="w-10" showText={false} />
                       <span className="flex-1 text-left font-serif text-sm text-ink dark:text-dark-text">
                         {items[0].bookTitle} · {items.length} 条笔记
@@ -69,7 +70,7 @@ export default function NotesPage() {
                               {n.excerpt}
                             </p>
                             {n.note && <p className="mt-2 text-sm text-ink dark:text-dark-text">{n.note}</p>}
-                            <div className="mt-2 flex items-center justify-between text-[11px] text-ink-300">
+                            <div className="mt-2 flex items-center justify-between text-caption text-ink-500 dark:text-dark-text/55">
                               <Link href={`/library/book/${n.bookId}/read?ch=${n.chapterId}`} className="text-celadon-700 dark:text-celadon-300">
                                 {n.chapterTitle}
                               </Link>
