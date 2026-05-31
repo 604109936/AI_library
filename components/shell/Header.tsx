@@ -1,7 +1,7 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, goBack } from "@/lib/utils";
 
 /** 二级页通用顶栏：返回箭头 + 居中标题 + 右侧操作。不含底部栏。 */
 export function Header({
@@ -10,6 +10,7 @@ export function Header({
   transparent,
   className,
   titleShown = true,
+  fallbackHref = "/library",
 }: {
   title?: string;
   right?: React.ReactNode;
@@ -17,18 +18,20 @@ export function Header({
   className?: string;
   /** 标题是否显示（用于大标题滚动收起后再淡入顶栏标题）。默认 true。 */
   titleShown?: boolean;
+  /** 无历史栈（深链/扫码直达）时的返回兜底地址，避免退出 WebView。 */
+  fallbackHref?: string;
 }) {
   const router = useRouter();
   return (
     <header
       className={cn(
-        "sticky top-0 z-30 flex h-14 items-center px-2",
+        "pt-safe sticky top-0 z-30 flex h-14 items-center px-2",
         transparent ? "bg-transparent" : "bg-moon/90 backdrop-blur dark:bg-dark-bg/90",
         className
       )}
     >
       <button
-        onClick={() => router.back()}
+        onClick={() => goBack(router, fallbackHref)}
         className="flex h-10 w-10 items-center justify-center rounded-full active:bg-line/50"
         aria-label="返回"
       >

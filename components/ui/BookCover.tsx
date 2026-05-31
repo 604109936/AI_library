@@ -1,17 +1,9 @@
 "use client";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { COVER_PALETTES as PALETTES } from "@/lib/palette";
 
 // 新中式书封：优先渲染真实封面图（src），加载失败时回退到按 coverSeed 生成的确定性色块美术
-const PALETTES = [
-  { bg: "linear-gradient(150deg,#EAE7DF,#D6D9CE)", motif: "#7C9885", ink: "#2A2C2E" },
-  { bg: "linear-gradient(150deg,#E7ECE6,#C8D6C9)", motif: "#5E7768", ink: "#2A2C2E" },
-  { bg: "linear-gradient(150deg,#F0EAE0,#E2D6C2)", motif: "#B89B6E", ink: "#3A352B" },
-  { bg: "linear-gradient(150deg,#E6E9EC,#CAD2D8)", motif: "#7C9885", ink: "#2A2C2E" },
-  { bg: "linear-gradient(150deg,#EEE6E4,#DCC9C4)", motif: "#A8423A", ink: "#3A2C2A" },
-  { bg: "linear-gradient(150deg,#E9E4D9,#CFC7B4)", motif: "#7C9885", ink: "#2A2C2E" },
-  { bg: "linear-gradient(150deg,#2A2C28,#1F2A24)", motif: "#7C9885", ink: "#EDE6D6" },
-];
 
 export function BookCover({
   title,

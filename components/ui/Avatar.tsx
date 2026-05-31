@@ -1,16 +1,7 @@
 "use client";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-
-const AV = [
-  "linear-gradient(135deg,#9DB3A3,#7C9885)",
-  "linear-gradient(135deg,#C9B79C,#B89B6E)",
-  "linear-gradient(135deg,#A9BBC9,#7E97AC)",
-  "linear-gradient(135deg,#C7A8A2,#A8423A)",
-  "linear-gradient(135deg,#AEB7A0,#8A9B78)",
-  "linear-gradient(135deg,#B6A7C2,#8E7CA0)",
-  "linear-gradient(135deg,#9DB3A3,#5E7768)",
-];
+import { AVATAR_GRADIENTS as AV } from "@/lib/palette";
 
 const AVATAR_COUNT = 8;
 

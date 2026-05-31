@@ -17,6 +17,7 @@ import {
   myNotes,
   myReviews,
 } from "@/lib/mock/data";
+import { realId } from "@/lib/utils";
 
 /* ---------------- Auth ---------------- */
 interface AuthState {
@@ -74,12 +75,15 @@ export interface NotifyPrefs {
   weekly: boolean;
 }
 interface UIState {
+  hydrated: boolean;
+  setHydrated: () => void;
   theme: Theme;
   setTheme: (t: Theme) => void;
   notify: NotifyPrefs;
   setNotify: (patch: Partial<NotifyPrefs>) => void;
   recentSearches: string[];
   addRecent: (q: string) => void;
+  removeRecent: (q: string) => void;
   clearRecent: () => void;
   toasts: Toast[];
   toast: (msg: string, type?: Toast["type"]) => void;
@@ -93,6 +97,8 @@ let toastId = 1;
 export const useUI = create<UIState>()(
   persist(
     (set, get) => ({
+      hydrated: false,
+      setHydrated: () => set({ hydrated: true }),
       theme: "light",
       setTheme: (t) => set({ theme: t }),
       notify: { push: true, weekly: true },
@@ -103,11 +109,15 @@ export const useUI = create<UIState>()(
         if (!v) return;
         set({ recentSearches: [v, ...get().recentSearches.filter((x) => x !== v)].slice(0, 10) });
       },
+      removeRecent: (q) => set({ recentSearches: get().recentSearches.filter((x) => x !== q) }),
       clearRecent: () => set({ recentSearches: [] }),
       toasts: [],
       toast: (msg, type = "success") => {
+        // 去重：相同内容已在显示则不重复弹；并裁剪到最多 3 条
+        const cur = get().toasts;
+        if (cur.some((t) => t.msg === msg && t.type === type)) return;
         const id = toastId++;
-        set({ toasts: [...get().toasts, { id, msg, type }] });
+        set({ toasts: [...cur, { id, msg, type }].slice(-3) });
         setTimeout(() => get().dismiss(id), 2800);
       },
       dismiss: (id) => set({ toasts: get().toasts.filter((t) => t.id !== id) }),
@@ -119,6 +129,7 @@ export const useUI = create<UIState>()(
     {
       name: "ail-ui",
       partialize: (s) => ({ theme: s.theme, notify: s.notify, recentSearches: s.recentSearches }),
+      onRehydrateStorage: () => (state) => state?.setHydrated(),
     }
   )
 );
@@ -151,7 +162,7 @@ interface LibState {
   addReview: (r: Review) => void;
   removeReview: (id: string) => void;
 }
-const real = (id: string) => id.split("__")[0];
+const real = realId; // 复用全站统一实现（见 lib/utils）
 export const useLibrary = create<LibState>()(
   persist(
     (set, get) => ({
@@ -170,6 +181,10 @@ export const useLibrary = create<LibState>()(
           notes: [...myNotes],
           history: [...myHistory],
           myReviews: [...myReviews],
+          // 与 reset 字段对称：演示数据不含这三项，登录时显式归零，避免残留串号
+          progress: {},
+          likedReviews: [],
+          likedBooks: [],
         }),
       reset: () =>
         set({
@@ -265,6 +280,8 @@ export const useReader = create<ReaderState>()(
 
 /* ---------------- Chat ---------------- */
 interface ChatState {
+  hydrated: boolean;
+  setHydrated: () => void;
   sessions: ChatSession[];
   upsertSession: (s: ChatSession) => void;
   removeSession: (id: string) => void;
@@ -273,6 +290,8 @@ interface ChatState {
 export const useChat = create<ChatState>()(
   persist(
     (set, get) => ({
+      hydrated: false,
+      setHydrated: () => set({ hydrated: true }),
       sessions: [],
       upsertSession: (s) =>
         set({
@@ -283,7 +302,10 @@ export const useChat = create<ChatState>()(
       removeSession: (id) => set({ sessions: get().sessions.filter((x) => x.id !== id) }),
       clearSessions: () => set({ sessions: [] }),
     }),
-    { name: "ail-chat" }
+    {
+      name: "ail-chat",
+      onRehydrateStorage: () => (state) => state?.setHydrated(),
+    }
   )
 );
 

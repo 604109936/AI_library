@@ -34,7 +34,7 @@ export async function getCategories(): Promise<Category[]> {
 
 export async function getBooks(opts: {
   categoryId?: string;
-  sort?: "new" | "rating" | "readers" | "words";
+  sort?: "new" | "rating" | "readers";
   cursor?: number;
 }): Promise<Paged<Book>> {
   // GET /api/books?category=&sort=&cursor=
@@ -48,21 +48,14 @@ export async function getBooks(opts: {
     case "readers":
       list.sort((a, b) => b.readers - a.readers);
       break;
-    case "words":
-      list.sort((a, b) => a.words - b.words);
-      break;
     default:
       break; // new = 原序
   }
-  // 为了演示无限滚动，复制一份扩充
-  const expanded = [...list, ...list, ...list];
+  // 真实分页：按真实藏书数自然收口（不再三连复制，避免同书重复 + 数量虚高）
   const cursor = opts.cursor ?? 0;
-  const items = expanded.slice(cursor, cursor + PAGE).map((b, i) => ({
-    ...b,
-    id: cursor === 0 ? b.id : `${b.id}__${cursor}_${i}`, // 保持唯一 key
-  }));
+  const items = list.slice(cursor, cursor + PAGE); // id 天然唯一，无需后缀
   const next = cursor + PAGE;
-  return { items, nextCursor: next < expanded.length ? next : null, hasMore: next < expanded.length };
+  return { items, nextCursor: next < list.length ? next : null, hasMore: next < list.length };
 }
 
 export async function getBook(id: string): Promise<Book | null> {
@@ -118,13 +111,21 @@ export async function search(q: string): Promise<SearchResult> {
 }
 
 export async function getFlip(seenIds: string[]): Promise<Book[]> {
-  // GET /api/flip（有视频书池 个性化打分；mock=洗牌后分批，支持持续下滑）
+  // GET /api/flip（有视频书池 个性化打分；mock=确定性洗牌后分批，支持持续下滑）
   await sleep(200);
   const videoBooks = books.filter((b) => b.hasVideo);
   const round = Math.floor(seenIds.length / Math.max(1, videoBooks.length));
-  const shuffled = [...videoBooks].sort(() => Math.random() - 0.5);
-  // 复制本批并赋唯一 id 后缀，避免无限滚动时 key 冲突
-  return shuffled.map((b) => (round === 0 && seenIds.length === 0 ? b : { ...b, id: `${b.id}__f${seenIds.length}_${b.coverSeed}` }));
+  // 确定性洗牌：按 (coverSeed, round) 派生的稳定权重排序，避免 Math.random 非幂等
+  // 导致 StrictMode 双调用 / 返回该页重排丢数据。
+  const shuffled = [...videoBooks].sort(
+    (a, b) =>
+      ((a.coverSeed * 9301 + round * 49297) % 233280) -
+      ((b.coverSeed * 9301 + round * 49297) % 233280)
+  );
+  // 首批用原 id；后续批次赋唯一 id 后缀，避免无限滚动时 key 冲突
+  return shuffled.map((b) =>
+    round === 0 && seenIds.length === 0 ? b : { ...b, id: `${b.id}__f${seenIds.length}_${b.coverSeed}` }
+  );
 }
 
 // 智学：mock 流式回答 + 引用 + 推荐
@@ -159,6 +160,7 @@ export function buildChatReply(question: string): {
           bookTitle: target.title,
           coverSeed: target.coverSeed,
           cover: target.cover,
+          chapterId: ch1.id,
           chapterNo: ch1.no,
           chapterTitle: ch1.title,
           snippet: ch1.content.slice(0, 50).replace(/\n/g, " ") + "…",

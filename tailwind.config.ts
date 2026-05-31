@@ -36,20 +36,18 @@ const config: Config = {
       },
       fontFamily: {
         sans: [
-          "var(--font-sans)",
           "-apple-system",
           "PingFang SC",
           "Noto Sans SC",
           "Microsoft YaHei",
           "sans-serif",
         ],
-        serif: [
-          "var(--font-serif)",
-          "Noto Serif SC",
-          "Songti SC",
-          "SimSun",
-          "serif",
-        ],
+        serif: ["Noto Serif SC", "Songti SC", "SimSun", "serif"],
+      },
+      fontSize: {
+        // 语义化小字阶，替代散落的 text-[11px]/[10px]/[9px] 魔法值
+        caption: ["0.6875rem", { lineHeight: "1rem" }], // 11px 次要信息/标签
+        micro: ["0.625rem", { lineHeight: "0.875rem" }], // 10px 角标/计数
       },
       borderRadius: {
         sm: "8px",

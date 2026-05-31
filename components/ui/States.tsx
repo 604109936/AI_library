@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { BookX, WifiOff, Inbox, NotebookPen, Star, Clock, SearchX } from "lucide-react";
+import { BookX, WifiOff, Inbox, NotebookPen, Star, Clock, SearchX, AlertCircle, RotateCcw } from "lucide-react";
 import Link from "next/link";
 
 export function Skeleton({ className }: { className?: string }) {
@@ -70,6 +70,46 @@ export function EmptyState({
             {actionText}
           </button>
         ))}
+    </div>
+  );
+}
+
+/** 媒体缓冲转圈（青瓷描边，明暗皆可读），叠加在视频/音频/乱翻加载态中央 */
+export function MediaSpinner({ className }: { className?: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-block h-9 w-9 animate-spin rounded-full border-2 border-celadon/70 border-t-transparent",
+        className
+      )}
+      role="status"
+      aria-label="加载中"
+    />
+  );
+}
+
+/** 媒体加载失败兜底（用于深色媒体面：视频黑卡 / 乱翻深底），含重试 */
+export function MediaError({
+  onRetry,
+  text = "暂时无法播放",
+  className,
+}: {
+  onRetry?: () => void;
+  text?: string;
+  className?: string;
+}) {
+  return (
+    <div className={cn("flex flex-col items-center gap-2 px-6 text-center", className)}>
+      <AlertCircle size={26} className="text-white/70" />
+      <p className="text-xs text-white/85">{text}</p>
+      {onRetry && (
+        <button
+          onClick={onRetry}
+          className="mt-1 inline-flex items-center gap-1 rounded-full border border-celadon/50 px-3 py-1 text-xs text-celadon-300 transition active:scale-95"
+        >
+          <RotateCcw size={12} /> 重试
+        </button>
+      )}
     </div>
   );
 }
