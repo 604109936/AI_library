@@ -7,8 +7,7 @@ import { BookRow } from "@/components/library/BookCard";
 import { Skeleton, EmptyState, ErrorState } from "@/components/ui/States";
 import { Motif, OrnDivider } from "@/components/ui/Motif";
 import { getBooks } from "@/lib/api";
-import { books, categories } from "@/lib/mock/data";
-import { isFinished, realId } from "@/lib/utils";
+import { categories } from "@/lib/mock/data";
 import { useAuth, useLibrary, requireLogin } from "@/lib/store";
 
 type Status = "all" | "read" | "unread" | "reading";
@@ -26,7 +25,6 @@ const STATUS: { key: Status; label: string }[] = [
 export default function CategoryPage({ params }: { params: { id: string } }) {
   const { id } = params;
   const cat = categories.find((c) => c.id === id);
-  const total = books.filter((b) => b.categoryId === id).length; // 实时真实本数，替代写死的 cat.count
   const [status, setStatus] = useState<Status>("all");
   const [sort, setSort] = useState<Sort>("new");
   const [sortOpen, setSortOpen] = useState(false);
@@ -45,9 +43,10 @@ export default function CategoryPage({ params }: { params: { id: string } }) {
   const items = q.data?.pages.flatMap((p) => p.items) ?? [];
   const filtered = items.filter((b) => {
     if (status === "all") return true;
-    const h = history.find((x) => x.bookId === realId(b.id));
-    if (status === "read") return !!h && isFinished(h.progress);
-    if (status === "reading") return !!h && h.progress > 0 && !isFinished(h.progress);
+    const real = b.id.split("__")[0];
+    const h = history.find((x) => x.bookId === real);
+    if (status === "read") return h?.progress === 100;
+    if (status === "reading") return !!h && h.progress > 0 && h.progress < 100;
     if (status === "unread") return !h;
     return true;
   });
@@ -63,6 +62,13 @@ export default function CategoryPage({ params }: { params: { id: string } }) {
     ob.observe(el);
     return () => ob.disconnect();
   }, [q.hasNextPage, q.isFetchingNextPage]); // eslint-disable-line
+
+  // 稀疏筛选（已读/进行中）时若当前页为空但还有更多，自动继续拉，避免误判空态
+  useEffect(() => {
+    if (status !== "all" && filtered.length === 0 && q.hasNextPage && !q.isFetchingNextPage) {
+      q.fetchNextPage();
+    }
+  }, [status, filtered.length, q.hasNextPage, q.isFetchingNextPage]); // eslint-disable-line
 
   // 大标题滚出视口后，顶栏标题淡入（iOS 大标题收起，避免与大字重复）
   useEffect(() => {
@@ -83,39 +89,23 @@ export default function CategoryPage({ params }: { params: { id: string } }) {
 
   const stillLoading = q.isLoading || (filtered.length === 0 && q.hasNextPage);
 
-  // 非法/失效分类直达兜底（改 URL 或失效深链）
-  if (!cat) {
-    return (
-      <main className="min-h-[100dvh]">
-        <Header title="分类" />
-        <EmptyState
-          icon="search"
-          title="没有找到该分类"
-          subtitle="它可能已下架，或地址有误"
-          actionText="返回书库"
-          actionHref="/library"
-        />
-      </main>
-    );
-  }
-
   return (
     <main className="min-h-[100dvh] pb-10">
       {/* 顶栏：不透明吸顶；大标题滚出后才淡入分类名，避免与下方大字重复 */}
-      <Header title={cat.name} titleShown={navTitle} />
+      <Header title={cat?.name ?? "分类"} titleShown={navTitle} />
       {/* 装饰页头 */}
       <div className="relative flex flex-col items-center pb-3 pt-1">
         <Motif name="branch" className="pointer-events-none absolute -top-1 right-4 h-16 w-16 text-celadon/30" />
-        <h1 ref={titleRef} className="font-serif text-2xl text-ink dark:text-dark-text">{cat.name}</h1>
+        <h1 ref={titleRef} className="font-serif text-2xl text-ink dark:text-dark-text">{cat?.name ?? "分类"}</h1>
         <div className="mt-1.5 flex items-center gap-2.5">
           <OrnDivider />
-          <span className="text-xs text-ink-500 dark:text-dark-text/55">共 {total} 本</span>
+          <span className="text-xs text-ink-500 dark:text-dark-text/55">共 {cat?.count ?? 0} 本</span>
           <OrnDivider />
         </div>
       </div>
 
-      {/* 筛选 + 排序（吸附到安全区顶栏下沿） */}
-      <div className="top-safe-14 sticky z-20 flex items-center justify-between gap-2 bg-moon/90 px-4 py-2 backdrop-blur dark:bg-dark-bg/90">
+      {/* 筛选 + 排序 */}
+      <div className="sticky top-14 z-20 flex items-center justify-between gap-2 bg-moon/90 px-4 py-2 backdrop-blur dark:bg-dark-bg/90">
         <div className="relative">
           <button
             onClick={() => setSortOpen((v) => !v)}
@@ -166,7 +156,8 @@ export default function CategoryPage({ params }: { params: { id: string } }) {
           <EmptyState icon="book" title="这里还没有书" subtitle="换个筛选条件看看" />
         )}
         {filtered.map((b) => {
-          const h = history.find((x) => x.bookId === realId(b.id));
+          const real = b.id.split("__")[0];
+          const h = history.find((x) => x.bookId === real);
           return (
             <div key={b.id} className="animate-fade-up">
               <BookRow book={b} progress={h && h.progress > 0 ? h.progress : undefined} />
@@ -174,9 +165,9 @@ export default function CategoryPage({ params }: { params: { id: string } }) {
           );
         })}
         <div ref={sentinel} className="h-8" />
-        {q.isFetchingNextPage && <p className="py-2 text-center text-xs text-ink-500 dark:text-dark-text/55">加载中…</p>}
+        {q.isFetchingNextPage && <p className="py-2 text-center text-xs text-ink-300">加载中…</p>}
         {!q.hasNextPage && filtered.length > 0 && (
-          <p className="py-2 text-center text-xs text-ink-500 dark:text-dark-text/55">已经到底了</p>
+          <p className="py-2 text-center text-xs text-ink-300">已经到底了</p>
         )}
       </div>
     </main>

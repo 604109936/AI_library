@@ -37,7 +37,7 @@ export default function MyReviewsPage() {
                     <p className="mt-1 line-clamp-2 text-xs leading-5 text-ink-500 dark:text-dark-text/60">{r.content}</p>
                   </div>
                 </button>
-                <div className="mt-2 flex items-center justify-between border-t border-line pt-2 text-caption text-ink-500 dark:border-white/5 dark:text-dark-text/55">
+                <div className="mt-2 flex items-center justify-between border-t border-line pt-2 text-[11px] text-ink-300 dark:border-white/5">
                   <span className="flex items-center gap-1"><Heart size={12} className="text-rouge" /> {formatCount(r.likes)} · {formatDate(r.createdAt)}</span>
                   <button aria-label="删除书评" onClick={() => { removeReview(r.id); toast("已删除"); }} className="flex items-center gap-1 active:text-rouge">
                     <Trash2 size={13} /> 删除

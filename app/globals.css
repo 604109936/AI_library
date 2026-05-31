@@ -10,23 +10,6 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-/* 输入控件统一 ≥16px，规避 iOS 聚焦时自动放大页面（WCAG/移动端） */
-input,
-textarea,
-select {
-  font-size: 16px;
-}
-
-/* 键盘可见焦点环（清零 tap-highlight 后的可访问性补偿，WCAG 2.4.7）。
-   只在键盘导航时出现，鼠标/触摸点击不显示。 */
-:where(a, button, input, textarea, select, [role="button"], [tabindex]):focus-visible {
-  outline: 2px solid #7c9885; /* celadon */
-  outline-offset: 2px;
-}
-.dark :where(a, button, input, textarea, select, [role="button"], [tabindex]):focus-visible {
-  outline-color: #a6bcac; /* celadon-300，暗底更清晰 */
-}
-
 html,
 body {
   height: 100%;
@@ -76,39 +59,6 @@ body {
 }
 .h-safe-bottom {
   height: env(safe-area-inset-bottom);
-}
-/* 顶部安全区：吸顶顶栏避让刘海/状态栏 */
-.pt-safe {
-  padding-top: env(safe-area-inset-top);
-}
-/* 二级吸顶元素（如筛选栏）吸附到顶栏下沿 + 安全区 */
-.top-safe-14 {
-  top: calc(env(safe-area-inset-top) + 3.5rem);
-}
-/* 根页内容底部留白：底栏(约58px) + 安全区，避免最后一项被底栏压住 */
-.pb-nav {
-  padding-bottom: calc(env(safe-area-inset-bottom) + 5.5rem);
-}
-/* 底部弹层按钮区避让 home indicator */
-.pb-sheet {
-  padding-bottom: calc(env(safe-area-inset-bottom) + 1.25rem);
-}
-
-/* 动效降级：尊重系统「减弱动态效果」（WCAG 2.3.3）。
-   保留极短时长让 forwards 动画（如点赞迸发）仍落到终态，避免残留中间帧。 */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.001ms !important;
-    scroll-behavior: auto !important;
-  }
-  .skeleton::after,
-  .animate-spin-slow {
-    animation: none !important;
-  }
 }
 
 /* 骨架 shimmer */

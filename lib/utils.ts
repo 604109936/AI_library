@@ -49,31 +49,3 @@ export function formatTime(sec: number): string {
 export function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
-
-/** 取真实书籍 id（去掉无限滚动/乱翻注入的 `__xxx` 唯一后缀）。全站统一来源。 */
-export function realId(id: string): string {
-  return id.split("__")[0];
-}
-
-/** 已读判定统一阈值：进度 ≥98% 视为读完（跨页口径一致，避免 ===100 与 >=100 不一）。 */
-export function isFinished(pct: number): boolean {
-  return pct >= 98;
-}
-
-/** 生成稳定唯一 id（优先 crypto.randomUUID，降级时间戳+随机，避免同毫秒撞 key）。 */
-export function genId(prefix = ""): string {
-  const rand =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : Math.random().toString(36).slice(2) + Date.now().toString(36);
-  return prefix ? `${prefix}_${rand}` : rand;
-}
-
-/** 返回上一页，深链/扫码直达（无历史栈）时回退到语义化兜底页，避免退出 WebView。 */
-export function goBack(
-  router: { back: () => void; replace: (href: string) => void },
-  fallback = "/library"
-) {
-  if (typeof window !== "undefined" && window.history.length > 1) router.back();
-  else router.replace(fallback);
-}

@@ -10,13 +10,7 @@ import { Motif } from "@/components/ui/Motif";
 import { buildChatReply, exampleQuestions } from "@/lib/api";
 import { sampleSessions } from "@/lib/mock/data";
 import { useChat } from "@/lib/store";
-import { genId } from "@/lib/utils";
 import type { ChatMessage as TMsg } from "@/lib/types";
-
-// 纯前端 mock：极低概率回答失败，仅用于演示「失败可重试」态（接真实接口后由网络结果替代）
-function shouldChatFail() {
-  return Math.random() < 0.05;
-}
 
 function ChatInner() {
   const sp = useSearchParams();
@@ -24,13 +18,10 @@ function ChatInner() {
   const [messages, setMessages] = useState<TMsg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  // 失败气泡 id 集合（不写入 ChatMessage 类型，仅前端态，避免触碰类型层）
-  const [errorIds, setErrorIds] = useState<string[]>([]);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const taRef = useRef<HTMLTextAreaElement>(null);
   const upsertSession = useChat((s) => s.upsertSession);
-  const sessionId = useRef<string>(genId("sess"));
+  const sessionId = useRef<string>("sess-" + Date.now());
 
   useEffect(() => () => { if (timer.current) clearInterval(timer.current); }, []);
 
@@ -45,10 +36,9 @@ function ChatInner() {
     }
     // eslint-disable-next-line
   }, [sp]);
-  // 滚动按 busy 分级：流式中瞬时贴底（不与 smooth 打架，避免抖动），收尾再 smooth
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: busy ? "auto" : "smooth", block: "end" });
-  }, [messages, busy]);
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages]);
 
   // 生成结束/停止后持久化会话到历史（避免在渲染更新函数里调用 store setter）
   useEffect(() => {
@@ -67,51 +57,32 @@ function ChatInner() {
     });
   }
 
-  // 自动增高：随内容增长，封顶 96px（对齐 max-h-24），超出后内部滚动
-  function autoGrow(el: HTMLTextAreaElement) {
-    el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 96) + "px";
-  }
-
   function send(text: string) {
     const q = text.trim();
     if (!q || busy) return;
     setInput("");
-    // 发送后输入框复位单行
-    if (taRef.current) taRef.current.style.height = "auto";
-    const userMsg: TMsg = { id: genId("u"), role: "user", content: q };
-    const aId = genId("a");
+    const userMsg: TMsg = { id: "u" + Date.now(), role: "user", content: q };
+    const aId = "a" + Date.now();
     const aMsg: TMsg = { id: aId, role: "assistant", content: "", streaming: true };
     setMessages((prev) => [...prev, userMsg, aMsg]);
     setBusy(true);
 
-    // 思考态：先停顿一小段让「思考中」三点律动可见，再开始流式
-    timer.current = setTimeout(() => {
-      // 偶发失败：把空气泡转为失败态并停止
-      if (shouldChatFail()) {
-        setMessages((prev) => prev.map((m) => (m.id === aId ? { ...m, streaming: false } : m)));
-        setErrorIds((prev) => [...prev, aId]);
+    const { answer, citations, recommendations } = buildChatReply(q);
+    let i = 0;
+    timer.current = setInterval(() => {
+      i += 2;
+      const partial = answer.slice(0, i);
+      setMessages((prev) => prev.map((m) => (m.id === aId ? { ...m, content: partial } : m)));
+      if (i >= answer.length) {
+        if (timer.current) clearInterval(timer.current);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === aId ? { ...m, content: answer, citations, recommendations, streaming: false } : m
+          )
+        );
         setBusy(false);
-        return;
       }
-      const { answer, citations, recommendations } = buildChatReply(q);
-      let i = 0;
-      // 步进 33ms（约 30fps），保持 i+=2，渲染次数减半更省
-      timer.current = setInterval(() => {
-        i += 2;
-        const partial = answer.slice(0, i);
-        setMessages((prev) => prev.map((m) => (m.id === aId ? { ...m, content: partial } : m)));
-        if (i >= answer.length) {
-          if (timer.current) clearInterval(timer.current);
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === aId ? { ...m, content: answer, citations, recommendations, streaming: false } : m
-            )
-          );
-          setBusy(false);
-        }
-      }, 33);
-    }, 500);
+    }, 16);
   }
 
   function stop() {
@@ -127,31 +98,20 @@ function ChatInner() {
     const q = messages[lastUserIdx].content;
     // 去掉最后一轮的"用户提问 + 回答"，再重新发送，避免重复用户气泡
     setMessages((prev) => prev.slice(0, lastUserIdx));
-    setErrorIds([]);
     setTimeout(() => send(q), 30);
-  }
-
-  // 赞/踩回写并持久化：本地 state 仅做即时高亮，真值落到 messages/会话
-  function handleFeedback(id: string, fb: "up" | "down" | null) {
-    setMessages((prev) => {
-      const next = prev.map((m) => (m.id === id ? { ...m, feedback: fb ?? undefined } : m));
-      persist(next);
-      return next;
-    });
   }
 
   function newSession() {
     if (busy) return;
     setMessages([]);
-    setErrorIds([]);
-    sessionId.current = genId("sess");
+    sessionId.current = "sess-" + Date.now();
   }
 
   const empty = messages.length === 0;
 
   return (
-    <main className="min-h-[100dvh] pb-[calc(150px+env(safe-area-inset-bottom))]">
-      <header className="sticky top-0 z-30 flex h-14 items-center justify-between bg-moon/90 px-3 backdrop-blur pt-safe dark:bg-dark-bg/90">
+    <main className="min-h-[100dvh] pb-[150px]">
+      <header className="sticky top-0 z-30 flex h-14 items-center justify-between bg-moon/90 px-3 backdrop-blur dark:bg-dark-bg/90">
         <Link href="/chat/history" className="flex h-9 w-9 items-center justify-center rounded-full active:bg-line/50">
           <History size={20} className="text-ink-700 dark:text-dark-text" />
         </Link>
@@ -167,7 +127,7 @@ function ChatInner() {
             <Motif name="bamboo" className="pointer-events-none absolute -top-2 right-0 h-20 w-20 text-celadon/30" />
             <Mascot size={88} className="shadow-celadon" />
             <p className="mt-4 font-serif text-xl text-ink dark:text-dark-text">你的 AI 读书伙伴</p>
-            <p className="mt-1 text-xs text-ink-500 dark:text-dark-text/60">通览馆藏，为你荐书 · 答疑 · 解读原文</p>
+            <p className="mt-1 text-xs text-ink-300">通览馆藏，为你荐书 · 答疑 · 解读原文</p>
             <div className="mt-6 w-full space-y-2.5">
               {exampleQuestions.map((q) => (
                 <button
@@ -187,11 +147,7 @@ function ChatInner() {
               <ChatMessage
                 key={m.id}
                 msg={m}
-                error={errorIds.includes(m.id)}
-                onFeedback={handleFeedback}
-                onRegenerate={
-                  !busy && m.role === "assistant" && i === messages.length - 1 ? regenerate : undefined
-                }
+                onRegenerate={!busy && m.role === "assistant" && i === messages.length - 1 ? regenerate : undefined}
               />
             ))}
             <div ref={bottomRef} />
@@ -199,21 +155,17 @@ function ChatInner() {
         )}
       </div>
 
-      {/* 输入区：固定在底栏上方，底距与底栏同源叠加安全区，避免刘海机型被底栏遮挡 */}
-      <div className="app-width fixed bottom-[calc(env(safe-area-inset-bottom)+58px)] left-1/2 z-40 -translate-x-1/2 border-t border-line bg-moon/95 px-3 py-2.5 backdrop-blur dark:border-white/5 dark:bg-dark-bg/95">
+      {/* 输入区：固定在底栏上方 */}
+      <div className="app-width fixed bottom-[58px] left-1/2 z-40 -translate-x-1/2 border-t border-line bg-moon/95 px-3 py-2.5 backdrop-blur dark:border-white/5 dark:bg-dark-bg/95">
         {busy && (
-          <button onClick={stop} className="mx-auto mb-2 flex items-center gap-1 rounded-full border border-line bg-snow px-3 py-1 text-xs text-ink-500 dark:border-white/10 dark:bg-dark-card">
+          <button onClick={stop} className="mx-auto mb-2 flex items-center gap-1 rounded-full border border-line bg-snow px-3 py-1 text-xs text-ink-500 dark:bg-dark-card">
             <Square size={12} /> 停止生成
           </button>
         )}
         <div className="flex items-end gap-2">
           <textarea
-            ref={taRef}
             value={input}
-            onChange={(e) => {
-              setInput(e.target.value.slice(0, 500));
-              autoGrow(e.currentTarget);
-            }}
+            onChange={(e) => setInput(e.target.value.slice(0, 500))}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();

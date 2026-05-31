@@ -62,7 +62,7 @@ export default function FavoritesPage() {
                 <Link href={`/library/book/${b.id}`} className="block transition active:scale-[0.98]">
                   <BookCover title={b.title} author={b.author} seed={b.coverSeed} src={b.cover} className="w-full" />
                   <h3 className="mt-2 truncate font-serif text-sm text-ink dark:text-dark-text">{b.title}</h3>
-                  <p className="truncate text-xs text-ink-500 dark:text-dark-text/55">{b.author}</p>
+                  <p className="truncate text-xs text-ink-300">{b.author}</p>
                 </Link>
                 <button
                   aria-label="取消收藏"

@@ -17,20 +17,15 @@ export const metadata: Metadata = {
     shortcut: ["/icon.svg"],
     apple: [{ url: "/icon.svg" }],
   },
-  formatDetection: { telephone: false, email: false, address: false, date: false },
+  formatDetection: { telephone: false },
 };
 
 export const viewport: Viewport = {
-  // 明暗双值：PWA/状态栏底色跟随系统配色，避免暗色用户看到月白状态栏
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#F4F2ED" },
-    { media: "(prefers-color-scheme: dark)", color: "#14140F" },
-  ],
+  themeColor: "#F4F2ED",
   width: "device-width",
   initialScale: 1,
-  // 允许放大（WCAG 1.4.4）：不再禁用缩放
-  maximumScale: 5,
-  userScalable: true,
+  maximumScale: 1,
+  userScalable: false,
   viewportFit: "cover",
 };
 
@@ -48,14 +43,7 @@ export default function RootLayout({
         <script
           dangerouslySetInnerHTML={{
             __html:
-              "(function(){try{if(window.innerWidth>=1024)return;var sw=(window.screen&&window.screen.width)||393;var t=(sw>=320&&sw<=500)?sw:393;var m=document.querySelector('meta[name=\"viewport\"]');if(m)m.setAttribute('content','width='+t+', viewport-fit=cover, maximum-scale=5');}catch(e){}})();",
-          }}
-        />
-        {/* 暗色首屏防闪：在水合前按本地存储的主题偏好提前加 .dark，避免 dark/system 用户先闪一屏月白 */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html:
-              "(function(){try{var t='light';var raw=localStorage.getItem('ail-ui');if(raw){var s=JSON.parse(raw);if(s&&s.state&&s.state.theme)t=s.state.theme;}var dark=t==='dark'||(t==='system'&&window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches);if(dark)document.documentElement.classList.add('dark');}catch(e){}})();",
+              "(function(){try{if(window.innerWidth>=1024)return;var sw=(window.screen&&window.screen.width)||393;var t=(sw>=320&&sw<=500)?sw:393;var m=document.querySelector('meta[name=\"viewport\"]');if(m)m.setAttribute('content','width='+t+', viewport-fit=cover');}catch(e){}})();",
           }}
         />
         <Providers>

@@ -84,7 +84,6 @@ export interface Citation {
   bookTitle: string;
   coverSeed: number;
   cover?: string;
-  chapterId: string; // 真实章节 id（跳转用，避免靠"书id-c章号"字符串拼接）
   chapterNo: number;
   chapterTitle: string;
   snippet: string;
