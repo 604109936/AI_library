@@ -230,7 +230,9 @@ export const useLibrary = create<LibState>()((set, get) => {
   const uid = () => useAuth.getState().user?.id;
   const fail = (label: string) => useUI.getState().toast(`${label}同步失败`, "error");
   const sync = (p: any, label: string) => {
-    Promise.resolve(p).then((res: any) => { if (res?.error) fail(label); }).catch(() => fail(label));
+    Promise.resolve(p)
+      .then((res: any) => { if (res?.error) { console.error(`[同步失败:${label}]`, res.error); fail(label); } })
+      .catch((e: any) => { console.error(`[同步异常:${label}]`, e); fail(label); });
   };
   // 文字进度/媒体进度：写库时取当前完整一行（避免分列覆盖）
   const syncText = (bookId: string) => {

@@ -9,6 +9,7 @@ import { Skeleton, ErrorState } from "@/components/ui/States";
 import { Motif } from "@/components/ui/Motif";
 import { useLibrary, useReader, useUI, requireLogin, type ReaderBg } from "@/lib/store";
 import { useReadingClock } from "@/lib/useReadingClock";
+import { uid } from "@/lib/utils";
 import type { Chapter, NoteItem } from "@/lib/types";
 
 // useLayoutEffect 在 SSR 无意义，客户端才用（消除告警）
@@ -93,22 +94,26 @@ function ReaderInner({ id }: { id: string }) {
     pctRef.current = 0;
     setPct(0);
     const b = bookQ.data;
-    const report = () => {
+    const report = (allowMark: boolean) => {
       const rid = b.id.split("__")[0];
       const el = scrollRef.current;
       const max = el ? el.scrollHeight - el.clientHeight : 0;
-      // 本章读毕：滚到底(≥95%) 或 内容不足一屏（无需滚动）→ 计入「读过的记录」
-      if (pctRef.current >= 95 || max <= 4) markChapterRead(rid, cur.id);
+      // 本章读毕：滚到底(≥95%) 或 内容不足一屏（无需滚动）。仅在渲染稳定后(非进入瞬间)判定，
+      // 避免进入时布局未稳(max≈0)把长章节误判为读毕（提前打√）。
+      if (allowMark && (pctRef.current >= 95 || max <= 4)) markChapterRead(rid, cur.id);
       const readNow = useLibrary.getState().readChapters[rid] ?? [];
       const N = chapters.length || 1;
-      // 进度 = 实际读过的章节占比（按读过的记录，不看当前位置/章序）；读完所有章=100
-      const prog = Math.min(100, Math.round((Math.min(readNow.length, chapters.length) / N) * 100));
+      // 进度 =（已读完章节数 + 当前章滚动比例）/ 总章数：章内滚动也前进，全部读完才 100
+      const doneN = Math.min(readNow.length, chapters.length);
+      const curDone = readNow.includes(cur.id);
+      const frac = curDone ? 0 : Math.max(0, Math.min(1, pctRef.current / 100));
+      const prog = doneN >= chapters.length ? 100 : Math.min(99, Math.round(((doneN + frac) / N) * 100));
       pushHistory({ bookId: rid, bookTitle: b.title, author: b.author, coverSeed: b.coverSeed, cover: b.cover, mode: "text", progress: prog, lastAt: new Date().toISOString() });
       setProgress({ bookId: rid, chapterId: cur.id, chapterNo: cur.no, pct: prog, mode: "text" });
     };
-    report();
-    const t = setInterval(report, 5000);
-    return () => { report(); clearInterval(t); };
+    report(false); // 进入：只记进度，不判读毕
+    const t = setInterval(() => report(true), 5000);
+    return () => { report(true); clearInterval(t); };
     // eslint-disable-next-line
   }, [cur?.id, bookQ.data?.id]);
 
@@ -183,7 +188,7 @@ function ReaderInner({ id }: { id: string }) {
 
   function makeNote(excerpt: string, note: string, color: string, start?: number): NoteItem {
     return {
-      id: crypto.randomUUID(), // 与 DB notes.id(uuid) 对齐，便于写穿透
+      id: uid(), // 安全上下文无关的 uuid（手机经 HTTP/LAN 也可用，与 DB notes.id 对齐）
       bookId: bookQ.data!.id.split("__")[0],
       bookTitle: bookQ.data!.title,
       bookCoverSeed: bookQ.data!.coverSeed,
@@ -218,7 +223,18 @@ function ReaderInner({ id }: { id: string }) {
   function copySelection() {
     const t = menu?.text ?? "";
     if (!t) { setMenu(null); return; }
-    navigator.clipboard?.writeText(t).then(() => toast("已复制")).catch(() => toast("复制失败，请重试", "error"));
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(t).then(() => toast("已复制")).catch(() => toast("复制失败，请重试", "error"));
+    } else {
+      // 非安全上下文(HTTP/局域网 IP)无 Clipboard API → 回退 execCommand
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = t; ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.focus(); ta.select();
+        document.execCommand("copy"); document.body.removeChild(ta);
+        toast("已复制");
+      } catch { toast("复制失败，请重试", "error"); }
+    }
     setMenu(null);
     window.getSelection()?.removeAllRanges();
   }
@@ -245,8 +261,12 @@ function ReaderInner({ id }: { id: string }) {
   if (!bookQ.data || !cur) return <div className="p-8 text-center text-ink-500">未找到内容</div>;
 
   const idx = chapters.findIndex((c) => c.id === cur.id);
-  // 全书进度 = 实际读过的章节占比（与上报一致，不看当前位置）
-  const bookPct = Math.min(100, Math.round((Math.min(readCh.length, chapters.length) / (chapters.length || 1)) * 100));
+  // 全书进度 =（已读完章节数 + 当前章滚动比例）/ 总章数：章内滚动也平滑前进，全部读完才 100
+  const _total = chapters.length || 1;
+  const _done = Math.min(readCh.length, chapters.length);
+  const _curDone = cur ? readCh.includes(cur.id) : false;
+  const _frac = _curDone ? 0 : Math.max(0, Math.min(1, pct / 100));
+  const bookPct = _done >= chapters.length ? 100 : Math.min(99, Math.round(((_done + _frac) / _total) * 100));
 
   return (
     <main className={"relative min-h-[100dvh] " + bgCls}>

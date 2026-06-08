@@ -140,8 +140,10 @@ export const db = {
   addNote: (uid: string, n: NoteItem) =>
     supabase.from("notes").insert({
       id: n.id, user_id: uid, book_id: n.bookId, chapter_id: n.chapterId,
-      excerpt: n.excerpt, note: n.note, color: n.color,
-      start_offset: n.start ?? null, end_offset: n.end ?? null,
+      excerpt: n.excerpt ?? "", note: n.note ?? "", color: n.color ?? "",
+      // 偏移量强制整数（防 Range 计算出非整数导致 int 列写入失败）
+      start_offset: typeof n.start === "number" ? Math.trunc(n.start) : null,
+      end_offset: typeof n.end === "number" ? Math.trunc(n.end) : null,
     }),
   removeNote: (id: string) => supabase.from("notes").delete().eq("id", id),
   updateNote: (id: string, note: string) => supabase.from("notes").update({ note }).eq("id", id),

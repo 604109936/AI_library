@@ -49,3 +49,20 @@ export function formatTime(sec: number): string {
 export function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
+
+/**
+ * 生成 uuid v4，兼容**非安全上下文**（手机经局域网 IP 的 HTTP 访问）。
+ * crypto.randomUUID() 仅在安全上下文(HTTPS/localhost)可用，HTTP 下不存在；
+ * 故优先用它，否则回退到 getRandomValues，再不行用 Math.random。
+ */
+export function uid(): string {
+  const c: Crypto | undefined = typeof globalThis !== "undefined" ? (globalThis.crypto as Crypto | undefined) : undefined;
+  if (c?.randomUUID) return c.randomUUID();
+  const b = new Uint8Array(16);
+  if (c?.getRandomValues) c.getRandomValues(b);
+  else for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
+  b[6] = (b[6] & 0x0f) | 0x40; // version 4
+  b[8] = (b[8] & 0x3f) | 0x80; // variant 10
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, "0"));
+  return `${h[0]}${h[1]}${h[2]}${h[3]}-${h[4]}${h[5]}-${h[6]}${h[7]}-${h[8]}${h[9]}-${h[10]}${h[11]}${h[12]}${h[13]}${h[14]}${h[15]}`;
+}
