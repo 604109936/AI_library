@@ -155,7 +155,7 @@ export default function BookDetail({ params }: { params: { id: string } }) {
                   href={`/library/book/${book.id}/read?ch=${c.id}`}
                   className="-mx-2 flex items-center gap-3 rounded-lg px-2 py-3.5 transition active:bg-snow/60 dark:active:bg-white/[0.03]"
                 >
-                  <span className={"flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] tabular-nums " + (isReading ? "bg-celadon text-snow" : "bg-celadon-soft text-celadon-700 dark:bg-celadon/15 dark:text-celadon-300")}>{c.no}</span>
+                  <span className={"flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] tabular-nums " + (isReading ? "bg-celadon text-snow" : "bg-celadon-soft text-celadon-700 dark:bg-celadon/15 dark:text-celadon-300")}>{c.no === 0 ? "序" : c.no}</span>
                   <span className={"flex-1 text-sm " + (isReading ? "font-medium text-celadon-700 dark:text-celadon-300" : "text-ink-700 dark:text-dark-text/85")}>{c.title}</span>
                   <span className="flex items-center gap-1">
                     {isReading && <span className="text-[11px] text-celadon-700 dark:text-celadon-300">在读</span>}

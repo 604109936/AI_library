@@ -70,9 +70,13 @@ for (let i = 0; i < books.length; i++) {
   if (!Array.isArray(b.chapters) || b.chapters.length === 0) {
     errors.push(`${where}: 缺 chapters（至少 1 章）`);
   } else {
+    const firstNo = b.chapters[0]?.no; // 0=含前言；1=无前言
+    if (firstNo !== 0 && firstNo !== 1) errors.push(`${where}: 首章 no 应为 0(前言) 或 1，实际 ${firstNo}`);
     b.chapters.forEach((c, ci) => {
-      const cw = `${where} 第${ci + 1}章`;
-      if (c.no !== ci + 1) errors.push(`${cw}: no 应为 ${ci + 1}（从 1 连续递增），实际 ${c.no}`);
+      const cw = `${where} 章[${ci}]`;
+      const expected = (firstNo ?? 1) + ci;
+      if (c.no !== expected) errors.push(`${cw}: no 应为 ${expected}（从首章连续递增），实际 ${c.no}`);
+      if (c.no === 0 && c.title !== "前言") warnings.push(`${cw}: no:0 约定标题为「前言」，实际「${c.title}」`);
       if (typeof c.title !== "string" || !c.title.trim()) errors.push(`${cw}: 缺 title`);
       if (typeof c.content !== "string" || !c.content.trim())
         warnings.push(`${cw}: content 为空（该书将不被视为"有文字稿"）`);

@@ -9,7 +9,7 @@ import { Skeleton, ErrorState } from "@/components/ui/States";
 import { Motif } from "@/components/ui/Motif";
 import { useLibrary, useReader, useUI, requireLogin, type ReaderBg } from "@/lib/store";
 import { useReadingClock } from "@/lib/useReadingClock";
-import { uid } from "@/lib/utils";
+import { uid, chapterLabel } from "@/lib/utils";
 import type { Chapter, NoteItem } from "@/lib/types";
 
 // useLayoutEffect 在 SSR 无意义，客户端才用（消除告警）
@@ -193,7 +193,7 @@ function ReaderInner({ id }: { id: string }) {
       bookTitle: bookQ.data!.title,
       bookCoverSeed: bookQ.data!.coverSeed,
       chapterId: cur!.id,
-      chapterTitle: `第${cur!.no}章 ${cur!.title}`,
+      chapterTitle: chapterLabel(cur!.no, cur!.title),
       excerpt, // 保存完整选中文本
       note,
       color,
@@ -276,7 +276,7 @@ function ReaderInner({ id }: { id: string }) {
         <button onClick={() => router.back()} aria-label="返回" className="flex h-10 w-10 items-center justify-center rounded-full">
           <ChevronLeft size={24} />
         </button>
-        <h1 className="flex-1 truncate text-center font-serif text-base">第{cur.no}章 {cur.title}</h1>
+        <h1 className="flex-1 truncate text-center font-serif text-base">{chapterLabel(cur.no, cur.title)}</h1>
         <div className="w-10" />
       </header>
 
@@ -304,7 +304,7 @@ function ReaderInner({ id }: { id: string }) {
       {/* 底部工具栏：目录 / 设置 / 笔记（图标区分明显） */}
       <div className="sticky bottom-0 z-20 border-t border-current/10 px-4 py-2 backdrop-blur">
         <div className="mb-1 text-center text-[11px] opacity-50">
-          第{cur.no}/{chapters.length}章 · 本章 {Math.round(pct)}% · 全书 {bookPct}%
+          {chapterLabel(cur.no)} · 本章 {Math.round(pct)}% · 全书 {bookPct}%
         </div>
         <div className="flex items-center justify-around">
           <ToolBtn icon={<List size={18} />} label="目录" onClick={() => setToc(true)} />
@@ -381,7 +381,7 @@ function ReaderInner({ id }: { id: string }) {
             <div className="absolute inset-0 bg-ink/30" onClick={() => setNotesPanel(false)} />
             <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", stiffness: 320, damping: 32 }} className="app-width relative rounded-t-[24px] bg-snow p-5 pb-safe shadow-[0_-10px_40px_-12px_rgba(0,0,0,0.25)] ring-1 ring-black/5 dark:bg-dark-card dark:ring-white/10">
               <h3 className="mb-1 text-center font-serif text-base text-ink dark:text-dark-text">本章笔记</h3>
-              <p className="mb-3 text-center text-[11px] text-ink-300">第{cur.no}章 · 共 {chapterNotes.length} 条</p>
+              <p className="mb-3 text-center text-[11px] text-ink-300">{chapterLabel(cur.no)} · 共 {chapterNotes.length} 条</p>
               {chapterNotes.length === 0 ? (
                 <div className="flex flex-col items-center gap-2 py-8 text-center text-sm text-ink-400 dark:text-dark-text/50">
                   <StickyNote size={28} className="text-celadon/40" />
@@ -424,7 +424,7 @@ function ReaderInner({ id }: { id: string }) {
                       onClick={() => { setCurId(c.id); setToc(false); scrollRef.current?.scrollTo(0, 0); }}
                       className={"flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left " + (on ? "bg-celadon-soft dark:bg-celadon/15" : "")}
                     >
-                      <span className={"text-sm " + (on ? "font-medium text-celadon" : "text-ink-700 dark:text-dark-text/85")}>第{c.no}章 {c.title}</span>
+                      <span className={"text-sm " + (on ? "font-medium text-celadon" : "text-ink-700 dark:text-dark-text/85")}>{chapterLabel(c.no, c.title)}</span>
                       {on ? <span className="h-1.5 w-1.5 rounded-full bg-celadon" /> : readCh.includes(c.id) ? <Check size={14} className="text-ink-300" /> : null}
                     </button>
                   );
