@@ -1,14 +1,13 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { ChevronDown, Check } from "lucide-react";
 import { Header } from "@/components/shell/Header";
 import { BookRow } from "@/components/library/BookCard";
 import { Skeleton, EmptyState, ErrorState } from "@/components/ui/States";
 import { Motif, OrnDivider } from "@/components/ui/Motif";
 import { BackToTop } from "@/components/ui/BackToTop";
-import { getBooks } from "@/lib/api";
-import { categories, chaptersByBook } from "@/lib/mock/data";
+import { getBooks, getCategories } from "@/lib/api";
 import { useAuth, useLibrary, requireLogin } from "@/lib/store";
 
 type ReadingType = "av" | "text";
@@ -23,7 +22,8 @@ const STATUS: { key: Status; label: string }[] = [
 
 export default function CategoryPage({ params }: { params: { id: string } }) {
   const { id } = params;
-  const cat = categories.find((c) => c.id === id);
+  const catsQ = useQuery({ queryKey: ["categories"], queryFn: getCategories });
+  const cat = catsQ.data?.find((c) => c.id === id);
   // 阅读类型筛选（音视频/文字稿，默认音视频，列表按入库时间倒序）+ 状态筛选（全部/进行中/已读/未读）
   const [rtype, setRtype] = useState<ReadingType>("av");
   const [typeOpen, setTypeOpen] = useState(false);
@@ -33,7 +33,6 @@ export default function CategoryPage({ params }: { params: { id: string } }) {
   const user = useAuth((s) => s.user);
   const progress = useLibrary((s) => s.progress);
   const mediaPlayed = useLibrary((s) => s.mediaPlayed);
-  const readChapters = useLibrary((s) => s.readChapters);
 
   const q = useInfiniteQuery({
     queryKey: ["books", id, rtype],
@@ -98,8 +97,8 @@ export default function CategoryPage({ params }: { params: { id: string } }) {
   function doneOf(bookId: string): boolean {
     const r = bookId.split("__")[0];
     if (rtype === "av") return (mediaPlayed[r] ?? 0) >= 0.9;
-    const total = chaptersByBook[r]?.length ?? 0;
-    return total > 0 && (readChapters[r]?.length ?? 0) >= total;
+    // 文字稿读完：阅读进度 pct=100 ⟺ 全部章节读毕（pct 由阅读器按真实章节数算）
+    return (progress[r]?.pct ?? 0) >= 100;
   }
 
   const stillLoading = q.isLoading || (filtered.length === 0 && q.hasNextPage);

@@ -39,3 +39,6 @@ Thumbs.db
 .cand/
 .design/
 .imagegen-*.ps1
+
+# e2e 测试截图产物
+.e2e/

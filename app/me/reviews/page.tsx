@@ -9,7 +9,6 @@ import { BookCover } from "@/components/ui/BookCover";
 import { Stars } from "@/components/ui/Stars";
 import { EmptyState } from "@/components/ui/States";
 import { useLibrary, useUI } from "@/lib/store";
-import { books } from "@/lib/mock/data";
 import { formatDate } from "@/lib/utils";
 
 export default function MyReviewsPage() {
@@ -36,14 +35,13 @@ export default function MyReviewsPage() {
         ) : (
           <div className="space-y-3 p-4">
             {list.map((r) => {
-              // 标题/封面统一以 books 为准（单一数据源），降级到创建时快照
-              const book = books.find((b) => b.id === r.bookId);
-              const title = book?.title ?? r.bookTitle ?? "";
+              // 书名/封面用书评快照（创建时存的 bookTitle/bookCover/bookCoverSeed）
+              const title = r.bookTitle ?? "";
               return (
                 <div key={r.id} className="rounded-2xl bg-snow p-3.5 shadow-sm dark:bg-dark-card">
                   {/* 本版「读者评价」只存数据、不前端展示：卡片仅展示我的书评，不可点进入读者评价列表 */}
                   <div className="flex w-full gap-3 text-left">
-                    <BookCover title={title} seed={book?.coverSeed ?? r.bookCoverSeed ?? 1} src={book?.cover ?? r.bookCover} className="w-12 shrink-0" showText={false} />
+                    <BookCover title={title} seed={r.bookCoverSeed ?? 1} src={r.bookCover} className="w-12 shrink-0" showText={false} />
                     <div className="min-w-0 flex-1">
                       {/* 书名行：书名居左、星级居右 */}
                       <div className="flex items-center justify-between gap-2">

@@ -137,6 +137,14 @@ export async function getBook(id: string): Promise<Book | null> {
   return data ? toBook(data) : null;
 }
 
+// 按 id 批量取书（收藏页：把收藏的 book_id 列表解析成书）
+export async function getBooksByIds(ids: string[]): Promise<Book[]> {
+  if (!ids.length) return [];
+  const { data, error } = await supabase.from("books").select(BOOK_SELECT).in("id", ids);
+  if (error) throw error;
+  return (data ?? []).map(toBook);
+}
+
 export async function getChapters(bookId: string): Promise<Chapter[]> {
   const real = bookId.split("__")[0];
   const { data, error } = await supabase.from("chapters").select("*").eq("book_id", real).order("no");

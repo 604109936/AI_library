@@ -1,13 +1,15 @@
 "use client";
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
 import { Header } from "@/components/shell/Header";
 import { RequireAuth } from "@/components/shell/RequireAuth";
 import { BookCover } from "@/components/ui/BookCover";
-import { EmptyState } from "@/components/ui/States";
+import { EmptyState, Skeleton } from "@/components/ui/States";
 import { ChevronDown, Check, Heart } from "lucide-react";
 import { useLibrary, useUI } from "@/lib/store";
-import { books } from "@/lib/mock/data";
+import { getBooksByIds } from "@/lib/api";
+import type { Book } from "@/lib/types";
 
 // 收藏仅支持「最新收藏 / 最早收藏」（不按评分排序）
 type Sort = "new" | "old";
@@ -20,13 +22,21 @@ export default function FavoritesPage() {
   const [sort, setSort] = useState<Sort>("new");
   const [open, setOpen] = useState(false);
 
+  // 把收藏的 book_id 解析成真实书（按 id 批量查 Supabase）
+  const booksQ = useQuery({
+    queryKey: ["favBooks", favorites],
+    queryFn: () => getBooksByIds(favorites),
+    enabled: favorites.length > 0,
+  });
+
   const list = useMemo(() => {
-    const arr = favorites
-      .map((id) => books.find((b) => b.id === id))
-      .filter((b): b is NonNullable<typeof b> => !!b);
-    if (sort === "old") return [...arr].reverse();
-    return arr;
-  }, [favorites, sort]);
+    const map = new Map((booksQ.data ?? []).map((b) => [b.id, b]));
+    // favorites 已是「最新收藏在前」；按需反转
+    const arr = favorites.map((id) => map.get(id)).filter((b): b is Book => !!b);
+    return sort === "old" ? [...arr].reverse() : arr;
+  }, [favorites, booksQ.data, sort]);
+
+  const loading = favorites.length > 0 && booksQ.isLoading;
 
   return (
     <main className="min-h-[100dvh]">
@@ -53,7 +63,11 @@ export default function FavoritesPage() {
         }
       />
       <RequireAuth>
-        {list.length === 0 ? (
+        {loading ? (
+          <div className="grid grid-cols-2 gap-4 p-4">
+            {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="aspect-[3/4] rounded-2xl" />)}
+          </div>
+        ) : list.length === 0 ? (
           <EmptyState icon="book" title="还没有收藏任何书" subtitle="去泡馆发现好书吧" actionText="去泡馆逛逛" actionHref="/library" />
         ) : (
           <div className="grid grid-cols-2 gap-4 p-4">

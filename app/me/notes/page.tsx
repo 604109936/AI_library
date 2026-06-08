@@ -8,7 +8,6 @@ import { BookCover } from "@/components/ui/BookCover";
 import { EmptyState } from "@/components/ui/States";
 import { useLibrary, useUI } from "@/lib/store";
 import { formatDate } from "@/lib/utils";
-import { books } from "@/lib/mock/data";
 import type { NoteItem } from "@/lib/types";
 
 export default function NotesPage() {
@@ -64,13 +63,12 @@ export default function NotesPage() {
             <div className="mt-3 space-y-3">
               {groups.map(([bookId, items]) => {
                 const isOpen = openId === bookId;
-                // 标题/封面统一以 books 为准（单一数据源），降级到笔记快照
-                const book = books.find((b) => b.id === bookId);
-                const title = book?.title ?? items[0].bookTitle;
+                // 书名/封面用笔记快照（创建时存的 bookTitle/bookCoverSeed）
+                const title = items[0].bookTitle;
                 return (
                   <div key={bookId} className="overflow-hidden rounded-2xl bg-snow shadow-sm dark:bg-dark-card">
                     <button onClick={() => setExpanded(isOpen ? "__none__" : bookId)} className="flex w-full items-center gap-3 p-3">
-                      <BookCover title={title} seed={book?.coverSeed ?? items[0].bookCoverSeed} src={book?.cover} className="w-10" showText={false} />
+                      <BookCover title={title} seed={items[0].bookCoverSeed} className="w-10" showText={false} />
                       <span className="flex-1 text-left font-serif text-sm text-ink dark:text-dark-text">
                         {title} · {items.length} 条笔记
                       </span>
