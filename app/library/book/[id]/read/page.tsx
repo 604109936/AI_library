@@ -1,19 +1,37 @@
 "use client";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronLeft, Type, List, Palette, Sun, Check, Trash2 } from "lucide-react";
+import { ChevronLeft, List, Check, Trash2, Settings2, StickyNote, PenLine, Copy } from "lucide-react";
 import { getBook, getChapters } from "@/lib/api";
 import { Skeleton, ErrorState } from "@/components/ui/States";
 import { Motif } from "@/components/ui/Motif";
 import { useLibrary, useReader, useUI, requireLogin, type ReaderBg } from "@/lib/store";
+import { useReadingClock } from "@/lib/useReadingClock";
 import type { Chapter, NoteItem } from "@/lib/types";
 
-const HL_COLORS = ["#8FB39B", "#D9C08A", "#D69A95", "#C9C6BE"]; // 青瓷/黄铜/胭脂/淡墨（新中式低饱和）
+// useLayoutEffect 在 SSR 无意义，客户端才用（消除告警）
+const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
+// 在正文中按「真实摘录 + 就近偏移」定位：扛真机 Range 微差，也能在重复文本里挑出正确的一处，标记始终完整
+function locate(text: string, excerpt: string, hint: number): number {
+  if (!excerpt) return -1;
+  if (text.slice(hint, hint + excerpt.length) === excerpt) return hint;
+  let best = -1, bestD = Infinity, from = 0;
+  for (;;) {
+    const i = text.indexOf(excerpt, from);
+    if (i < 0) break;
+    const d = Math.abs(i - hint);
+    if (d < bestD) { bestD = d; best = i; }
+    from = i + 1;
+  }
+  return best;
+}
+
+const HL_COLORS = ["#8FB39B", "#D9C08A", "#D69A95", "#C9C6BE"]; // 青瓷/黄铜/胭脂/淡墨
 const BG_OPTIONS: { key: ReaderBg; label: string; cls: string; swatch: string }[] = [
   { key: "white", label: "白", cls: "reader-bg-white", swatch: "#FFFFFF" },
-  { key: "moon", label: "米黄", cls: "reader-bg-moon", swatch: "#F4F2ED" },
+  { key: "moon", label: "米黄", cls: "reader-bg-moon", swatch: "#F3EAD6" },
   { key: "green", label: "护眼", cls: "reader-bg-green", swatch: "#E8F0E4" },
   { key: "dark", label: "深灰", cls: "reader-bg-dark", swatch: "#1F1E18" },
 ];
@@ -30,6 +48,8 @@ function ReaderInner({ id }: { id: string }) {
   const notes = useLibrary((s) => s.notes);
   const setProgress = useLibrary((s) => s.setProgress);
   const pushHistory = useLibrary((s) => s.pushHistory);
+  const markChapterRead = useLibrary((s) => s.markChapterRead);
+  const readChapters = useLibrary((s) => s.readChapters);
 
   const bookQ = useQuery({ queryKey: ["book", id], queryFn: () => getBook(id) });
   const chQ = useQuery({ queryKey: ["chapters", id], queryFn: () => getChapters(id) });
@@ -39,7 +59,10 @@ function ReaderInner({ id }: { id: string }) {
 
   const [toc, setToc] = useState(false);
   const [settings, setSettings] = useState(false);
+  const [notesPanel, setNotesPanel] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; text: string; below: boolean; start: number } | null>(null);
+  const [menuX, setMenuX] = useState(0);
+  const menuRef = useRef<HTMLDivElement>(null);
   const [notePanel, setNotePanel] = useState<{ excerpt: string; color: string; start: number } | null>(null);
   const [noteText, setNoteText] = useState("");
   const [activeNote, setActiveNote] = useState<NoteItem | null>(null);
@@ -48,30 +71,40 @@ function ReaderInner({ id }: { id: string }) {
   const [pct, setPct] = useState(0);
   const pctRef = useRef(0);
   const resumed = useRef(false);
+  useReadingClock(!!cur); // 文字阅读时长计入「我的-总时长」
 
   const bgCls = BG_OPTIONS.find((b) => b.key === reader.bg)?.cls ?? "reader-bg-moon";
-  const chapterNotes = cur ? notes.filter((n) => n.bookId === id.split("__")[0] && n.chapterId === cur.id) : [];
+  const realId = id.split("__")[0];
+  const readCh = readChapters[realId] ?? [];
+  const chapterNotes = cur ? notes.filter((n) => n.bookId === realId && n.chapterId === cur.id) : [];
 
-  // 进入阅读页若未指定章节，恢复上次阅读到的章节（一次性，避免覆盖用户手动切章）
   useEffect(() => {
     if (resumed.current || !chapters.length) return;
     resumed.current = true;
-    if (curId || sp.get("ch")) return; // 已手动切章 / 深链指定了章节
+    if (curId || sp.get("ch")) return;
     const saved = useLibrary.getState().progress[id.split("__")[0]]?.chapterId;
     if (saved && chapters.some((c) => c.id === saved)) setCurId(saved);
   }, [chapters, curId, sp, id]);
 
-  // 历史 + 进度上报：进入即记录，之后每 5 秒一次，离开/切章再记录
   useEffect(() => {
     if (!bookQ.data || !cur) return;
-    // 切章时重置本章进度，避免沿用上一章的 pct（旧章离开值已在上一个 effect 的 cleanup 中按真实值上报）
+    // 切章/进入：先回顶再重置本章进度，原子一致（旧章进度已由上一次 cleanup 写入，不受本次影响）
+    scrollRef.current?.scrollTo(0, 0);
     pctRef.current = 0;
     setPct(0);
     const b = bookQ.data;
     const report = () => {
-      const prog = Math.max(1, Math.round(pctRef.current));
-      pushHistory({ bookId: b.id.split("__")[0], bookTitle: b.title, author: b.author, coverSeed: b.coverSeed, cover: b.cover, mode: "text", progress: prog, lastAt: new Date().toISOString() });
-      setProgress({ bookId: b.id.split("__")[0], chapterId: cur.id, chapterNo: cur.no, pct: prog, mode: "text" });
+      const rid = b.id.split("__")[0];
+      const el = scrollRef.current;
+      const max = el ? el.scrollHeight - el.clientHeight : 0;
+      // 本章读毕：滚到底(≥95%) 或 内容不足一屏（无需滚动）→ 计入「读过的记录」
+      if (pctRef.current >= 95 || max <= 4) markChapterRead(rid, cur.id);
+      const readNow = useLibrary.getState().readChapters[rid] ?? [];
+      const N = chapters.length || 1;
+      // 进度 = 实际读过的章节占比（按读过的记录，不看当前位置/章序）；读完所有章=100
+      const prog = Math.min(100, Math.round((Math.min(readNow.length, chapters.length) / N) * 100));
+      pushHistory({ bookId: rid, bookTitle: b.title, author: b.author, coverSeed: b.coverSeed, cover: b.cover, mode: "text", progress: prog, lastAt: new Date().toISOString() });
+      setProgress({ bookId: rid, chapterId: cur.id, chapterNo: cur.no, pct: prog, mode: "text" });
     };
     report();
     const t = setInterval(report, 5000);
@@ -79,45 +112,75 @@ function ReaderInner({ id }: { id: string }) {
     // eslint-disable-next-line
   }, [cur?.id, bookQ.data?.id]);
 
+  // 从「我的笔记」跳转：轮询等高亮渲染好（应对数据水合/渲染延迟）再滚动到对应标记并轻闪一下
+  useEffect(() => {
+    const mk = sp.get("mark");
+    if (!mk || !cur) return;
+    let tries = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      const el = document.getElementById("mk-" + mk);
+      if (el) {
+        el.scrollIntoView({ block: "center", behavior: "auto" }); // 直接定位，不做平滑滚动动画
+        el.animate?.([{ filter: "brightness(1.45)" }, { filter: "brightness(1)" }], { duration: 1200, easing: "ease-out" });
+        return;
+      }
+      if (++tries < 25) timer = setTimeout(tick, 150); // 最多约 3.75s 等渲染/水合
+    };
+    timer = setTimeout(tick, 250);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line
+  }, [cur?.id, sp]);
+
   function onScroll() {
     const el = scrollRef.current;
     if (!el) return;
-    const p = (el.scrollTop / (el.scrollHeight - el.clientHeight || 1)) * 100;
+    const max = el.scrollHeight - el.clientHeight;
+    const p = (el.scrollTop / (max || 1)) * 100;
     const clamped = Math.min(100, Math.max(0, p));
     pctRef.current = clamped;
     setPct(clamped);
+    // 滚到底(≥95%) 或 内容不足一屏(无需滚动) 即记为本章读毕（与定时上报口径一致）
+    if ((clamped >= 95 || max <= 4) && bookQ.data && cur) markChapterRead(realId, cur.id);
   }
 
   function readSelection() {
     const sel = window.getSelection();
-    const raw = sel?.toString() ?? "";
-    const text = raw.trim();
-    if (!text || !contentRef.current || !sel || sel.rangeCount === 0) { setMenu(null); return; }
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed || !contentRef.current || !cur) { setMenu(null); return; }
+    // 选区必须落在正文内（排除笔记输入框等其它选区）
+    if (!contentRef.current.contains(sel.anchorNode) || !contentRef.current.contains(sel.focusNode)) { setMenu(null); return; }
+    const text = sel.toString().trim(); // 用户真实选中的文字 = excerpt 真值，保证标记完整
+    if (!text) { setMenu(null); return; }
     try {
       const range = sel.getRangeAt(0);
-      const rect = range.getBoundingClientRect();
-      const below = rect.top < 90; // 靠近顶栏时翻到选区下方
-      // 计算选区在本章正文中的字符偏移（精确定位，含 trim 前导空白补偿）
+      // 选区近似起点仅作定位「提示」，真正落位由 locate 就近精确匹配 text
       const pre = range.cloneRange();
       pre.selectNodeContents(contentRef.current);
       pre.setEnd(range.startContainer, range.startOffset);
-      const start = pre.toString().length + (raw.length - raw.trimStart().length);
-      setMenu({ x: rect.left + rect.width / 2, y: below ? rect.bottom + 8 : rect.top - 8, text, below, start });
+      const raw = sel.toString();
+      const hint = pre.toString().length + (raw.length - raw.trimStart().length);
+      const start = locate(cur.content, text, hint);
+      const rect = range.getBoundingClientRect();
+      const below = rect.top < 110;
+      setMenu({ x: rect.left + rect.width / 2, y: below ? rect.bottom + 10 : rect.top - 10, text, below, start });
     } catch { setMenu(null); }
   }
-  // 移动端 touchend 后选区可能尚未稳定，稍延迟读取
-  const onSelect = () => setTimeout(readSelection, 30);
+  // 用 selectionchange 监听（防抖）：移动端「首次长按选词」也能触发（长按选择常发 pointercancel 而非 pointerup）
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | null = null;
+    const onSel = () => { if (t) clearTimeout(t); t = setTimeout(readSelection, 130); };
+    document.addEventListener("selectionchange", onSel);
+    return () => { document.removeEventListener("selectionchange", onSel); if (t) clearTimeout(t); };
+    // eslint-disable-next-line
+  }, [cur?.id]);
+  // 工具条按实测宽度夹取左右位置，避免贴最左/最右时被截断
+  useIsoLayoutEffect(() => {
+    if (!menu || !menuRef.current) return;
+    const half = menuRef.current.offsetWidth / 2;
+    const vw = window.innerWidth;
+    setMenuX(Math.min(Math.max(menu.x, 8 + half), vw - 8 - half));
+  }, [menu]);
 
-  function doHighlight(color: string) {
-    const text = menu?.text ?? "";
-    const start = menu?.start;
-    requireLogin(() => {
-      addNote(makeNote(text, "", color, start));
-      toast("已高亮");
-    });
-    setMenu(null);
-    window.getSelection()?.removeAllRanges();
-  }
   function makeNote(excerpt: string, note: string, color: string, start?: number): NoteItem {
     return {
       id: "n" + Date.now(),
@@ -126,24 +189,42 @@ function ReaderInner({ id }: { id: string }) {
       bookCoverSeed: bookQ.data!.coverSeed,
       chapterId: cur!.id,
       chapterTitle: `第${cur!.no}章 ${cur!.title}`,
-      excerpt, note, color,
+      excerpt, // 保存完整选中文本
+      note,
+      color,
       start,
       end: typeof start === "number" ? start + excerpt.length : undefined,
       createdAt: new Date().toISOString(),
     };
   }
+  function doHighlight(color: string) {
+    const text = menu?.text ?? "";
+    const start = menu?.start;
+    if (!text) { setMenu(null); return; }
+    requireLogin(() => { addNote(makeNote(text, "", color, start)); toast("已高亮"); });
+    setMenu(null);
+    window.getSelection()?.removeAllRanges();
+  }
   function openNote() {
     if (!menu) return;
-    setNotePanel({ excerpt: menu.text, color: HL_COLORS[0], start: menu.start });
-    setNoteText("");
+    const m = menu;
+    // 与「高亮」一致：先校验登录，避免未登录写完笔记点保存才弹登录、输入被清空
+    requireLogin(() => {
+      setNotePanel({ excerpt: m.text, color: HL_COLORS[0], start: m.start });
+      setNoteText("");
+    });
     setMenu(null);
+  }
+  function copySelection() {
+    const t = menu?.text ?? "";
+    if (!t) { setMenu(null); return; }
+    navigator.clipboard?.writeText(t).then(() => toast("已复制")).catch(() => toast("复制失败，请重试", "error"));
+    setMenu(null);
+    window.getSelection()?.removeAllRanges();
   }
   function saveNote() {
     if (!notePanel) return;
-    requireLogin(() => {
-      addNote(makeNote(notePanel.excerpt, noteText, notePanel.color, notePanel.start));
-      toast("笔记已保存");
-    });
+    requireLogin(() => { addNote(makeNote(notePanel.excerpt, noteText, notePanel.color, notePanel.start)); toast("笔记已保存"); });
     setNotePanel(null);
     window.getSelection()?.removeAllRanges();
   }
@@ -164,85 +245,78 @@ function ReaderInner({ id }: { id: string }) {
   if (!bookQ.data || !cur) return <div className="p-8 text-center text-ink-500">未找到内容</div>;
 
   const idx = chapters.findIndex((c) => c.id === cur.id);
+  // 全书进度 = 实际读过的章节占比（与上报一致，不看当前位置）
+  const bookPct = Math.min(100, Math.round((Math.min(readCh.length, chapters.length) / (chapters.length || 1)) * 100));
 
   return (
     <main className={"relative min-h-[100dvh] " + bgCls}>
       <Motif name="bamboo" className="reader-deco h-24 w-24" />
-      {/* 顶栏 */}
+      {/* 顶栏：返回 · 章标题（设置入口在底部工具栏最右） */}
       <header className="sticky top-0 z-20 flex h-14 items-center px-2 backdrop-blur" style={{ background: "transparent" }}>
         <button onClick={() => router.back()} aria-label="返回" className="flex h-10 w-10 items-center justify-center rounded-full">
           <ChevronLeft size={24} />
         </button>
         <h1 className="flex-1 truncate text-center font-serif text-base">第{cur.no}章 {cur.title}</h1>
-        <button onClick={() => setSettings(true)} aria-label="阅读设置" className="flex h-10 w-10 items-center justify-center rounded-full">
-          <Type size={20} />
-        </button>
+        <div className="w-10" />
       </header>
 
-      {/* 正文（亮度只作用于本容器，不影响浮层） */}
+      {/* 正文：亮度作用于本区（含底色），并禁用浏览器原生长按菜单，避免与划线冲突 */}
       <div
         ref={scrollRef}
         onScroll={onScroll}
-        className="h-[calc(100dvh-3.5rem-3.5rem)] overflow-y-auto px-6 pb-10 no-scrollbar"
+        className={"h-[calc(100dvh-3.5rem-3.5rem)] overflow-y-auto px-6 pb-10 no-scrollbar " + bgCls}
         style={{ filter: `brightness(${reader.brightness})` }}
       >
         <div
           ref={contentRef}
-          onMouseUp={onSelect}
-          onTouchEnd={onSelect}
+          onContextMenu={(e) => e.preventDefault()}
           className="mx-auto max-w-[680px] whitespace-pre-wrap font-serif leading-[1.9]"
-          style={{ fontSize: reader.fontSize }}
+          style={{ fontSize: reader.fontSize, WebkitTouchCallout: "none" }}
         >
           {renderHighlighted(cur.content, chapterNotes, setActiveNote)}
         </div>
         <div className="mx-auto mt-8 flex max-w-[680px] justify-between">
-          <button disabled={idx <= 0} onClick={() => { setCurId(chapters[idx - 1].id); scrollRef.current?.scrollTo(0, 0); }} className="rounded-full border border-current/20 px-4 py-1.5 text-xs disabled:opacity-30">上一章</button>
-          <button disabled={idx >= chapters.length - 1} onClick={() => { setCurId(chapters[idx + 1].id); scrollRef.current?.scrollTo(0, 0); }} className="rounded-full border border-current/20 px-4 py-1.5 text-xs disabled:opacity-30">下一章</button>
+          <button disabled={idx <= 0} onClick={() => setCurId(chapters[idx - 1].id)} className="rounded-full border border-current/20 px-4 py-1.5 text-xs disabled:pointer-events-none disabled:opacity-30">上一章</button>
+          <button disabled={idx >= chapters.length - 1} onClick={() => setCurId(chapters[idx + 1].id)} className="rounded-full border border-current/20 px-4 py-1.5 text-xs disabled:pointer-events-none disabled:opacity-30">下一章</button>
         </div>
       </div>
 
-      {/* 底部工具栏 */}
+      {/* 底部工具栏：目录 / 设置 / 笔记（图标区分明显） */}
       <div className="sticky bottom-0 z-20 border-t border-current/10 px-4 py-2 backdrop-blur">
         <div className="mb-1 text-center text-[11px] opacity-50">
-          第{cur.no}/{chapters.length}章 · 本章 {Math.round(pct)}% · 全书 {Math.round(((idx + pct / 100) / chapters.length) * 100)}%
+          第{cur.no}/{chapters.length}章 · 本章 {Math.round(pct)}% · 全书 {bookPct}%
         </div>
         <div className="flex items-center justify-around">
           <ToolBtn icon={<List size={18} />} label="目录" onClick={() => setToc(true)} />
-          <ToolBtn icon={<Type size={18} />} label="字号" onClick={() => setSettings(true)} />
-          <ToolBtn icon={<Palette size={18} />} label="背景" onClick={() => setSettings(true)} />
-          <ToolBtn icon={<Sun size={18} />} label="亮度" onClick={() => setSettings(true)} />
+          <ToolBtn icon={<StickyNote size={18} />} label="笔记" onClick={() => setNotesPanel(true)} />
+          <ToolBtn icon={<Settings2 size={18} />} label="设置" onClick={() => setSettings(true)} />
         </div>
       </div>
 
-      {/* 划线菜单（浅色磨砂胶囊 + 四色圆点） */}
+      {/* 划线菜单 */}
       {menu && (
         <div
-          className={"fixed z-50 -translate-x-1/2 " + (menu.below ? "" : "-translate-y-full")}
-          style={{ left: Math.min(Math.max(menu.x, 96), (typeof window !== "undefined" ? window.innerWidth : 360) - 96), top: menu.y }}
+          ref={menuRef}
+          className={"fixed z-50 w-max max-w-[96vw] -translate-x-1/2 " + (menu.below ? "" : "-translate-y-full")}
+          style={{ left: menuX, top: menu.y }}
         >
-          <div className="rounded-2xl bg-snow/95 px-2 py-2 text-ink shadow-lg ring-1 ring-line backdrop-blur dark:bg-dark-card/95 dark:text-dark-text dark:ring-white/10">
-            <div className="flex items-center gap-0.5 px-1 text-xs">
-              <button className="px-2 py-0.5" onClick={() => doHighlight(HL_COLORS[0])}>高亮</button>
-              <span className="h-3.5 w-px bg-line dark:bg-white/10" />
-              <button className="px-2 py-0.5" onClick={openNote}>笔记</button>
-              <span className="h-3.5 w-px bg-line dark:bg-white/10" />
-              <button className="px-2 py-0.5" onClick={() => { navigator.clipboard?.writeText(menu.text); toast("已复制"); setMenu(null); }}>复制</button>
-            </div>
-            <div className="mt-1.5 flex items-center justify-center gap-3">
-              {HL_COLORS.map((c) => (
-                <button key={c} onClick={() => doHighlight(c)} aria-label="高亮颜色" className="h-6 w-6 rounded-full ring-1 ring-black/5" style={{ background: c }} />
-              ))}
-            </div>
+          <div className="flex flex-nowrap items-center gap-1.5 rounded-2xl bg-snow/95 px-2.5 py-2 text-ink shadow-xl ring-1 ring-line backdrop-blur dark:bg-dark-card/95 dark:text-dark-text dark:ring-white/10">
+            {HL_COLORS.map((c) => (
+              <button key={c} onClick={() => doHighlight(c)} aria-label="高亮" className="h-7 w-7 shrink-0 rounded-full ring-1 ring-black/10 transition active:scale-90 dark:ring-white/20" style={{ background: c }} />
+            ))}
+            <span className="mx-0.5 h-5 w-px shrink-0 bg-line dark:bg-white/10" />
+            <button onClick={openNote} aria-label="写笔记" className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1 text-xs text-ink-700 transition active:bg-moon dark:text-dark-text/85 dark:active:bg-white/10"><PenLine size={14} /> 笔记</button>
+            <button onClick={copySelection} aria-label="复制" className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1 text-xs text-ink-700 transition active:bg-moon dark:text-dark-text/85 dark:active:bg-white/10"><Copy size={14} /> 复制</button>
           </div>
         </div>
       )}
 
-      {/* 笔记输入浮层（含选色） */}
+      {/* 笔记输入浮层 */}
       <AnimatePresence>
         {notePanel && (
           <motion.div className="fixed inset-0 z-50 flex items-end justify-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <div className="absolute inset-0 bg-ink/30" onClick={() => setNotePanel(null)} />
-            <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="app-width relative rounded-t-[24px] bg-snow p-5 dark:bg-dark-card">
+            <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="app-width relative rounded-t-[24px] bg-snow p-5 shadow-[0_-10px_40px_-12px_rgba(0,0,0,0.25)] ring-1 ring-black/5 dark:bg-dark-card dark:ring-white/10">
               <p className="mb-2 rounded-lg border-l-[3px] px-3 py-2 text-xs text-ink-700 dark:text-dark-text/75" style={{ borderColor: notePanel.color, background: notePanel.color + "22" }}>{notePanel.excerpt}</p>
               <div className="mb-2 flex items-center gap-3">
                 <span className="text-xs text-ink-500 dark:text-dark-text/60">标记色</span>
@@ -262,7 +336,7 @@ function ReaderInner({ id }: { id: string }) {
         {activeNote && (
           <motion.div className="fixed inset-0 z-50 flex items-end justify-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <div className="absolute inset-0 bg-ink/30" onClick={() => setActiveNote(null)} />
-            <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="app-width relative rounded-t-[24px] bg-snow p-5 dark:bg-dark-card">
+            <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="app-width relative rounded-t-[24px] bg-snow p-5 shadow-[0_-10px_40px_-12px_rgba(0,0,0,0.25)] ring-1 ring-black/5 dark:bg-dark-card dark:ring-white/10">
               <p className="mb-2 rounded-lg border-l-[3px] px-3 py-2 text-sm text-ink-700 dark:text-dark-text/75" style={{ borderColor: activeNote.color, background: activeNote.color + "22" }}>{activeNote.excerpt}</p>
               {activeNote.note ? (
                 <p className="text-sm text-ink dark:text-dark-text">{activeNote.note}</p>
@@ -280,11 +354,45 @@ function ReaderInner({ id }: { id: string }) {
         )}
       </AnimatePresence>
 
+      {/* 本章笔记列表 */}
+      <AnimatePresence>
+        {notesPanel && (
+          <motion.div className="fixed inset-0 z-50 flex items-end justify-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <div className="absolute inset-0 bg-ink/30" onClick={() => setNotesPanel(false)} />
+            <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", stiffness: 320, damping: 32 }} className="app-width relative rounded-t-[24px] bg-snow p-5 pb-safe shadow-[0_-10px_40px_-12px_rgba(0,0,0,0.25)] ring-1 ring-black/5 dark:bg-dark-card dark:ring-white/10">
+              <h3 className="mb-1 text-center font-serif text-base text-ink dark:text-dark-text">本章笔记</h3>
+              <p className="mb-3 text-center text-[11px] text-ink-300">第{cur.no}章 · 共 {chapterNotes.length} 条</p>
+              {chapterNotes.length === 0 ? (
+                <div className="flex flex-col items-center gap-2 py-8 text-center text-sm text-ink-400 dark:text-dark-text/50">
+                  <StickyNote size={28} className="text-celadon/40" />
+                  本章还没有笔记
+                  <span className="text-xs text-ink-300">长按正文选中文字，即可划线、写笔记</span>
+                </div>
+              ) : (
+                <div className="max-h-[52vh] space-y-2.5 overflow-y-auto">
+                  {chapterNotes.map((n) => (
+                    <div key={n.id} className="flex items-start gap-2 rounded-xl bg-moon p-3 dark:bg-dark-bg">
+                      <button onClick={() => { setNotesPanel(false); setActiveNote(n); }} className="min-w-0 flex-1 text-left">
+                        <p className="rounded border-l-[3px] px-2 py-1 text-xs leading-5 text-ink-700 dark:text-dark-text/80" style={{ borderColor: n.color, background: n.color + "22" }}>{n.excerpt}</p>
+                        {n.note && <p className="mt-1 line-clamp-2 px-1 text-sm text-ink dark:text-dark-text">{n.note}</p>}
+                      </button>
+                      <button onClick={() => { removeNote(n.id); toast("已删除"); }} aria-label="删除笔记" className="shrink-0 p-1 text-ink-300 active:scale-90">
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* 章节目录抽屉 */}
       <AnimatePresence>
         {toc && (
           <motion.div className="fixed inset-0 z-50 flex" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <motion.div initial={{ x: "-100%" }} animate={{ x: 0 }} exit={{ x: "-100%" }} transition={{ type: "spring", stiffness: 320, damping: 34 }} className="relative h-full w-[80%] max-w-[360px] overflow-y-auto bg-snow p-4 dark:bg-dark-card">
+            <motion.div initial={{ x: "-100%" }} animate={{ x: 0 }} exit={{ x: "-100%" }} transition={{ type: "spring", stiffness: 320, damping: 34 }} className="relative h-full w-[80%] max-w-[360px] overflow-y-auto bg-snow p-4 shadow-2xl ring-1 ring-black/5 dark:bg-dark-card dark:ring-white/10">
               <h2 className="font-serif text-lg text-ink dark:text-dark-text">目录</h2>
               <p className="mt-0.5 text-xs text-ink-300">{bookQ.data.title} · 共 {chapters.length} 章</p>
               <div className="mt-3 space-y-1">
@@ -297,7 +405,7 @@ function ReaderInner({ id }: { id: string }) {
                       className={"flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left " + (on ? "bg-celadon-soft dark:bg-celadon/15" : "")}
                     >
                       <span className={"text-sm " + (on ? "font-medium text-celadon" : "text-ink-700 dark:text-dark-text/85")}>第{c.no}章 {c.title}</span>
-                      {on ? <span className="h-1.5 w-1.5 rounded-full bg-celadon" /> : c.status === "read" ? <Check size={14} className="text-ink-300" /> : null}
+                      {on ? <span className="h-1.5 w-1.5 rounded-full bg-celadon" /> : readCh.includes(c.id) ? <Check size={14} className="text-ink-300" /> : null}
                     </button>
                   );
                 })}
@@ -309,12 +417,12 @@ function ReaderInner({ id }: { id: string }) {
         )}
       </AnimatePresence>
 
-      {/* 阅读设置面板 */}
+      {/* 阅读设置面板（字号 / 背景 / 亮度） */}
       <AnimatePresence>
         {settings && (
           <motion.div className="fixed inset-0 z-50 flex items-end justify-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <div className="absolute inset-0 bg-ink/20" onClick={() => setSettings(false)} />
-            <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="app-width relative rounded-t-[24px] bg-snow p-5 dark:bg-dark-card">
+            <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="app-width relative rounded-t-[24px] bg-snow p-5 shadow-[0_-10px_40px_-12px_rgba(0,0,0,0.25)] ring-1 ring-black/5 dark:bg-dark-card dark:ring-white/10">
               <h3 className="mb-3 text-center font-serif text-base text-ink dark:text-dark-text">阅读设置</h3>
               <Row label="字号">
                 <div className="flex gap-2">
@@ -344,16 +452,13 @@ function ReaderInner({ id }: { id: string }) {
   );
 }
 
-/** 把正文中命中已存笔记摘录的片段包裹为可点击高亮 */
+/** 把正文中命中已存笔记摘录的片段包裹为可点击高亮（完整覆盖选中文本） */
 function renderHighlighted(text: string, notes: NoteItem[], onClick: (n: NoteItem) => void) {
   const marks: { start: number; end: number; note: NoteItem }[] = [];
   notes.forEach((n) => {
     if (!n.excerpt) return;
-    // 优先用保存的字符偏移精确定位（重复文本不再串位）；旧数据无 offset 时回退 indexOf
-    const i =
-      typeof n.start === "number" && text.slice(n.start, n.end) === n.excerpt
-        ? n.start
-        : text.indexOf(n.excerpt);
+    // 用真实摘录 + 就近偏移定位：标记必覆盖完整摘录，重复文本也能挑对正确的一处
+    const i = locate(text, n.excerpt, typeof n.start === "number" ? n.start : 0);
     if (i >= 0) marks.push({ start: i, end: i + n.excerpt.length, note: n });
   });
   if (!marks.length) return text;
@@ -363,21 +468,23 @@ function renderHighlighted(text: string, notes: NoteItem[], onClick: (n: NoteIte
   for (const m of marks) if (m.start >= lastEnd) { clean.push(m); lastEnd = m.end; }
   const out: React.ReactNode[] = [];
   let pos = 0;
-  clean.forEach((m, k) => {
-    if (m.start > pos) out.push(text.slice(pos, m.start));
+  // 所有片段（含纯文本）都带稳定 key，避免 React 在多次高亮后协调错配文本节点
+  clean.forEach((m) => {
+    if (m.start > pos) out.push(<span key={"t" + pos}>{text.slice(pos, m.start)}</span>);
     out.push(
       <mark
-        key={k}
+        key={"m" + m.start}
+        id={"mk-" + m.note.id}
         onClick={() => onClick(m.note)}
-        className="cursor-pointer rounded-sm px-0.5"
-        style={{ background: m.note.color + "59", color: "inherit", textDecoration: m.note.note ? "underline dotted" : undefined, textUnderlineOffset: 3 }}
+        className="cursor-pointer rounded-[3px]"
+        style={{ background: m.note.color + "80", color: "inherit", textDecoration: m.note.note ? "underline dotted" : undefined, textDecorationColor: m.note.note ? m.note.color : undefined, textUnderlineOffset: 3 }}
       >
         {text.slice(m.start, m.end)}
       </mark>
     );
     pos = m.end;
   });
-  if (pos < text.length) out.push(text.slice(pos));
+  if (pos < text.length) out.push(<span key={"t" + pos}>{text.slice(pos)}</span>);
   return out;
 }
 

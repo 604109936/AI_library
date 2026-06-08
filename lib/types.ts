@@ -28,6 +28,8 @@ export interface Book {
   reviewCount: number; // 书评数
   featured: boolean;
   intro: string; // 乱翻一句话
+  createdAt: string; // 书籍创作/出版时间（ISO；热门好书按此由远到近排序）
+  shelvedAt: string; // 入库时间（ISO；分类默认排序与 Banner 取每类最新）
 }
 
 export interface Chapter {

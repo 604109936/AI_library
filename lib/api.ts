@@ -21,9 +21,18 @@ export async function getHome(): Promise<{
   // GET /api/home
   await sleep(300);
   return {
-    banners: books.filter((b) => b.featured),
+    // Banner：每个分类「最新入库」的一本（共 6 本，按分类顺序）
+    banners: categories
+      .map(
+        (c) =>
+          books
+            .filter((b) => b.categoryId === c.id)
+            .sort((a, b) => +new Date(b.shelvedAt) - +new Date(a.shelvedAt))[0]
+      )
+      .filter(Boolean) as Book[],
     categories,
-    recommend: [...books].sort((a, b) => b.readers - a.readers).slice(0, 12),
+    // 热门好书：按「创作时间」由远到近排序；已读完的由前端过滤（后端就绪后改为后端排除已读后取 20）
+    recommend: [...books].sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt)),
   };
 }
 
@@ -34,36 +43,22 @@ export async function getCategories(): Promise<Category[]> {
 
 export async function getBooks(opts: {
   categoryId?: string;
-  sort?: "new" | "rating" | "readers" | "words";
+  readingType?: "av" | "text"; // 阅读类型：音视频 / 文字稿
   cursor?: number;
 }): Promise<Paged<Book>> {
-  // GET /api/books?category=&sort=&cursor=
+  // GET /api/books?category=&type=&cursor=
   await sleep(350);
   let list = books.slice();
   if (opts.categoryId) list = list.filter((b) => b.categoryId === opts.categoryId);
-  switch (opts.sort) {
-    case "rating":
-      list.sort((a, b) => b.rating - a.rating);
-      break;
-    case "readers":
-      list.sort((a, b) => b.readers - a.readers);
-      break;
-    case "words":
-      list.sort((a, b) => a.words - b.words);
-      break;
-    default:
-      break; // new = 原序
-  }
-  // 为了演示无限滚动，复制一份扩充
-  const expanded = [...list, ...list, ...list];
+  if (opts.readingType === "av") list = list.filter((b) => b.hasVideo || b.hasAudio);
+  else if (opts.readingType === "text") list = list.filter((b) => b.hasText);
+  // 默认按「入库时间」倒序（最近入库在前）
+  list.sort((a, b) => +new Date(b.shelvedAt) - +new Date(a.shelvedAt));
+  // 真实分页（不再复制扩充，避免同一本书重复出现）
   const cursor = opts.cursor ?? 0;
-  const items = expanded.slice(cursor, cursor + PAGE).map((b, i) => {
-    const absolute = cursor + i;
-    // 仅“第一份”原始书保留真实 id，之后所有副本一律加唯一后缀，避免首屏（含分类书数<PAGE 时）撞 key
-    return { ...b, id: absolute < list.length ? b.id : `${b.id}__${absolute}` };
-  });
+  const items = list.slice(cursor, cursor + PAGE);
   const next = cursor + PAGE;
-  return { items, nextCursor: next < expanded.length ? next : null, hasMore: next < expanded.length };
+  return { items, nextCursor: next < list.length ? next : null, hasMore: next < list.length };
 }
 
 export async function getBook(id: string): Promise<Book | null> {
@@ -81,7 +76,7 @@ export async function getChapters(bookId: string): Promise<Chapter[]> {
 }
 
 export async function getChapter(bookId: string, chapterId: string): Promise<Chapter | null> {
-  // GET /api/books/[id]/chapters/[chapterId]（正文真实来源：火山 Viking）
+  // GET /api/books/[id]/chapters/[chapterId]
   await sleep(200);
   const real = bookId.split("__")[0];
   return (chaptersByBook[real] ?? []).find((c) => c.id === chapterId) ?? null;
@@ -99,23 +94,16 @@ export async function getBookReviews(bookId: string, sort: "hot" | "new"): Promi
 
 export interface SearchResult {
   books: Book[];
-  chapters: { book: Book; chapter: Chapter }[];
 }
 export async function search(q: string): Promise<SearchResult> {
-  // GET /api/search?q=
+  // GET /api/search?q=（仅按 书名 / 作者 / 标签 模糊匹配，仅返回书籍列表）
   await sleep(250);
-  if (!q.trim()) return { books: [], chapters: [] };
+  if (!q.trim()) return { books: [] };
   const kw = q.trim();
   const bk = books.filter(
     (b) => b.title.includes(kw) || b.author.includes(kw) || b.tags.some((t) => t.includes(kw))
   );
-  const chs: { book: Book; chapter: Chapter }[] = [];
-  for (const b of books) {
-    for (const c of chaptersByBook[b.id] ?? []) {
-      if (c.title.includes(kw)) chs.push({ book: b, chapter: c });
-    }
-  }
-  return { books: bk, chapters: chs.slice(0, 6) };
+  return { books: bk };
 }
 
 export async function getFlip(seenIds: string[]): Promise<Book[]> {

@@ -6,16 +6,18 @@ import type {
   NoteItem,
   ChatSession,
   HistoryItem,
+  Progress,
   UserProfile,
 } from "@/lib/types";
 
+// 六大分类（顺序、命名严格对齐《功能详细说明补充》）。count 为该类书目数（Mock 实际数）
 export const categories: Category[] = [
-  { id: "psy", name: "心理学", count: 48, icon: "Brain" },
-  { id: "biz", name: "商业", count: 36, icon: "TrendingUp" },
-  { id: "lit", name: "文学", count: 52, icon: "Feather" },
-  { id: "his", name: "历史", count: 33, icon: "Landmark" },
-  { id: "tech", name: "科技", count: 29, icon: "Cpu" },
-  { id: "growth", name: "自我成长", count: 45, icon: "Sprout" },
+  { id: "psy", name: "心学", count: 4, icon: "Brain" },
+  { id: "growth", name: "成长", count: 4, icon: "Sprout" },
+  { id: "tech", name: "科技", count: 3, icon: "Cpu" },
+  { id: "biz", name: "商业", count: 2, icon: "TrendingUp" },
+  { id: "lit", name: "文学", count: 3, icon: "Feather" },
+  { id: "his", name: "历史", count: 3, icon: "Landmark" },
 ];
 
 interface RawBook {
@@ -23,12 +25,14 @@ interface RawBook {
   title: string;
   author: string;
   categoryId: string;
-  tags: string[];
+  tags: string[]; // 不含分类名；映射 Book 时自动把分类名前插为首个标签
   summary: string;
   lead: string; // 第一章开篇 / 引用摘录来源（有质感的一句话）
   rating: number;
   readers: number;
   words: number;
+  created: string; // 创作/出版时间（ISO，热门好书按此由远到近排序）
+  shelved: string; // 入库时间（ISO，分类默认排序 / Banner 取每类最新）
   modes: ("video" | "audio" | "text")[];
   featured?: boolean;
   intro: string;
@@ -40,14 +44,16 @@ const raw: RawBook[] = [
     id: "mindset",
     title: "终身成长",
     author: "卡罗尔·德韦克",
-    categoryId: "psy",
-    tags: ["成长思维", "心理学", "自我提升"],
+    categoryId: "growth",
+    tags: ["学习方法", "自律"],
     summary:
       "斯坦福大学心理学教授卡罗尔·德韦克提出，决定人生走向的并非天赋，而是思维模式。固定型思维让人逃避挑战，成长型思维让人在困难中精进。",
     lead: "我们对自己能力的看法，悄悄决定了我们会成为什么样的人——这便是思维模式的力量。",
     rating: 4.6,
     readers: 1286000,
     words: 167000,
+    created: "2006-01-01",
+    shelved: "2026-04-15",
     modes: ["video", "audio", "text"],
     featured: true,
     intro: "重新定义成功的思维模式",
@@ -64,13 +70,15 @@ const raw: RawBook[] = [
     title: "人间词话",
     author: "王国维",
     categoryId: "lit",
-    tags: ["古典文学", "美学", "诗词"],
+    tags: ["经典", "诗歌"],
     summary:
       "王国维以“境界说”重新评点中国古典词作，融汇中西美学，是近代以来最具影响力的词学批评著作。",
     lead: "词以境界为最上。有境界则自成高格，自有名句——五代北宋之词所以独绝者在此。",
     rating: 4.8,
     readers: 543000,
     words: 62000,
+    created: "1910-01-01",
+    shelved: "2026-04-05",
     modes: ["audio", "text"],
     featured: true,
     intro: "有境界则自成高格",
@@ -81,13 +89,15 @@ const raw: RawBook[] = [
     title: "被讨厌的勇气",
     author: "岸见一郎·古贺史健",
     categoryId: "psy",
-    tags: ["阿德勒", "人际关系", "勇气"],
+    tags: ["哲学", "关系", "接纳"],
     summary:
       "以哲人与青年对话的形式，讲述阿德勒心理学：一切烦恼都源于人际关系，真正的自由是被讨厌的勇气。",
     lead: "如果你能够不在意别人的评价、不害怕被别人讨厌，那么你的人生将会变得简单而辽阔。",
     rating: 4.5,
     readers: 982000,
     words: 138000,
+    created: "2013-01-01",
+    shelved: "2026-04-10",
     modes: ["video", "audio", "text"],
     intro: "自由就是不再寻求认可",
     chapterTitles: ["我们的不幸是谁的错", "一切烦恼都来自人际关系", "让干涉你生活的人见鬼去", "要有被讨厌的勇气", "认真的人生活在当下"],
@@ -96,14 +106,16 @@ const raw: RawBook[] = [
     id: "intimacy",
     title: "亲密关系",
     author: "罗兰·米勒",
-    categoryId: "psy",
-    tags: ["亲密关系", "社会心理", "情感"],
+    categoryId: "growth",
+    tags: ["婚恋", "家庭", "沟通"],
     summary:
       "深入探讨亲密关系的本质与规律，从吸引、沟通到冲突与维系，用科学视角理解人与人之间的情感联结。",
     lead: "我们都渴望被另一个人深深理解，而亲密，正是在彼此的脆弱里慢慢生长出来的信任。",
     rating: 4.4,
     readers: 671000,
     words: 210000,
+    created: "2015-01-01",
+    shelved: "2026-02-10",
     modes: ["text"],
     intro: "理解爱，才能更好地去爱",
     chapterTitles: ["人际关系的构成", "吸引力", "沟通", "相互依赖", "冲突与修复"],
@@ -112,14 +124,16 @@ const raw: RawBook[] = [
     id: "deepwork",
     title: "深度工作",
     author: "卡尔·纽波特",
-    categoryId: "biz",
-    tags: ["专注", "效率", "职业"],
+    categoryId: "growth",
+    tags: ["职场效率", "时间管理", "自律"],
     summary:
       "在分心成瘾的时代，深度工作的能力日益稀缺而宝贵。本书给出系统方法，帮助你培养高度专注、创造真正价值。",
     lead: "深度工作，是在无干扰的状态下专注进行的职业活动——它能把你的认知能力推向极限。",
     rating: 4.3,
     readers: 758000,
     words: 156000,
+    created: "2016-01-01",
+    shelved: "2026-03-20",
     modes: ["video", "text"],
     intro: "专注是这个时代最稀缺的能力",
     chapterTitles: ["深度工作是有价值的", "深度工作是少见的", "深度工作是有意义的", "工作要深入", "远离社交媒体"],
@@ -129,13 +143,15 @@ const raw: RawBook[] = [
     title: "自控力",
     author: "凯利·麦格尼格尔",
     categoryId: "psy",
-    tags: ["自控", "习惯", "意志力"],
+    tags: ["行为", "习惯", "正念"],
     summary:
       "斯坦福大学广受欢迎的意志力课程，揭示自控力的科学原理，教你像锻炼肌肉一样训练意志力。",
     lead: "意志力不是一种美德，而是一种可以被理解、被训练的生理本能，它像肌肉一样会疲劳，也会变强。",
     rating: 4.2,
     readers: 689000,
     words: 142000,
+    created: "2011-01-01",
+    shelved: "2026-03-05",
     modes: ["audio", "text"],
     intro: "意志力是可以训练的肌肉",
     chapterTitles: ["我要做、我不要、我想要", "意志力的本能", "为什么自控力如此重要", "容忍罪恶", "大脑的弥天大谎"],
@@ -145,13 +161,15 @@ const raw: RawBook[] = [
     title: "刻意练习",
     author: "安德斯·艾利克森",
     categoryId: "growth",
-    tags: ["刻意练习", "技能", "成长"],
+    tags: ["学习方法", "自律"],
     summary:
       "杰出并非天赋，而是正确练习的结果。本书提出“刻意练习”法则，揭示从新手到大师的科学路径。",
     lead: "天才不是天生的。区分卓越与平庸的，不是与生俱来的天赋，而是有目的、有方法的刻意练习。",
     rating: 4.4,
     readers: 812000,
     words: 178000,
+    created: "2016-01-01",
+    shelved: "2026-05-28",
     modes: ["video", "audio", "text"],
     featured: true,
     intro: "天才，是练出来的",
@@ -161,14 +179,16 @@ const raw: RawBook[] = [
     id: "awakening",
     title: "认知觉醒",
     author: "周岭",
-    categoryId: "growth",
-    tags: ["认知", "自我管理", "成长"],
+    categoryId: "psy",
+    tags: ["认知", "习惯", "行为"],
     summary:
       "从脑科学与认知规律出发，讲清楚为什么我们焦虑、拖延，又如何通过认知升级开启自我改变的内在动力。",
     lead: "焦虑的根源，往往是想同时做很多事，又想立即看到结果——而成长本就是一件需要耐心的事。",
     rating: 4.3,
     readers: 934000,
     words: 165000,
+    created: "2020-01-01",
+    shelved: "2026-05-30",
     modes: ["text"],
     intro: "开启自我改变的原动力",
     chapterTitles: ["大脑——重新认识你自己", "潜意识——生命留给我们的彩蛋", "元认知——人类的终极能力", "专注力", "学习力"],
@@ -178,13 +198,15 @@ const raw: RawBook[] = [
     title: "置身事内",
     author: "兰小欢",
     categoryId: "biz",
-    tags: ["经济", "政府", "发展"],
+    tags: ["经济学", "商业思维"],
     summary:
       "以政府与经济发展为线索，深入浅出地讲清中国经济运行的内在逻辑，是理解当代中国的一把钥匙。",
     lead: "理解中国经济，要先理解地方政府——它既是裁判员，也是这场发展竞赛里最活跃的运动员。",
     rating: 4.7,
     readers: 1024000,
     words: 198000,
+    created: "2021-01-01",
+    shelved: "2026-05-24",
     modes: ["video", "text"],
     featured: true,
     intro: "中国政府与经济发展",
@@ -195,13 +217,15 @@ const raw: RawBook[] = [
     title: "枪炮、病菌与钢铁",
     author: "贾雷德·戴蒙德",
     categoryId: "his",
-    tags: ["人类史", "地理", "文明"],
+    tags: ["世界史", "文明文化"],
     summary:
       "为什么是欧亚大陆的人征服了世界？戴蒙德从地理与生态出发，重构了人类社会一万三千年的宏大演化史。",
     lead: "不同民族的命运之所以如此不同，并非因为天赋的差异，而是源于他们所处环境的差异。",
     rating: 4.5,
     readers: 587000,
     words: 256000,
+    created: "1997-01-01",
+    shelved: "2026-04-02",
     modes: ["audio", "text"],
     intro: "人类社会的命运",
     chapterTitles: ["人类社会的起跑线", "粮食生产的扩散", "病菌的礼物", "文字的演化", "地理决定论"],
@@ -211,13 +235,15 @@ const raw: RawBook[] = [
     title: "活着",
     author: "余华",
     categoryId: "lit",
-    tags: ["当代文学", "命运", "苦难"],
+    tags: ["小说", "经典"],
     summary:
       "讲述农民福贵历尽世间沧桑与磨难的一生，以朴素而有力的笔触，写尽中国人面对苦难时的坚韧与温情。",
     lead: "人是为了活着本身而活着，而不是为了活着之外的任何事物而活着。",
     rating: 4.9,
     readers: 1563000,
     words: 124000,
+    created: "1993-01-01",
+    shelved: "2026-05-22",
     modes: ["audio", "text"],
     featured: true,
     intro: "为了活着本身而活着",
@@ -228,13 +254,15 @@ const raw: RawBook[] = [
     title: "围城",
     author: "钱钟书",
     categoryId: "lit",
-    tags: ["现代文学", "讽刺", "婚姻"],
+    tags: ["小说", "经典"],
     summary:
       "以方鸿渐的留学归来与婚恋际遇为线索，以机智幽默的笔调，写尽知识分子的虚荣、彷徨与人生的“围城”困境。",
     lead: "围在城里的人想逃出来，城外的人想冲进去；婚姻也罢，事业也罢，人生的愿望大都如此。",
     rating: 4.7,
     readers: 876000,
     words: 198000,
+    created: "1947-01-01",
+    shelved: "2026-03-12",
     modes: ["text"],
     intro: "城里城外，皆是人生",
     chapterTitles: ["归国之船", "故乡与家", "三闾大学", "围城之内", "散场"],
@@ -244,13 +272,15 @@ const raw: RawBook[] = [
     title: "人类简史",
     author: "尤瓦尔·赫拉利",
     categoryId: "his",
-    tags: ["人类史", "认知革命", "文明"],
+    tags: ["世界史", "文明文化"],
     summary:
       "从认知革命、农业革命到科学革命，赫拉利以宏阔视野重述智人如何从一种普通动物，成为地球的主宰。",
     lead: "智人之所以能统治世界，是因为我们能凭借想象，让成千上万互不相识的人为同一个故事而协作。",
     rating: 4.7,
     readers: 1342000,
     words: 232000,
+    created: "2011-01-01",
+    shelved: "2026-05-20",
     modes: ["video", "audio", "text"],
     featured: true,
     intro: "从动物到上帝",
@@ -261,13 +291,15 @@ const raw: RawBook[] = [
     title: "万历十五年",
     author: "黄仁宇",
     categoryId: "his",
-    tags: ["明史", "大历史观", "制度"],
+    tags: ["中国史", "古代史", "历史人物"],
     summary:
       "以平淡的1587年为切口，黄仁宇用“大历史观”剖开一个庞大帝国的肌理，看似无事之年，正是王朝积弊的缩影。",
     lead: "公元1587年，表面上四海升平、无事可记，实际上却是大明王朝走向衰落的一个关键转折。",
     rating: 4.6,
     readers: 712000,
     words: 176000,
+    created: "1981-01-01",
+    shelved: "2026-03-15",
     modes: ["audio", "text"],
     intro: "一个无关紧要年份的大历史",
     chapterTitles: ["万历皇帝", "首辅申时行", "世间已无张居正", "活着的祖宗", "海瑞与戚继光"],
@@ -277,13 +309,15 @@ const raw: RawBook[] = [
     title: "失控",
     author: "凯文·凯利",
     categoryId: "tech",
-    tags: ["复杂系统", "互联网", "预言"],
+    tags: ["未来趋势", "互联网"],
     summary:
       "凯文·凯利在三十年前便预见了云计算、群体智能与去中心化，本书是理解互联网与未来技术演化的思想源头。",
     lead: "最复杂、最有生命力的系统，往往不是被设计出来的，而是从底层简单规则中自下而上涌现出来的。",
     rating: 4.4,
     readers: 498000,
     words: 388000,
+    created: "1994-01-01",
+    shelved: "2026-03-08",
     modes: ["text"],
     intro: "全人类的最终命运和结局",
     chapterTitles: ["人造与天生", "蜂群思维", "有机体的进化", "失控的未来", "网络经济学"],
@@ -293,13 +327,15 @@ const raw: RawBook[] = [
     title: "数学之美",
     author: "吴军",
     categoryId: "tech",
-    tags: ["算法", "人工智能", "通识"],
+    tags: ["人工智能", "科普"],
     summary:
       "吴军用通俗的语言，揭示搜索引擎、语音识别、机器翻译背后的数学原理，让人领略简单数学之中的强大与优雅。",
     lead: "好的方法在形式上往往是简单而优美的——真正的高手，追求的是用最朴素的数学解决最复杂的问题。",
     rating: 4.6,
     readers: 623000,
     words: 168000,
+    created: "2012-01-01",
+    shelved: "2026-05-26",
     modes: ["audio", "text"],
     intro: "简单之中，自有大美",
     chapterTitles: ["文字与语言", "统计语言模型", "隐含马尔可夫模型", "信息的度量", "搜索引擎的原理"],
@@ -309,13 +345,15 @@ const raw: RawBook[] = [
     title: "未来简史",
     author: "尤瓦尔·赫拉利",
     categoryId: "tech",
-    tags: ["未来", "人工智能", "数据主义"],
+    tags: ["未来趋势", "人工智能"],
     summary:
       "在战胜饥荒、瘟疫与战争之后，人类把目光投向永生、幸福与神性。赫拉利追问：当算法比你更懂你，人将走向何方？",
     lead: "当外部的算法比你自己更了解你的渴望时，权威便会从个人手中，悄悄转移到数据之中。",
     rating: 4.5,
     readers: 934000,
     words: 214000,
+    created: "2016-01-01",
+    shelved: "2026-04-12",
     modes: ["video", "text"],
     intro: "从智人到智神",
     chapterTitles: ["人类的新议题", "人类世", "人文主义革命", "智人失去控制权", "数据主义"],
@@ -325,13 +363,15 @@ const raw: RawBook[] = [
     title: "原则",
     author: "瑞·达利欧",
     categoryId: "biz",
-    tags: ["决策", "管理", "投资"],
+    tags: ["管理", "商业思维"],
     summary:
       "桥水基金创始人达利欧把人生与工作中反复验证的原则系统化，告诉你如何用极度求真与极度透明做出更好的决策。",
     lead: "痛苦加上反思，等于进步。把每一次挫折都当作一道可以解开的题，你就能不断进化。",
     rating: 4.4,
     readers: 845000,
     words: 246000,
+    created: "2017-01-01",
+    shelved: "2026-04-08",
     modes: ["video", "audio", "text"],
     intro: "生活、工作与决策的原则",
     chapterTitles: ["我的历程", "拥抱现实", "用五步流程实现愿望", "极度求真", "理解人与人不同"],
@@ -340,14 +380,16 @@ const raw: RawBook[] = [
     id: "flow",
     title: "心流",
     author: "米哈里·契克森米哈赖",
-    categoryId: "growth",
-    tags: ["专注", "幸福", "积极心理"],
+    categoryId: "psy",
+    tags: ["正念", "当下"],
     summary:
       "当你全神贯注、忘记时间，便进入了“心流”。本书揭示这种最优体验的规律，告诉你如何在日常中创造幸福。",
     lead: "最好的时刻，往往出现在一个人为了某个艰难而有价值的目标，自愿把身心潜能发挥到极致的时候。",
     rating: 4.5,
     readers: 567000,
     words: 188000,
+    created: "1990-01-01",
+    shelved: "2026-02-18",
     modes: ["audio", "text"],
     intro: "最优体验的心理学",
     chapterTitles: ["心流的概念", "意识的解析", "心流的构成要素", "工作中的心流", "孤独中的心流"],
@@ -368,38 +410,43 @@ const para = (book: RawBook, ch: string, idx: number) =>
   ].join("\n\n");
 
 // 视频/音频：保留稳定可达的示例源（国内可访问），靠 posterUrl 做差异化首帧；
-// 真实的章节级视频/音频在后端阶段由七牛云提供。
+// 真实的章节级视频/音频在后端阶段由对象存储提供。
 const SAMPLE_VIDEO = "https://www.w3schools.com/html/mov_bbb.mp4";
-// horse.mp3 仅 1 秒马叫且源不稳，换成稳定可播的长音轨做演示（正式音频后端接七牛云）
+// horse.mp3 仅 1 秒马叫且源不稳，换成稳定可播的长音轨做演示（正式音频后端接对象存储）
 const SAMPLE_AUDIO = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3";
 
-export const books: Book[] = raw.map((b, i) => ({
-  id: b.id,
-  title: b.title,
-  author: b.author,
-  cover: `/covers/${b.id}.webp`,
-  coverSeed: i + 1,
-  heroUrl: `/heroes/${b.categoryId}.webp`,
-  posterUrl: `/posters/${b.categoryId}.webp`,
-  category: categories.find((c) => c.id === b.categoryId)!.name,
-  categoryId: b.categoryId,
-  tags: b.tags,
-  summary: b.summary,
-  rating: b.rating,
-  readers: b.readers,
-  words: b.words,
-  durationMin: Math.round(b.words / 550),
-  hasVideo: b.modes.includes("video"),
-  hasAudio: b.modes.includes("audio"),
-  hasText: b.modes.includes("text"),
-  videoUrl: b.modes.includes("video") ? SAMPLE_VIDEO : undefined,
-  audioUrl: b.modes.includes("audio") ? SAMPLE_AUDIO : undefined,
-  likes: Math.round(b.readers * 0.19),
-  favCount: Math.round(b.readers * 0.075),
-  reviewCount: Math.round(b.readers * 0.012),
-  featured: !!b.featured,
-  intro: b.intro,
-}));
+export const books: Book[] = raw.map((b, i) => {
+  const catName = categories.find((c) => c.id === b.categoryId)!.name;
+  return {
+    id: b.id,
+    title: b.title,
+    author: b.author,
+    cover: `/covers/${b.id}.webp`,
+    coverSeed: i + 1,
+    heroUrl: `/heroes/${b.categoryId}.webp`,
+    posterUrl: `/posters/${b.categoryId}.webp`,
+    category: catName,
+    categoryId: b.categoryId,
+    tags: [catName, ...b.tags], // 分类名作首个标签并置顶
+    summary: b.summary,
+    rating: b.rating,
+    readers: b.readers,
+    words: b.words,
+    durationMin: Math.round(b.words / 550),
+    hasVideo: b.modes.includes("video"),
+    hasAudio: b.modes.includes("audio"),
+    hasText: b.modes.includes("text"),
+    videoUrl: b.modes.includes("video") ? SAMPLE_VIDEO : undefined,
+    audioUrl: b.modes.includes("audio") ? SAMPLE_AUDIO : undefined,
+    likes: Math.round(b.readers * 0.19),
+    favCount: Math.round(b.readers * 0.075),
+    reviewCount: Math.round(b.readers * 0.012),
+    featured: !!b.featured,
+    intro: b.intro,
+    createdAt: b.created,
+    shelvedAt: b.shelved,
+  };
+});
 
 export const chaptersByBook: Record<string, Chapter[]> = Object.fromEntries(
   raw.map((b) => [
@@ -477,7 +524,7 @@ export const profile: UserProfile = {
 export const myFavorites = ["mindset", "cipoetry", "courage", "intimacy", "deepwork", "willpower"];
 
 export const myHistory: HistoryItem[] = [
-  { bookId: "mindset", bookTitle: "终身成长", author: "卡罗尔·德韦克", coverSeed: 1, cover: "/covers/mindset.webp", mode: "text", progress: 63, lastAt: new Date().toISOString() },
+  { bookId: "mindset", bookTitle: "终身成长", author: "卡罗尔·德韦克", coverSeed: 1, cover: "/covers/mindset.webp", mode: "text", progress: 60, lastAt: new Date().toISOString() },
   { bookId: "cipoetry", bookTitle: "人间词话", author: "王国维", coverSeed: 2, cover: "/covers/cipoetry.webp", mode: "audio", progress: 20, lastAt: new Date(Date.now() - 86400000).toISOString() },
   { bookId: "courage", bookTitle: "被讨厌的勇气", author: "岸见一郎·古贺史健", coverSeed: 3, cover: "/covers/courage.webp", mode: "video", progress: 100, lastAt: new Date(Date.now() - 3 * 86400000).toISOString() },
 ];
@@ -490,7 +537,7 @@ export const myNotes: NoteItem[] = [
     bookCoverSeed: 1,
     chapterId: "mindset-c2",
     chapterTitle: "第二章 思维模式解析",
-    excerpt: "能力可以通过练习来培养。",
+    excerpt: "真正决定一个人能走多远的，并非起点的高低",
     note: "把挑战看作练习，而不是定论。",
     color: "#8FB39B",
     createdAt: "2026-05-18T10:00:00Z",
@@ -502,7 +549,7 @@ export const myNotes: NoteItem[] = [
     bookCoverSeed: 1,
     chapterId: "mindset-c4",
     chapterTitle: "第四章 成长型思维的应用",
-    excerpt: "努力不是为了证明聪明，而是为了持续成长。",
+    excerpt: "成长是一个渐进而持续的过程，关键在于找到适合自己的方法并长久地坚持。",
     note: "记录下今天的一小步进步。",
     color: "#D9C08A",
     createdAt: "2026-05-21T10:00:00Z",
@@ -514,7 +561,7 @@ export const myNotes: NoteItem[] = [
     bookCoverSeed: 2,
     chapterId: "cipoetry-c1",
     chapterTitle: "第一章 境界说",
-    excerpt: "有境界则自成高格，自有名句。",
+    excerpt: "有境界则自成高格，自有名句",
     note: "境界二字，是全书之眼。",
     color: "#D69A95",
     createdAt: "2026-05-12T10:00:00Z",
@@ -554,6 +601,20 @@ export const myReviews: Review[] = [
   },
 ];
 
+// 演示「阅读派生」数据：与 myHistory 自洽，登录 seed 时一并注入，
+// 保证「我的」总时长/已读/进行中 与 详情页章节进度/续播 互相一致（避免出现「0分却已读」「历史在读但详情显示没读过」）。
+export const myReadSeconds = 7200; // 约 2.0h 累计阅读/收听时长
+export const myReadChapters: Record<string, string[]> = {
+  // 终身成长：文字稿读到第 3 章（3/5=60%，与 myHistory 的 text 进度一致）
+  mindset: ["mindset-c1", "mindset-c2", "mindset-c3"],
+};
+export const myProgress: Record<string, Progress> = {
+  mindset: { bookId: "mindset", chapterId: "mindset-c3", chapterNo: 3, pct: 60, mode: "text" },
+};
+// 音视频「续播位置」与「真实播放覆盖」（详情↔乱翻共享）：courage 视频看完(100%)、cipoetry 音频 20%
+export const myMediaProgress: Record<string, number> = { courage: 1, cipoetry: 0.2 };
+export const myMediaPlayed: Record<string, number> = { courage: 1, cipoetry: 0.2 };
+
 // 示例对话填充真实问答，使「历史对话」可点开还原上下文
 export const sampleSessions: ChatSession[] = [
   {
@@ -586,15 +647,15 @@ export const sampleSessions: ChatSession[] = [
   },
   {
     id: "s3",
-    title: "心理学入门书单",
+    title: "心学入门书单",
     updatedAt: new Date(Date.now() - 5 * 86400000).toISOString(),
     messages: [
-      { id: "s3u1", role: "user", content: "图书馆里有哪些心理学的书" },
+      { id: "s3u1", role: "user", content: "图书馆里有哪些心学的书" },
       {
         id: "s3a1",
         role: "assistant",
         content:
-          "心理学分类下有不少好书，比如 **《终身成长》《被讨厌的勇气》《亲密关系》《自控力》**，从思维模式到人际关系都有覆盖。",
+          "心学分类下有不少好书，比如 **《被讨厌的勇气》《自控力》《认知觉醒》《心流》**，从认知到自我接纳都有覆盖。",
       },
     ],
   },
@@ -617,8 +678,12 @@ export const sampleSessions: ChatSession[] = [
 export const exampleQuestions = [
   "推荐一本关于成长型思维的书",
   "《终身成长》第一章讲了什么",
-  "图书馆里有哪些心理学的书",
+  "图书馆里有哪些心学的书",
   "帮我总结《人间词话》",
 ];
 
-export const hotSearches = ["人间词话", "活着", "人类简史", "认知觉醒"];
+// 热门搜索：来自全体用户的搜索词聚合，最多 20 个且对应馆藏有书（Mock：取代表性书名）
+export const hotSearches = [
+  "人间词话", "活着", "人类简史", "认知觉醒", "终身成长", "被讨厌的勇气",
+  "刻意练习", "心流", "原则", "深度工作", "围城", "万历十五年",
+];

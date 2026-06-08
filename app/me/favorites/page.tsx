@@ -9,8 +9,9 @@ import { ChevronDown, Check, Heart } from "lucide-react";
 import { useLibrary, useUI } from "@/lib/store";
 import { books } from "@/lib/mock/data";
 
-type Sort = "new" | "old" | "rating";
-const LABEL: Record<Sort, string> = { new: "最新收藏", old: "最早收藏", rating: "评分高到低" };
+// 收藏仅支持「最新收藏 / 最早收藏」（不按评分排序）
+type Sort = "new" | "old";
+const LABEL: Record<Sort, string> = { new: "最新收藏", old: "最早收藏" };
 
 export default function FavoritesPage() {
   const favorites = useLibrary((s) => s.favorites);
@@ -23,7 +24,6 @@ export default function FavoritesPage() {
     const arr = favorites
       .map((id) => books.find((b) => b.id === id))
       .filter((b): b is NonNullable<typeof b> => !!b);
-    if (sort === "rating") return [...arr].sort((a, b) => b.rating - a.rating);
     if (sort === "old") return [...arr].reverse();
     return arr;
   }, [favorites, sort]);
@@ -57,8 +57,8 @@ export default function FavoritesPage() {
           <EmptyState icon="book" title="还没有收藏任何书" subtitle="去泡馆发现好书吧" actionText="去泡馆逛逛" actionHref="/library" />
         ) : (
           <div className="grid grid-cols-2 gap-4 p-4">
-            {list.map((b, i) => (
-              <div key={b.id} className="relative animate-fade-up" style={{ animationDelay: `${i * 0.04}s` }}>
+            {list.map((b) => (
+              <div key={b.id} className="relative">
                 <Link href={`/library/book/${b.id}`} className="block transition active:scale-[0.98]">
                   <BookCover title={b.title} author={b.author} seed={b.coverSeed} src={b.cover} className="w-full" />
                   <h3 className="mt-2 truncate font-serif text-sm text-ink dark:text-dark-text">{b.title}</h3>

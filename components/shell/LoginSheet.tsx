@@ -45,7 +45,7 @@ export function LoginSheet() {
     const action = pending;
     close();
     reset();
-    setTimeout(() => action?.(), 60);
+    action?.(); // 立即执行挂起操作（已登录），避免 60ms 延迟期内状态闪烁/操作丢失
   }
 
   return (

@@ -8,20 +8,8 @@ import { LoginSheet } from "@/components/shell/LoginSheet";
 function ThemeApplier() {
   const theme = useUI((s) => s.theme);
   useEffect(() => {
-    const root = document.documentElement;
-    const apply = () => {
-      const dark =
-        theme === "dark" ||
-        (theme === "system" &&
-          window.matchMedia("(prefers-color-scheme: dark)").matches);
-      root.classList.toggle("dark", dark);
-    };
-    apply();
-    if (theme === "system") {
-      const mq = window.matchMedia("(prefers-color-scheme: dark)");
-      mq.addEventListener("change", apply);
-      return () => mq.removeEventListener("change", apply);
-    }
+    // 本期：外观仅「浅色 / 深色」，不再跟随系统
+    document.documentElement.classList.toggle("dark", theme === "dark");
   }, [theme]);
   return null;
 }

@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
-import Link from "next/link";
-import { Search, ChevronDown, Trash2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Search, ChevronDown, Trash2, Pencil } from "lucide-react";
 import { Header } from "@/components/shell/Header";
 import { RequireAuth } from "@/components/shell/RequireAuth";
 import { BookCover } from "@/components/ui/BookCover";
@@ -12,11 +12,15 @@ import { books } from "@/lib/mock/data";
 import type { NoteItem } from "@/lib/types";
 
 export default function NotesPage() {
+  const router = useRouter();
   const notes = useLibrary((s) => s.notes);
   const removeNote = useLibrary((s) => s.removeNote);
+  const updateNote = useLibrary((s) => s.updateNote);
   const toast = useUI((s) => s.toast);
   const [q, setQ] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
 
   const groups = useMemo(() => {
     const kw = q.trim();
@@ -32,8 +36,17 @@ export default function NotesPage() {
     return Array.from(map.entries());
   }, [notes, q]);
 
-  // 默认展开首个分组（搜索后随结果变化），而非硬编码 id
   const openId = expanded ?? groups[0]?.[0];
+
+  function startEdit(n: NoteItem) {
+    setEditingId(n.id);
+    setEditText(n.note);
+  }
+  function saveEdit(id: string) {
+    updateNote(id, editText.trim());
+    setEditingId(null);
+    toast("笔记已更新");
+  }
 
   return (
     <main className="min-h-[100dvh]">
@@ -51,37 +64,60 @@ export default function NotesPage() {
             <div className="mt-3 space-y-3">
               {groups.map(([bookId, items]) => {
                 const isOpen = openId === bookId;
-                const cover = books.find((b) => b.id === bookId)?.cover;
+                // 标题/封面统一以 books 为准（单一数据源），降级到笔记快照
+                const book = books.find((b) => b.id === bookId);
+                const title = book?.title ?? items[0].bookTitle;
                 return (
                   <div key={bookId} className="overflow-hidden rounded-2xl bg-snow shadow-sm dark:bg-dark-card">
                     <button onClick={() => setExpanded(isOpen ? "__none__" : bookId)} className="flex w-full items-center gap-3 p-3">
-                      <BookCover title={items[0].bookTitle} seed={items[0].bookCoverSeed} src={cover} className="w-10" showText={false} />
+                      <BookCover title={title} seed={book?.coverSeed ?? items[0].bookCoverSeed} src={book?.cover} className="w-10" showText={false} />
                       <span className="flex-1 text-left font-serif text-sm text-ink dark:text-dark-text">
-                        {items[0].bookTitle} · {items.length} 条笔记
+                        {title} · {items.length} 条笔记
                       </span>
                       <ChevronDown size={16} className={"text-ink-300 transition " + (isOpen ? "rotate-180" : "")} />
                     </button>
                     {isOpen && (
                       <div className="space-y-3 border-t border-line p-3 dark:border-white/5">
-                        {items.map((n) => (
-                          <div key={n.id} className="rounded-xl bg-moon p-3 dark:bg-dark-bg">
-                            <p className="border-l-[3px] pl-2.5 text-xs leading-5 text-ink-700 dark:text-dark-text/85" style={{ borderColor: n.color }}>
-                              {n.excerpt}
-                            </p>
-                            {n.note && <p className="mt-2 text-sm text-ink dark:text-dark-text">{n.note}</p>}
-                            <div className="mt-2 flex items-center justify-between text-[11px] text-ink-300">
-                              <Link href={`/library/book/${n.bookId}/read?ch=${n.chapterId}`} className="text-celadon-700 dark:text-celadon-300">
-                                {n.chapterTitle}
-                              </Link>
-                              <div className="flex items-center gap-3">
-                                <span>{formatDate(n.createdAt)}</span>
-                                <button aria-label="删除笔记" onClick={() => { removeNote(n.id); toast("已删除"); }} className="p-1 active:text-rouge">
-                                  <Trash2 size={13} />
-                                </button>
-                              </div>
+                        {items.map((n) => {
+                          const editing = editingId === n.id;
+                          return (
+                            <div
+                              key={n.id}
+                              onClick={() => { if (!editing) router.push(`/library/book/${n.bookId}/read?ch=${n.chapterId}&mark=${n.id}`); }}
+                              className={"rounded-xl bg-moon p-3 transition dark:bg-dark-bg " + (editing ? "" : "cursor-pointer active:bg-celadon-soft/60 dark:active:bg-white/5")}
+                            >
+                              {/* 笔记源（原文摘录）不可修改 */}
+                              <p className="border-l-[3px] pl-2.5 text-xs leading-5 text-ink-700 dark:text-dark-text/85" style={{ borderColor: n.color }}>
+                                {n.excerpt}
+                              </p>
+                              {editing ? (
+                                <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+                                  <textarea autoFocus value={editText} onChange={(e) => setEditText(e.target.value)} placeholder="写下你的笔记…" className="h-20 w-full resize-none rounded-lg border border-line bg-snow p-2 text-sm text-ink outline-none focus:border-celadon dark:border-white/10 dark:bg-dark-card dark:text-dark-text" />
+                                  <div className="mt-2 flex justify-end gap-2">
+                                    <button onClick={() => setEditingId(null)} className="rounded-full px-3 py-1 text-xs text-ink-500 dark:text-dark-text/60">取消</button>
+                                    <button onClick={() => saveEdit(n.id)} className="rounded-full bg-celadon px-3 py-1 text-xs text-snow">保存</button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <>
+                                  {n.note && <p className="mt-2 text-sm text-ink dark:text-dark-text">{n.note}</p>}
+                                  <div className="mt-2 flex items-center justify-between text-[11px] text-ink-300">
+                                    <span className="truncate text-celadon-700 dark:text-celadon-300">{n.chapterTitle} ›</span>
+                                    <div className="flex shrink-0 items-center gap-3">
+                                      <span>{formatDate(n.createdAt)}</span>
+                                      <button aria-label="编辑笔记" onClick={(e) => { e.stopPropagation(); startEdit(n); }} className="p-1 active:text-celadon-700">
+                                        <Pencil size={13} />
+                                      </button>
+                                      <button aria-label="删除笔记" onClick={(e) => { e.stopPropagation(); removeNote(n.id); toast("已删除"); }} className="p-1 active:text-rouge">
+                                        <Trash2 size={13} />
+                                      </button>
+                                    </div>
+                                  </div>
+                                </>
+                              )}
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>

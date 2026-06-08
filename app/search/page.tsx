@@ -1,9 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, Search as SearchIcon, X, BookMarked, Flame } from "lucide-react";
+import { ChevronLeft, Search as SearchIcon, X, Flame } from "lucide-react";
 import { BookRow } from "@/components/library/BookCard";
 import { Skeleton, EmptyState, ErrorState } from "@/components/ui/States";
 import { search, hotSearches } from "@/lib/api";
@@ -16,6 +15,7 @@ export default function SearchPage() {
   const hydrated = useUI((s) => s.hydrated);
   const recent = useUI((s) => s.recentSearches);
   const addRecent = useUI((s) => s.addRecent);
+  const removeRecent = useUI((s) => s.removeRecent);
   const clearRecent = useUI((s) => s.clearRecent);
 
   // 防抖
@@ -30,7 +30,7 @@ export default function SearchPage() {
     enabled: q.length > 0,
   });
 
-  const hasResult = data && (data.books.length > 0 || data.chapters.length > 0);
+  const hasResult = !!data && data.books.length > 0;
 
   // 仅“有结果”时写入历史（提交/点击只切换 q，由此 effect 统一记录，避免零结果词污染最近搜索）
   useEffect(() => {
@@ -80,7 +80,7 @@ export default function SearchPage() {
                   {recent.map((t) => (
                     <span key={t} className="flex items-center gap-1 rounded-full bg-snow px-3 py-1.5 text-xs text-ink-700 dark:bg-dark-card dark:text-dark-text">
                       <button onClick={() => submit(t)}>{t}</button>
-                      <button aria-label="移除" onClick={() => useUI.setState({ recentSearches: recent.filter((x) => x !== t) })}>
+                      <button aria-label="移除" onClick={() => removeRecent(t)}>
                         <X size={12} className="text-ink-300" />
                       </button>
                     </span>
@@ -106,36 +106,14 @@ export default function SearchPage() {
         ) : isError ? (
           <ErrorState onRetry={() => refetch()} />
         ) : !hasResult ? (
-          <EmptyState icon="search" title="没有找到相关内容" subtitle="换个关键词试试" />
+          <EmptyState icon="search" title="没有找到相关书籍" subtitle="换个书名 / 作者 / 标签试试" />
         ) : (
-          <div className="space-y-6">
-            {data!.books.length > 0 && (
-              <section>
-                <h2 className="mb-2 text-sm text-ink dark:text-dark-text">书籍</h2>
-                <div className="space-y-3">
-                  {data!.books.map((b) => <BookRow key={b.id} book={b} />)}
-                </div>
-              </section>
-            )}
-            {data!.chapters.length > 0 && (
-              <section>
-                <h2 className="mb-2 text-sm text-ink dark:text-dark-text">章节</h2>
-                <div className="overflow-hidden rounded-2xl bg-snow shadow-sm dark:bg-dark-card">
-                  {data!.chapters.map(({ book, chapter }) => (
-                    <Link
-                      key={chapter.id}
-                      href={`/library/book/${book.id}/read?ch=${chapter.id}`}
-                      className="flex items-center gap-2.5 border-b border-line px-4 py-3 last:border-0 dark:border-white/5"
-                    >
-                      <BookMarked size={15} className="shrink-0 text-celadon" />
-                      <span className="flex-1 truncate text-sm text-ink-700 dark:text-dark-text/85">第{chapter.no}章 {chapter.title}</span>
-                      <span className="shrink-0 text-xs text-ink-300">{book.title}</span>
-                    </Link>
-                  ))}
-                </div>
-              </section>
-            )}
-          </div>
+          <section>
+            <h2 className="mb-2 text-sm text-ink dark:text-dark-text">书籍</h2>
+            <div className="space-y-3">
+              {data!.books.map((b) => <BookRow key={b.id} book={b} />)}
+            </div>
+          </section>
         )}
       </div>
     </main>

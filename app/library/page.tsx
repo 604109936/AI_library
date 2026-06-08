@@ -1,8 +1,8 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Search, Brain, TrendingUp, Feather, Landmark, Cpu, Sprout, ArrowRight, RefreshCw, Play } from "lucide-react";
+import { Search, Brain, TrendingUp, Feather, Landmark, Cpu, Sprout, Play } from "lucide-react";
 import { getHome } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import { BottomNav } from "@/components/shell/BottomNav";
@@ -10,6 +10,7 @@ import { BookCover } from "@/components/ui/BookCover";
 import { BookRow } from "@/components/library/BookCard";
 import { Skeleton, ErrorState } from "@/components/ui/States";
 import { Motif } from "@/components/ui/Motif";
+import { BackToTop } from "@/components/ui/BackToTop";
 import { staggerContainer, staggerItem } from "@/components/shell/PageTransition";
 import { useLibrary } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -21,21 +22,21 @@ export default function LibraryHome() {
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: ["home"], queryFn: getHome });
   const hydrated = useLibrary((s) => s.hydrated);
   const history = useLibrary((s) => s.history);
-  const [recoStart, setRecoStart] = useState(0);
 
-  const reco = useMemo(() => {
-    const list = data?.recommend ?? [];
-    if (!list.length) return [];
-    return Array.from({ length: Math.min(5, list.length) }, (_, i) => list[(recoStart + i) % list.length]);
-  }, [data, recoStart]);
+  // 继续阅读：仅「文字稿」且未读完，按最近阅读在前，最多 5 本；无则整块不显示
+  const continueList = hydrated ? history.filter((h) => h.mode === "text" && h.progress < 100).slice(0, 5) : [];
+  // 热门好书：按「创作时间」由远到近（API 已排序），自动过滤掉已读完的，取 20 本
+  const readDone = new Set(history.filter((h) => h.progress >= 100).map((h) => h.bookId));
+  const hot = (data?.recommend ?? []).filter((b) => !readDone.has(b.id.split("__")[0])).slice(0, 20);
 
   return (
     <main className="min-h-[100dvh] pb-24">
       {/* 顶栏 */}
       <header className="sticky top-0 z-30 flex h-14 items-center justify-between bg-moon/90 px-4 backdrop-blur dark:bg-dark-bg/90">
         <div className="flex items-center gap-2">
-          <span className="relative flex h-8 w-8 items-center justify-center rounded-lg bg-celadon text-snow">
-            <span className="font-serif text-sm">馆</span>
+          <span className="relative h-8 w-8 overflow-hidden rounded-lg">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/emblem.webp" alt="馆徽" className="h-full w-full object-cover" />
           </span>
           <span className="font-serif text-lg text-ink dark:text-dark-text">AI 图书馆</span>
         </div>
@@ -49,22 +50,22 @@ export default function LibraryHome() {
 
       {data && (
         <div className="space-y-7 px-4 pt-3">
-          {/* Hero 大图轮播 */}
+          {/* Banner：每个分类最新入库一本（共 6 本） */}
           <section className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 no-scrollbar">
             {data.banners.map((b) => (
               <HeroCard key={b.id} book={b} />
             ))}
           </section>
 
-          {/* 继续阅读（游客本地历史也展示）· 等持久化水合后再渲染，避免 SSR/CSR 首帧不一致闪烁 */}
-          {hydrated && history.length > 0 && (
+          {/* 继续阅读（仅文字稿未读完；游客本地历史也展示）· 等持久化水合后再渲染，避免首帧闪烁 */}
+          {continueList.length > 0 && (
             <section>
               <h2 className="mb-2.5 font-serif text-base text-ink dark:text-dark-text">继续阅读</h2>
               <div className="-mx-4 flex gap-3 overflow-x-auto px-4 no-scrollbar">
-                {history.slice(0, 5).map((h) => (
+                {continueList.map((h) => (
                   <Link
                     key={h.bookId}
-                    href={h.mode === "text" ? `/library/book/${h.bookId}/read` : `/library/book/${h.bookId}`}
+                    href={`/library/book/${h.bookId}/read`}
                     className="flex w-[248px] shrink-0 items-center gap-3 rounded-2xl bg-snow p-3 shadow-sm dark:bg-dark-card"
                   >
                     <BookCover title={h.bookTitle} seed={h.coverSeed} src={h.cover} className="w-[46px] shrink-0" showText={false} />
@@ -109,25 +110,11 @@ export default function LibraryHome() {
             </div>
           </section>
 
-          {/* 推荐 */}
+          {/* 热门好书：完整 20 本，触底「回到顶部」 */}
           <section>
-            <div className="mb-2.5 flex items-center justify-between">
-              <h2 className="font-serif text-base text-ink dark:text-dark-text">热门好书</h2>
-              <button
-                onClick={() => setRecoStart((s) => s + 5)}
-                className="flex items-center gap-1 text-xs text-celadon-700 active:scale-95 dark:text-celadon-300"
-              >
-                <RefreshCw size={13} /> 换一批
-              </button>
-            </div>
-            <motion.div
-              key={recoStart}
-              variants={staggerContainer}
-              initial="hidden"
-              animate="show"
-              className="space-y-3"
-            >
-              {reco.map((b) => (
+            <h2 className="mb-2.5 font-serif text-base text-ink dark:text-dark-text">热门好书</h2>
+            <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-3">
+              {hot.map((b) => (
                 <motion.div key={b.id} variants={staggerItem}>
                   <BookRow book={b} />
                 </motion.div>
@@ -137,6 +124,7 @@ export default function LibraryHome() {
         </div>
       )}
 
+      <BackToTop />
       <BottomNav active="library" />
     </main>
   );
@@ -150,7 +138,6 @@ function HeroCard({ book }: { book: Book }) {
       href={`/library/book/${book.id}`}
       className="relative h-[208px] w-[88%] shrink-0 snap-center overflow-hidden rounded-3xl shadow-lg"
     >
-      {/* 氛围底图（缺图回退青瓷渐变） */}
       <div className="absolute inset-0 bg-gradient-to-br from-celadon-700 via-celadon to-celadon-300" />
       {book.heroUrl && bgOk && (
         // eslint-disable-next-line @next/next/no-img-element
@@ -166,7 +153,7 @@ function HeroCard({ book }: { book: Book }) {
 
       <div className="relative flex h-full items-center gap-4 p-5">
         <div className="flex min-w-0 flex-1 flex-col">
-          <span className="text-[11px] tracking-wide text-white/80">{book.category} · 精选</span>
+          <span className="text-[11px] tracking-wide text-white/80">{book.category} · 新书</span>
           <h3 className="mt-1 font-serif text-2xl leading-tight text-white drop-shadow-sm">{book.title}</h3>
           <p className="mt-1 line-clamp-1 text-sm text-white/85">{book.intro}</p>
           <span className="mt-4 inline-flex w-fit items-center gap-1 rounded-full bg-white px-4 py-1.5 text-xs font-medium text-celadon-700 shadow active:scale-95">

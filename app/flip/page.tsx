@@ -7,42 +7,65 @@ import { BottomNav } from "@/components/shell/BottomNav";
 import { Motif } from "@/components/ui/Motif";
 import { EmptyState, ErrorState } from "@/components/ui/States";
 import { getFlip } from "@/lib/api";
-import { formatCount } from "@/lib/utils";
 import { useLibrary, useUI, requireLogin } from "@/lib/store";
+import { useReadingClock } from "@/lib/useReadingClock";
 import type { Book } from "@/lib/types";
 
+// 模块级缓存：离开乱翻（如去写书评）再返回时，保持同一视频流与所在位置
+let flipCache: { books: Book[]; idx: number } | null = null;
+
 export default function FlipPage() {
-  const [books, setBooks] = useState<Book[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [books, setBooks] = useState<Book[]>(flipCache?.books ?? []);
+  const [loading, setLoading] = useState(!flipCache);
   const [error, setError] = useState(false);
   const [muted, setMuted] = useState(true);
-  const [activeIdx, setActiveIdx] = useState(0);
+  const [activeIdx, setActiveIdx] = useState(flipCache?.idx ?? 0);
   const fetching = useRef(false);
-  const booksRef = useRef<Book[]>([]);
+  const booksRef = useRef<Book[]>(books);
+  const scrollerRef = useRef<HTMLDivElement>(null);
   useEffect(() => { booksRef.current = books; }, [books]);
 
   const load = useCallback(() => {
     setLoading(true);
     setError(false);
     getFlip([])
-      .then((b) => { setBooks(b); setLoading(false); })
+      .then((b) => { setBooks(b); setLoading(false); flipCache = { books: b, idx: 0 }; })
       .catch(() => { setError(true); setLoading(false); });
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  // 首次进入：加载；从缓存返回：恢复到离开时的视频
+  useEffect(() => {
+    if (flipCache && flipCache.books.length) {
+      const idx = flipCache.idx;
+      requestAnimationFrame(() => {
+        const el = scrollerRef.current;
+        if (el) el.scrollTop = idx * el.clientHeight;
+      });
+      return;
+    }
+    load();
+  }, [load]);
 
   const loadMore = useCallback(() => {
     if (fetching.current) return;
     fetching.current = true;
-    // 副作用放在更新函数外，避免 StrictMode 重入导致同一 seenIds 重复拉取、产生重复 key
     getFlip(booksRef.current.map((b) => b.id))
-      .then((more) => setBooks((cur) => [...cur, ...more]))
+      .then((more) => setBooks((cur) => {
+        const next = [...cur, ...more];
+        if (flipCache) flipCache.books = next;
+        return next;
+      }))
       .finally(() => { fetching.current = false; });
   }, []);
 
   useEffect(() => {
     if (!loading && books.length && activeIdx >= books.length - 2) loadMore();
   }, [activeIdx, books.length, loading, loadMore]);
+
+  function onActive(i: number) {
+    setActiveIdx(i);
+    if (flipCache) flipCache.idx = i;
+  }
 
   return (
     <main className="h-[100dvh] overflow-hidden bg-dark-bg">
@@ -57,9 +80,9 @@ export default function FlipPage() {
           <EmptyState icon="book" title="暂无视频解读" subtitle="去泡馆挑一本书读读吧" actionText="去泡馆逛逛" actionHref="/library" />
         </div>
       ) : (
-        <div className="h-full snap-y snap-mandatory overflow-y-auto overscroll-contain no-scrollbar">
+        <div ref={scrollerRef} className="h-full snap-y snap-mandatory overflow-y-auto overscroll-contain no-scrollbar">
           {books.map((b, i) => (
-            <FlipSlide key={b.id} book={b} muted={muted} onMute={() => setMuted((m) => !m)} onActive={() => setActiveIdx(i)} />
+            <FlipSlide key={b.id} book={b} muted={muted} onMute={() => setMuted((m) => !m)} onActive={() => onActive(i)} />
           ))}
         </div>
       )}
@@ -79,7 +102,6 @@ function FlipSkeleton() {
         <div className="skeleton h-4 w-56 rounded" />
       </div>
       <div className="absolute bottom-44 right-3 flex flex-col items-center gap-6">
-        <div className="skeleton h-14 w-11 rounded-xl" />
         <div className="skeleton h-11 w-11 rounded-full" />
         <div className="skeleton h-11 w-11 rounded-full" />
       </div>
@@ -101,9 +123,17 @@ function FlipSlide({ book, muted, onMute, onActive }: { book: Book; muted: boole
 
   const favorites = useLibrary((s) => s.favorites);
   const toggleFav = useLibrary((s) => s.toggleFav);
+  const myReviews = useLibrary((s) => s.myReviews);
   const toast = useUI((s) => s.toast);
+  const setMediaProgress = useLibrary((s) => s.setMediaProgress);
+  const setMediaPlayed = useLibrary((s) => s.setMediaPlayed);
+  const pushHistory = useLibrary((s) => s.pushHistory);
+  const lastT = useRef<number | null>(null);
+  const playedSec = useRef(0);
+  const lastReport = useRef(0);
   const realId = book.id.split("__")[0];
   const fav = favorites.includes(realId);
+  useReadingClock(playing && !err); // 乱翻观看时长计入「我的-总时长」
 
   useEffect(() => {
     const el = ref.current;
@@ -117,7 +147,8 @@ function FlipSlide({ book, muted, onMute, onActive }: { book: Book; muted: boole
           v?.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
         } else if (v) {
           v.pause();
-          v.currentTime = 0;
+          lastT.current = null; // 暂停后重置增量基准，避免跨段误计
+          writeMedia(true);
         }
       },
       { threshold: 0.6 }
@@ -126,20 +157,47 @@ function FlipSlide({ book, muted, onMute, onActive }: { book: Book; muted: boole
     return () => ob.disconnect();
   }, []); // eslint-disable-line
 
+  // 进度与「泡馆」同一本书共享：写入同一套 mediaProgress(续播位置)/mediaPlayed(真实播放覆盖)/history
+  function writeMedia(force = false) {
+    const v = videoRef.current;
+    if (!v || !v.duration) return;
+    const played = useLibrary.getState().mediaPlayed[realId] ?? 0;
+    if (played <= 0) return; // 没真正播过就不记，避免划过即入历史
+    const now = Date.now();
+    if (!force && now - lastReport.current < 5000) return;
+    lastReport.current = now;
+    const prog = played >= 0.9 ? 100 : Math.round(played * 100);
+    pushHistory({ bookId: realId, bookTitle: book.title, author: book.author, coverSeed: book.coverSeed, cover: book.cover, mode: "video", progress: prog, lastAt: new Date().toISOString() });
+  }
+  function onTime(e: React.SyntheticEvent<HTMLVideoElement>) {
+    const v = e.currentTarget;
+    const cur = v.currentTime;
+    const dur = v.duration || 0;
+    if (dur <= 0) return;
+    setMediaProgress(realId, cur / dur); // 续播位置（与泡馆共享）
+    if (lastT.current !== null) {
+      const d = cur - lastT.current;
+      if (d > 0 && d < 1.5) { playedSec.current += d; setMediaPlayed(realId, playedSec.current / dur); } // 真实播放覆盖（排除拖动/循环跳变）
+    }
+    lastT.current = cur;
+    writeMedia();
+  }
+
   function triggerBurst() {
     setBurst((n) => n + 1);
     setTimeout(() => setBurst((n) => Math.max(0, n - 1)), 800);
   }
   function favOnly() {
     requireLogin(() => {
-      if (!fav) { toggleFav(realId); toast("已收藏"); }
+      // 双击=收藏（非切换）：读实时收藏态，避免登录边界用到渲染期捕获的过期 fav 闭包
+      if (!useLibrary.getState().isFav(realId)) { toggleFav(realId); toast("已收藏"); }
       triggerBurst();
     });
   }
   function togglePlay() {
     const v = videoRef.current;
     if (!v) return;
-    if (v.paused) { v.play().then(() => setPlaying(true)).catch(() => setPlaying(false)); } else { v.pause(); setPlaying(false); }
+    if (v.paused) { v.play().then(() => setPlaying(true)).catch(() => setPlaying(false)); } else { v.pause(); setPlaying(false); lastT.current = null; writeMedia(true); }
   }
   function onTap() {
     const now = Date.now();
@@ -151,6 +209,9 @@ function FlipSlide({ book, muted, onMute, onActive }: { book: Book; muted: boole
       lastTap.current = now;
       tapTimer.current = setTimeout(() => { togglePlay(); lastTap.current = 0; }, 280);
     }
+  }
+  function openReview() {
+    requireLogin(() => router.push(`/library/book/${realId}/review/new`));
   }
 
   return (
@@ -167,9 +228,17 @@ function FlipSlide({ book, muted, onMute, onActive }: { book: Book; muted: boole
             playsInline
             onClick={onTap}
             onCanPlay={() => setReady(true)}
+            onTimeUpdate={onTime}
+            onLoadedMetadata={(e) => {
+              // 续播：从泡馆/上次离开的位置继续，保持进度一致
+              const v = e.currentTarget;
+              const saved = useLibrary.getState().mediaProgress[realId] ?? 0;
+              if (saved > 0 && saved < 0.99 && v.duration) v.currentTime = saved * v.duration;
+              // 续播覆盖累计基线：新会话在已存覆盖上继续累计
+              if (v.duration) playedSec.current = (useLibrary.getState().mediaPlayed[realId] ?? 0) * v.duration;
+            }}
             onError={() => setErr(true)}
           />
-          {/* 海报首帧 → 视频 淡入交接（消黑闪） */}
           {book.posterUrl && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -191,7 +260,6 @@ function FlipSlide({ book, muted, onMute, onActive }: { book: Book; muted: boole
         </div>
       )}
 
-      {/* 暂停指示 */}
       {!playing && !err && (
         <button onClick={togglePlay} aria-label="播放" className="absolute inset-0 flex items-center justify-center">
           <span className="flex h-16 w-16 animate-scale-in items-center justify-center rounded-full bg-black/35 ring-1 ring-celadon/40 backdrop-blur-md">
@@ -200,10 +268,8 @@ function FlipSlide({ book, muted, onMute, onActive }: { book: Book; muted: boole
         </button>
       )}
 
-      {/* 顶部画框黄铜线 */}
       <div className="pointer-events-none absolute left-1/2 z-10 h-px w-16 -translate-x-1/2 bg-gradient-to-r from-transparent via-brass/70 to-transparent" style={{ top: "calc(env(safe-area-inset-top) + 10px)" }} />
 
-      {/* 静音切换（暖玻璃描边） */}
       <button
         onClick={onMute}
         aria-label={muted ? "取消静音" : "静音"}
@@ -213,7 +279,6 @@ function FlipSlide({ book, muted, onMute, onActive }: { book: Book; muted: boole
         {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
       </button>
 
-      {/* 双击点赞 · 墨痕迸发 */}
       {burst > 0 && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <span className="absolute h-28 w-28 animate-like-burst rounded-full bg-rouge/25 blur-md" />
@@ -221,40 +286,36 @@ function FlipSlide({ book, muted, onMute, onActive }: { book: Book; muted: boole
         </div>
       )}
 
-      {/* 影院双层渐变 + 四角暗角 */}
       <div className="pointer-events-none absolute inset-x-0 top-0 h-[22%] bg-gradient-to-b from-black/45 to-transparent" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[62%] bg-gradient-to-t from-dark-bg/92 via-dark-bg/35 to-transparent" />
       <div className="pointer-events-none absolute inset-0" style={{ background: "radial-gradient(120% 80% at 50% 42%, transparent 55%, rgba(0,0,0,0.4))" }} />
       <Motif name="branch" className="pointer-events-none absolute bottom-28 -left-4 w-28 text-brass/10" />
 
-      {/* 右侧操作栏：收藏 + 书评（书封入口已并入「读这本书」，避免重复进详情）*/}
+      {/* 右侧操作栏：收藏 + 书评（均不显示数字） */}
       <div
         className="absolute right-3 z-10 flex flex-col items-center gap-6"
         style={{ bottom: "calc(env(safe-area-inset-bottom) + 232px)" }}
       >
         <Action
           icon={<Heart size={30} className={fav ? "fill-rouge text-rouge" : "text-dark-text"} />}
-          label={formatCount(book.favCount + (fav ? 1 : 0))}
           ariaLabel={fav ? "已收藏" : "收藏"}
           pressed={fav}
           onClick={() => requireLogin(() => { const n = toggleFav(realId); toast(n ? "已收藏" : "已取消收藏"); if (n) triggerBurst(); })}
         />
         <Action
           icon={<MessageSquare size={28} className="text-dark-text" />}
-          label={formatCount(book.reviewCount)}
-          ariaLabel="查看书评"
-          onClick={() => router.push(`/library/book/${realId}/reviews`)}
+          ariaLabel={myReviews.some((r) => r.bookId === realId) ? "编辑书评" : "写书评"}
+          onClick={openReview}
         />
       </div>
 
-      {/* 底部：信息题跋（左）+「读这本书」（右）· 同行底部对齐 */}
       <div className="absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-3 px-4" style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 74px)" }}>
         <div className="min-w-0 flex-1">
           <div className="flex items-start">
             <span className="mr-2 mt-1.5 h-6 w-0.5 shrink-0 rounded-full bg-celadon/80" />
             <h2 className="font-serif text-[26px] leading-[1.15] tracking-wide text-dark-text drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)]">{book.title}</h2>
           </div>
-          <p className="mt-1.5 text-[13px] text-dark-text/70">{book.author} · {book.category}解读</p>
+          <p className="mt-1.5 text-[13px] text-dark-text/70">{book.author}</p>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {book.tags.slice(0, 3).map((t) => (
               <span key={t} className="rounded-full border border-brass/30 bg-black/35 px-2.5 py-1 text-[11px] font-medium text-dark-text/90 backdrop-blur-md">{t}</span>
@@ -281,7 +342,7 @@ function Action({
   pressed,
 }: {
   icon: React.ReactNode;
-  label: string;
+  label?: string;
   onClick: () => void;
   ariaLabel: string;
   pressed?: boolean;
@@ -289,15 +350,11 @@ function Action({
   return (
     <button onClick={onClick} aria-label={ariaLabel} aria-pressed={pressed} className="flex flex-col items-center gap-1 transition active:scale-90">
       <span className="drop-shadow-[0_2px_6px_rgba(0,0,0,0.5)]">{icon}</span>
-      <motion.span
-        key={label}
-        initial={{ y: 6, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.18 }}
-        className="text-[11px] font-medium tabular-nums text-dark-text drop-shadow-[0_1px_3px_rgba(0,0,0,0.5)]"
-      >
-        {label}
-      </motion.span>
+      {label && (
+        <motion.span key={label} initial={{ y: 6, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: 0.18 }} className="text-[11px] font-medium tabular-nums text-dark-text drop-shadow-[0_1px_3px_rgba(0,0,0,0.5)]">
+          {label}
+        </motion.span>
+      )}
     </button>
   );
 }

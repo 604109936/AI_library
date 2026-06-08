@@ -1,5 +1,6 @@
 "use client";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { X } from "lucide-react";
 import { Header } from "@/components/shell/Header";
 import { RequireAuth } from "@/components/shell/RequireAuth";
@@ -7,42 +8,66 @@ import { BookCover } from "@/components/ui/BookCover";
 import { EmptyState } from "@/components/ui/States";
 import { useLibrary, useUI } from "@/lib/store";
 import { formatDate } from "@/lib/utils";
-import type { ReadingMode } from "@/lib/types";
 
-const MODE_LABEL: Record<ReadingMode, string> = { video: "视频", audio: "音频", text: "文字" };
+type Filter = "av" | "text";
+const FILTERS: { key: Filter; label: string }[] = [
+  { key: "av", label: "音视频" },
+  { key: "text", label: "文字稿" },
+];
+type Status = "all" | "reading" | "read";
 
-export default function HistoryPage() {
+function HistoryInner() {
   const router = useRouter();
+  const sp = useSearchParams();
   const history = useLibrary((s) => s.history);
-  const clearHistory = useLibrary((s) => s.clearHistory);
   const removeHistory = useLibrary((s) => s.removeHistory);
   const toast = useUI((s) => s.toast);
+  // 类型筛选（音视频/文字稿，默认音视频，页面内可平铺切换）
+  const [filter, setFilter] = useState<Filter>("av");
+  // 状态由入口决定（已读卡 / 进行中卡），页面内不提供状态切换
+  const sParam = sp.get("status");
+  const status: Status = sParam === "read" ? "read" : sParam === "reading" ? "reading" : "all";
+  const title = status === "read" ? "已读" : status === "reading" ? "进行中" : "阅读历史";
+
+  const list = history
+    .filter((h) => (filter === "av" ? h.mode === "video" || h.mode === "audio" : h.mode === "text"))
+    .filter((h) => (status === "all" ? true : status === "read" ? h.progress >= 100 : h.progress < 100));
 
   return (
     <main className="min-h-[100dvh]">
-      <Header
-        title="阅读历史"
-        right={
-          history.length > 0 ? (
-            <button onClick={() => { clearHistory(); toast("已清空"); }} className="text-xs text-ink-500 dark:text-dark-text/60">清空历史</button>
-          ) : undefined
-        }
-      />
+      <Header title={title} />
       <RequireAuth>
-        {history.length === 0 ? (
-          <EmptyState icon="history" title="还没有阅读记录" subtitle="去泡馆挑一本书读读吧" actionText="去泡馆逛逛" actionHref="/library" />
+        <div className="flex gap-2 px-4 pt-3">
+          {FILTERS.map((f) => (
+            <button
+              key={f.key}
+              aria-pressed={filter === f.key}
+              onClick={() => setFilter(f.key)}
+              className={"rounded-full px-3.5 py-1.5 text-xs transition " + (filter === f.key ? "bg-celadon text-snow" : "bg-snow text-ink-500 dark:bg-dark-card dark:text-dark-text/70")}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        {list.length === 0 ? (
+          <EmptyState
+            icon="history"
+            title={status === "read" ? "还没有读完的书" : status === "reading" ? "没有进行中的书" : filter === "av" ? "还没有音视频记录" : "还没有文字稿记录"}
+            subtitle="去泡馆挑一本书读读吧"
+            actionText="去泡馆逛逛"
+            actionHref="/library"
+          />
         ) : (
           <div className="space-y-3 p-4">
-            {history.map((h, i) => {
+            {list.map((h) => {
               const done = h.progress >= 100;
               return (
-                <div key={h.bookId} className="flex animate-fade-up items-center gap-3 rounded-2xl bg-snow p-3 shadow-sm dark:bg-dark-card" style={{ animationDelay: `${i * 0.04}s` }}>
+                <div key={h.bookId + h.mode} className="flex items-center gap-3 rounded-2xl bg-snow p-3 shadow-sm dark:bg-dark-card">
                   <BookCover title={h.bookTitle} seed={h.coverSeed} src={h.cover} className="w-12 shrink-0" showText={false} />
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-serif text-sm text-ink dark:text-dark-text">{h.bookTitle}</p>
                     {h.author && <p className="truncate text-[11px] text-ink-300">{h.author}</p>}
                     <div className="mt-1.5 flex items-center gap-2">
-                      <span className="rounded bg-celadon-soft px-1.5 py-0.5 text-[10px] text-celadon-700 dark:bg-celadon/20 dark:text-celadon-300">{MODE_LABEL[h.mode]}</span>
                       <div className="h-1 flex-1 overflow-hidden rounded-full bg-line dark:bg-white/10">
                         <div className="h-full rounded-full bg-celadon" style={{ width: `${h.progress}%` }} />
                       </div>
@@ -68,5 +93,13 @@ export default function HistoryPage() {
         )}
       </RequireAuth>
     </main>
+  );
+}
+
+export default function HistoryPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-ink-500">加载中…</div>}>
+      <HistoryInner />
+    </Suspense>
   );
 }
