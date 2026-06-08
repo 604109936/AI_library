@@ -25,7 +25,7 @@ export default function LibraryHome() {
 
   // 继续阅读：仅「文字稿」且未读完，按最近阅读在前，最多 5 本；无则整块不显示
   const continueList = hydrated ? history.filter((h) => h.mode === "text" && h.progress < 100).slice(0, 5) : [];
-  // 热门好书：按「创作时间」由远到近（API 已排序），自动过滤掉已读完的，取 20 本
+  // 热门好书：按「入库时间」由远到近（API 已排序），自动过滤掉已读完的，取 20 本
   const readDone = new Set(history.filter((h) => h.progress >= 100).map((h) => h.bookId));
   const hot = (data?.recommend ?? []).filter((b) => !readDone.has(b.id.split("__")[0])).slice(0, 20);
 

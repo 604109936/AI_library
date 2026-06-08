@@ -28,8 +28,8 @@ export interface Book {
   reviewCount: number; // 书评数
   featured: boolean;
   intro: string; // 乱翻一句话
-  createdAt: string; // 书籍创作/出版时间（ISO；热门好书按此由远到近排序）
-  shelvedAt: string; // 入库时间（ISO；分类默认排序与 Banner 取每类最新）
+  createdAt?: string; // [已弃用] 旧出版时间；热门好书排序已改用 shelvedAt，待接 Supabase 时移除本字段
+  shelvedAt: string; // 入库时间（ISO；分类默认排序 / Banner 取每类最新 / 热门好书由远到近排序）
 }
 
 export interface Chapter {

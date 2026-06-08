@@ -10,62 +10,104 @@ import type {
   Review,
   UserProfile,
 } from "@/lib/types";
-import {
-  profile,
-  myFavorites,
-  myHistory,
-  myNotes,
-  myReviews,
-  myProgress,
-  myReadChapters,
-  myMediaProgress,
-  myMediaPlayed,
-  myReadSeconds,
-} from "@/lib/mock/data";
+import { supabase } from "@/lib/supabase/client";
+import { loadUserData, db } from "@/lib/supabase/userdata";
 
-/* ---------------- Auth ---------------- */
+/* ---------------- Auth（接 Supabase Auth） ---------------- */
+// profiles + auth.users.email → UserProfile。stats 由前端各页实时计算，这里置 0（不用 user.stats）。
+async function loadProfile(authUser: any): Promise<UserProfile> {
+  const { data } = await supabase.from("profiles").select("*").eq("id", authUser.id).maybeSingle();
+  return {
+    id: authUser.id,
+    nickname: data?.nickname ?? authUser.email?.split("@")[0] ?? "书友",
+    bio: data?.bio ?? "",
+    email: authUser.email ?? "",
+    account: data?.account ?? authUser.email ?? "",
+    avatarSeed: data?.avatar_seed ?? 1,
+    avatarUrl: data?.avatar_url ?? undefined,
+    stats: { hours: 0, read: 0, notes: 0, reviews: 0 },
+  };
+}
+
 interface AuthState {
   user: UserProfile | null;
-  hydrated: boolean;
-  login: (account: string) => void;
-  logout: () => void;
-  setHydrated: () => void;
-  updateProfile: (patch: Partial<UserProfile>) => void;
+  hydrated: boolean; // 是否已完成首屏会话恢复
+  initAuth: () => Promise<void>;
+  login: (email: string, password: string) => Promise<{ error?: string }>;
+  register: (email: string, password: string, nickname?: string) => Promise<{ error?: string; needConfirm?: boolean }>;
+  logout: () => Promise<void>;
+  updateProfile: (patch: Partial<UserProfile>) => Promise<void>;
 }
-export const useAuth = create<AuthState>()(
-  persist(
-    (set, get) => ({
-      user: null,
-      hydrated: false,
-      login: (account: string) => {
-        const isEmail = account.includes("@");
-        set({
-          user: {
-            ...profile,
-            account,
-            email: isEmail ? account : profile.email,
-          },
-        });
-        // 登录即载入“我的”同步数据（演示）
-        useLibrary.getState().seed();
-      },
-      logout: () => {
-        set({ user: null });
-        // 退出登录清空本地“我的”数据，避免换账号串号
-        useLibrary.getState().reset();
-      },
-      setHydrated: () => set({ hydrated: true }),
-      updateProfile: (patch) => {
-        const u = get().user;
-        if (u) set({ user: { ...u, ...patch } });
-      },
-    }),
-    {
-      name: "ail-auth",
-      onRehydrateStorage: () => (state) => state?.setHydrated(),
+let authSubscribed = false;
+export const useAuth = create<AuthState>()((set, get) => ({
+  user: null,
+  hydrated: false,
+  // 首屏：恢复 Supabase 会话（刷新不掉线）+ 订阅登录态变化
+  initAuth: async () => {
+    const { data } = await supabase.auth.getSession();
+    if (data.session?.user) {
+      try {
+        const p = await loadProfile(data.session.user);
+        set({ user: p });
+        await useLibrary.getState().load(p);
+      } catch {}
+    } else {
+      useLibrary.getState().setHydrated();
     }
-  )
-);
+    set({ hydrated: true });
+    if (!authSubscribed) {
+      authSubscribed = true;
+      supabase.auth.onAuthStateChange((event, sess) => {
+        if (event === "SIGNED_OUT") {
+          set({ user: null });
+          useLibrary.getState().reset();
+        } else if (sess?.user && (event === "SIGNED_IN" || event === "USER_UPDATED" || event === "TOKEN_REFRESHED")) {
+          loadProfile(sess.user).then((p) => set({ user: p })).catch(() => {});
+        }
+      });
+    }
+  },
+  login: async (email, password) => {
+    const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    if (error) return { error: error.message };
+    if (data.user) {
+      const p = await loadProfile(data.user);
+      set({ user: p });
+      await useLibrary.getState().load(p);
+    }
+    return {};
+  },
+  register: async (email, password, nickname) => {
+    const { data, error } = await supabase.auth.signUp({ email: email.trim(), password });
+    if (error) return { error: error.message };
+    const u = data.user;
+    if (!u) return { error: "注册失败，请重试" };
+    if (nickname?.trim()) {
+      await supabase.from("profiles").update({ nickname: nickname.trim() }).eq("id", u.id);
+    }
+    if (!data.session) return { needConfirm: true }; // 邮箱验证未关闭时无会话
+    const p = await loadProfile(u);
+    set({ user: p });
+    await useLibrary.getState().load(p);
+    return {};
+  },
+  logout: async () => {
+    await supabase.auth.signOut();
+    set({ user: null });
+    useLibrary.getState().reset();
+  },
+  updateProfile: async (patch) => {
+    const u = get().user;
+    if (!u) return;
+    set({ user: { ...u, ...patch } }); // 乐观更新
+    const db: Record<string, any> = {};
+    if (patch.nickname !== undefined) db.nickname = patch.nickname;
+    if (patch.bio !== undefined) db.bio = patch.bio;
+    if (patch.avatarSeed !== undefined) db.avatar_seed = patch.avatarSeed;
+    if (patch.avatarUrl !== undefined) db.avatar_url = patch.avatarUrl;
+    if (Object.keys(db).length) await supabase.from("profiles").update(db).eq("id", u.id);
+  },
+}));
 
 /* ---------------- UI / Theme / Toast / LoginSheet / 搜索历史 ---------------- */
 export type Theme = "light" | "dark";
@@ -128,7 +170,9 @@ export const useUI = create<UIState>()(
   )
 );
 
-/* ---------------- Library: 用户数据 ---------------- */
+/* ---------------- Library: 用户数据（接 Supabase：登录后加载 + 各操作写穿透） ---------------- */
+// 不再 localStorage 持久化——Supabase 为唯一事实源；登录后 load 拉取本人数据，退出 reset 清空。
+// 各 mutation：本地乐观更新（保持同步 API，组件不改）+ 异步写回 Supabase（失败 toast 提示）。
 interface LibState {
   hydrated: boolean;
   favorites: string[];
@@ -138,165 +182,187 @@ interface LibState {
   likedReviews: string[];
   likedBooks: string[];
   myReviews: Review[];
-  mediaProgress: Record<string, number>; // 视频/音频「播放位置」（0-1，续播用；详情↔乱翻共享）
-  mediaPlayed: Record<string, number>; // 视频/音频「真实播放覆盖比例」（0-1，只增；判定播完，排除拖动）
-  readChapters: Record<string, string[]>; // 文字稿已读毕的章节 id（判定整本读完）
-  readSeconds: number; // 累计阅读/收听时长（秒；音视频+文字之和，用于「我的-总时长」）
+  mediaProgress: Record<string, number>;
+  mediaPlayed: Record<string, number>;
+  readChapters: Record<string, string[]>;
+  readSeconds: number;
   setHydrated: () => void;
-  seed: () => void; // 载入演示数据（登录时）
-  reset: () => void; // 清空（退出登录时）
+  load: (user: { id: string; nickname: string; avatarSeed: number }) => Promise<void>; // 登录后从 Supabase 加载本人数据
+  reset: () => void; // 退出登录清空
   isFav: (id: string) => boolean;
-  toggleFav: (id: string) => boolean; // 返回切换后是否已收藏
+  toggleFav: (id: string) => boolean;
   addNote: (n: NoteItem) => void;
   removeNote: (id: string) => void;
-  updateNote: (id: string, note: string) => void; // 二次编辑笔记内容（笔记源不变）
+  updateNote: (id: string, note: string) => void;
   notesOfChapter: (bookId: string, chapterId: string) => NoteItem[];
   setProgress: (p: Progress) => void;
   pushHistory: (h: HistoryItem) => void;
   clearHistory: () => void;
   removeHistory: (bookId: string) => void;
-  toggleLike: (id: string) => void; // 书评点赞
+  toggleLike: (id: string) => void;
   isBookLiked: (id: string) => boolean;
-  toggleBookLike: (id: string) => boolean; // 乱翻/书籍点赞
+  toggleBookLike: (id: string) => boolean;
   addReview: (r: Review) => void;
   removeReview: (id: string) => void;
-  upsertReview: (r: Review) => void; // 写/更新书评合一（按 bookId 覆盖我的那条）
+  upsertReview: (r: Review) => void;
   myReviewOf: (bookId: string) => Review | undefined;
   setMediaProgress: (bookId: string, pct: number) => void;
   getMediaProgress: (bookId: string) => number;
   setMediaPlayed: (bookId: string, frac: number) => void;
   markChapterRead: (bookId: string, chapterId: string) => void;
-  addReadSeconds: (sec: number) => void; // 累加阅读/收听时长
+  addReadSeconds: (sec: number) => void;
 }
 const real = (id: string) => id.split("__")[0];
-export const useLibrary = create<LibState>()(
-  persist(
-    (set, get) => ({
-      hydrated: false,
-      favorites: [],
-      notes: [],
-      progress: {},
-      history: [],
-      likedReviews: [],
-      likedBooks: [],
-      myReviews: [],
-      mediaProgress: {},
-      mediaPlayed: {},
-      readChapters: {},
-      readSeconds: 0,
-      setHydrated: () => set({ hydrated: true }),
-      seed: () =>
-        set({
-          favorites: [...myFavorites],
-          notes: [...myNotes],
-          history: [...myHistory],
-          myReviews: [...myReviews],
-          // 阅读派生数据与演示 history 一并注入，保证「我的」总时长/已读/进行中 与 详情页进度自洽
-          progress: { ...myProgress },
-          readChapters: { ...myReadChapters },
-          mediaProgress: { ...myMediaProgress },
-          mediaPlayed: { ...myMediaPlayed },
-          readSeconds: myReadSeconds,
-        }),
-      reset: () =>
-        set({
-          favorites: [],
-          notes: [],
-          history: [],
-          myReviews: [],
-          progress: {},
-          likedReviews: [],
-          likedBooks: [],
-          mediaProgress: {},
-          mediaPlayed: {},
-          readChapters: {},
-          readSeconds: 0,
-        }),
-      isFav: (id) => get().favorites.includes(real(id)),
-      toggleFav: (id) => {
-        const r = real(id);
-        const has = get().favorites.includes(r);
-        set({ favorites: has ? get().favorites.filter((x) => x !== r) : [r, ...get().favorites] });
-        return !has;
-      },
-      addNote: (n) => set({ notes: [n, ...get().notes] }),
-      removeNote: (id) => set({ notes: get().notes.filter((n) => n.id !== id) }),
-      updateNote: (id, note) =>
-        set({ notes: get().notes.map((n) => (n.id === id ? { ...n, note } : n)) }),
-      notesOfChapter: (bookId, chapterId) =>
-        get().notes.filter((n) => n.bookId === real(bookId) && n.chapterId === chapterId),
-      setProgress: (p) => {
-        const id = real(p.bookId);
-        set({ progress: { ...get().progress, [id]: { ...p, bookId: id } } });
-      },
-      pushHistory: (h) => {
-        // 去版本后缀；音频与视频本质是同一内容(音视频)，按「书+大类(av/text)」去重 → 音视频共用一条进度记录，与文字稿分开
-        const id = real(h.bookId);
-        const cat = (m: ReadingMode) => (m === "text" ? "text" : "av");
-        set({ history: [{ ...h, bookId: id }, ...get().history.filter((x) => !(x.bookId === id && cat(x.mode) === cat(h.mode)))].slice(0, 50) });
-      },
-      clearHistory: () => set({ history: [] }),
-      removeHistory: (bookId) =>
-        set({ history: get().history.filter((x) => x.bookId !== real(bookId)) }),
-      toggleLike: (id) =>
-        set({
-          likedReviews: get().likedReviews.includes(id)
-            ? get().likedReviews.filter((x) => x !== id)
-            : [id, ...get().likedReviews],
-        }),
-      isBookLiked: (id) => get().likedBooks.includes(real(id)),
-      toggleBookLike: (id) => {
-        const r = real(id);
-        const has = get().likedBooks.includes(r);
-        set({ likedBooks: has ? get().likedBooks.filter((x) => x !== r) : [r, ...get().likedBooks] });
-        return !has;
-      },
-      addReview: (r) => set({ myReviews: [r, ...get().myReviews] }),
-      removeReview: (id) =>
-        set({ myReviews: get().myReviews.filter((r) => r.id !== id) }),
-      upsertReview: (r) => {
-        const id = real(r.bookId);
-        set({ myReviews: [{ ...r, bookId: id }, ...get().myReviews.filter((x) => x.bookId !== id)] });
-      },
-      myReviewOf: (bookId) => get().myReviews.find((r) => r.bookId === real(bookId)),
-      setMediaProgress: (bookId, pct) =>
-        set({ mediaProgress: { ...get().mediaProgress, [real(bookId)]: Math.min(1, Math.max(0, pct)) } }),
-      getMediaProgress: (bookId) => get().mediaProgress[real(bookId)] ?? 0,
-      setMediaPlayed: (bookId, frac) => {
-        const r = real(bookId);
-        const prev = get().mediaPlayed[r] ?? 0;
-        const next = Math.min(1, Math.max(prev, frac));
-        if (next === prev) return;
-        set({ mediaPlayed: { ...get().mediaPlayed, [r]: next } });
-      },
-      markChapterRead: (bookId, chapterId) => {
-        const r = real(bookId);
-        const cur = get().readChapters[r] ?? [];
-        if (cur.includes(chapterId)) return;
-        set({ readChapters: { ...get().readChapters, [r]: [...cur, chapterId] } });
-      },
-      addReadSeconds: (sec) => set({ readSeconds: get().readSeconds + Math.max(0, Math.round(sec)) }),
-    }),
-    {
-      name: "ail-library",
-      version: 2,
-      // v1：文字进度口径改全书百分比；v2：进度全面改「实际读过的记录」(章节覆盖/真实播放覆盖)+历史按模式分别保留。
-      // 清掉旧口径残留(进度/历史/媒体覆盖/时长)，避免老测试数据与新口径不一致；收藏/笔记/书评/点赞保留。
-      migrate: (persisted: any, version: number) => {
-        if (version < 2 && persisted) {
-          persisted.progress = {};
-          persisted.mediaProgress = {};
-          persisted.mediaPlayed = {};
-          persisted.readChapters = {};
-          persisted.readSeconds = 0;
-          persisted.history = [];
-        }
-        return persisted;
-      },
-      onRehydrateStorage: () => (state) => state?.setHydrated(),
-    }
-  )
-);
+const EMPTY = {
+  favorites: [] as string[],
+  notes: [] as NoteItem[],
+  history: [] as HistoryItem[],
+  myReviews: [] as Review[],
+  progress: {} as Record<string, Progress>,
+  likedReviews: [] as string[],
+  likedBooks: [] as string[],
+  mediaProgress: {} as Record<string, number>,
+  mediaPlayed: {} as Record<string, number>,
+  readChapters: {} as Record<string, string[]>,
+  readSeconds: 0,
+};
+export const useLibrary = create<LibState>()((set, get) => {
+  const uid = () => useAuth.getState().user?.id;
+  const fail = (label: string) => useUI.getState().toast(`${label}同步失败`, "error");
+  const sync = (p: any, label: string) => {
+    Promise.resolve(p).then((res: any) => { if (res?.error) fail(label); }).catch(() => fail(label));
+  };
+  // 文字进度/媒体进度：写库时取当前完整一行（避免分列覆盖）
+  const syncText = (bookId: string) => {
+    const u = uid();
+    if (u) sync(db.setTextProgress(u, bookId, get().progress[bookId], get().readChapters[bookId] ?? []), "进度");
+  };
+  const syncMedia = (bookId: string) => {
+    const u = uid();
+    if (u) sync(db.setMediaProgress(u, bookId, get().mediaProgress[bookId] ?? 0, get().mediaPlayed[bookId] ?? 0), "进度");
+  };
+  return {
+    hydrated: false,
+    ...EMPTY,
+    setHydrated: () => set({ hydrated: true }),
+    load: async (user) => {
+      try {
+        const d = await loadUserData(user);
+        set({ ...d, hydrated: true });
+      } catch {
+        set({ hydrated: true });
+      }
+    },
+    reset: () => set({ ...EMPTY, hydrated: true }),
+    isFav: (id) => get().favorites.includes(real(id)),
+    toggleFav: (id) => {
+      const r = real(id);
+      const has = get().favorites.includes(r);
+      set({ favorites: has ? get().favorites.filter((x) => x !== r) : [r, ...get().favorites] });
+      const u = uid();
+      if (u) sync(has ? db.removeFav(u, r) : db.addFav(u, r), "收藏");
+      return !has;
+    },
+    addNote: (n) => {
+      set({ notes: [n, ...get().notes] });
+      const u = uid();
+      if (u) sync(db.addNote(u, { ...n, bookId: real(n.bookId) }), "笔记");
+    },
+    removeNote: (id) => {
+      set({ notes: get().notes.filter((n) => n.id !== id) });
+      const u = uid();
+      if (u) sync(db.removeNote(id), "笔记");
+    },
+    updateNote: (id, note) => {
+      set({ notes: get().notes.map((n) => (n.id === id ? { ...n, note } : n)) });
+      const u = uid();
+      if (u) sync(db.updateNote(id, note), "笔记");
+    },
+    notesOfChapter: (bookId, chapterId) =>
+      get().notes.filter((n) => n.bookId === real(bookId) && n.chapterId === chapterId),
+    setProgress: (p) => {
+      const id = real(p.bookId);
+      set({ progress: { ...get().progress, [id]: { ...p, bookId: id } } });
+      syncText(id);
+    },
+    pushHistory: (h) => {
+      // 音视频本质同一内容，按「书+大类(av/text)」去重 → 音视频共用一条，与文字稿分开
+      const id = real(h.bookId);
+      const cat = (m: ReadingMode) => (m === "text" ? "text" : "av");
+      set({ history: [{ ...h, bookId: id }, ...get().history.filter((x) => !(x.bookId === id && cat(x.mode) === cat(h.mode)))].slice(0, 50) });
+      const u = uid();
+      if (u) sync(db.pushHistory(u, id, h.mode, h.progress, h.lastAt), "历史");
+    },
+    clearHistory: () => {
+      set({ history: [] });
+      const u = uid();
+      if (u) sync(db.clearHistory(u), "历史");
+    },
+    removeHistory: (bookId) => {
+      const id = real(bookId);
+      set({ history: get().history.filter((x) => x.bookId !== id) });
+      const u = uid();
+      if (u) sync(db.removeHistory(u, id), "历史");
+    },
+    toggleLike: (id) =>
+      set({
+        likedReviews: get().likedReviews.includes(id)
+          ? get().likedReviews.filter((x) => x !== id)
+          : [id, ...get().likedReviews],
+      }),
+    isBookLiked: (id) => get().likedBooks.includes(real(id)),
+    toggleBookLike: (id) => {
+      const r = real(id);
+      const has = get().likedBooks.includes(r);
+      set({ likedBooks: has ? get().likedBooks.filter((x) => x !== r) : [r, ...get().likedBooks] });
+      return !has;
+    },
+    addReview: (r) => {
+      set({ myReviews: [r, ...get().myReviews] });
+      const u = uid();
+      if (u) sync(db.upsertReview(u, { ...r, bookId: real(r.bookId) }), "书评");
+    },
+    removeReview: (id) => {
+      const rev = get().myReviews.find((r) => r.id === id);
+      set({ myReviews: get().myReviews.filter((r) => r.id !== id) });
+      const u = uid();
+      if (u && rev) sync(db.removeReview(u, real(rev.bookId)), "书评");
+    },
+    upsertReview: (r) => {
+      const id = real(r.bookId);
+      set({ myReviews: [{ ...r, bookId: id }, ...get().myReviews.filter((x) => x.bookId !== id)] });
+      const u = uid();
+      if (u) sync(db.upsertReview(u, { ...r, bookId: id }), "书评");
+    },
+    myReviewOf: (bookId) => get().myReviews.find((r) => r.bookId === real(bookId)),
+    setMediaProgress: (bookId, pct) => {
+      const id = real(bookId);
+      set({ mediaProgress: { ...get().mediaProgress, [id]: Math.min(1, Math.max(0, pct)) } });
+      syncMedia(id);
+    },
+    getMediaProgress: (bookId) => get().mediaProgress[real(bookId)] ?? 0,
+    setMediaPlayed: (bookId, frac) => {
+      const r = real(bookId);
+      const prev = get().mediaPlayed[r] ?? 0;
+      const next = Math.min(1, Math.max(prev, frac));
+      if (next === prev) return;
+      set({ mediaPlayed: { ...get().mediaPlayed, [r]: next } });
+      syncMedia(r);
+    },
+    markChapterRead: (bookId, chapterId) => {
+      const r = real(bookId);
+      const cur = get().readChapters[r] ?? [];
+      if (cur.includes(chapterId)) return;
+      set({ readChapters: { ...get().readChapters, [r]: [...cur, chapterId] } });
+      syncText(r);
+    },
+    addReadSeconds: (sec) => {
+      set({ readSeconds: get().readSeconds + Math.max(0, Math.round(sec)) });
+      const u = uid();
+      if (u) sync(db.setReadSeconds(u, get().readSeconds), "时长");
+    },
+  };
+});
 
 /* ---------------- Reader Prefs ---------------- */
 export type ReaderBg = "white" | "moon" | "green" | "dark";

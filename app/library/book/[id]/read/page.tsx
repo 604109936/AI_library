@@ -183,7 +183,7 @@ function ReaderInner({ id }: { id: string }) {
 
   function makeNote(excerpt: string, note: string, color: string, start?: number): NoteItem {
     return {
-      id: "n" + Date.now(),
+      id: crypto.randomUUID(), // 与 DB notes.id(uuid) 对齐，便于写穿透
       bookId: bookQ.data!.id.split("__")[0],
       bookTitle: bookQ.data!.title,
       bookCoverSeed: bookQ.data!.coverSeed,

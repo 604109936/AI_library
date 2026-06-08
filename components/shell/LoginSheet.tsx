@@ -2,7 +2,23 @@
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useAuth, useUI } from "@/lib/store";
-import { Mail, Lock, Eye, EyeOff, BookHeart } from "lucide-react";
+import { Mail, Lock, Eye, EyeOff, BookHeart, User } from "lucide-react";
+
+// 体验账号（真实 Supabase 用户，由 scripts/create-demo-user.mjs 建）
+const DEMO_EMAIL = "demo@ailibrary.app";
+const DEMO_PWD = "123456";
+
+// Supabase 英文报错 → 中文
+function zhError(msg: string): string {
+  const m = msg.toLowerCase();
+  if (m.includes("invalid login credentials")) return "邮箱或密码不正确";
+  if (m.includes("already registered") || m.includes("already exists")) return "该邮箱已注册，请直接登录";
+  if (m.includes("password should be at least")) return "密码至少 6 位";
+  if (m.includes("unable to validate email") || m.includes("invalid email")) return "邮箱格式不正确";
+  if (m.includes("email not confirmed")) return "邮箱未验证，请先到邮箱点确认链接";
+  if (m.includes("rate limit") || m.includes("too many")) return "操作太频繁，请稍后再试";
+  return "出错了：" + msg;
+}
 
 export function LoginSheet() {
   const open = useUI((s) => s.loginOpen);
@@ -10,22 +26,24 @@ export function LoginSheet() {
   const close = useUI((s) => s.closeLogin);
   const toast = useUI((s) => s.toast);
   const login = useAuth((s) => s.login);
+  const register = useAuth((s) => s.register);
 
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
+  const [nickname, setNickname] = useState("");
   const [pwd, setPwd] = useState("");
   const [pwd2, setPwd2] = useState("");
   const [show, setShow] = useState(false);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
-  const emailOk = email.trim().length >= 3; // 邮箱或账号（体验账号 123456）
+  const emailOk = /\S+@\S+\.\S+/.test(email.trim());
   const pwdOk = pwd.length >= 6;
-  const canSubmit =
-    emailOk && pwdOk && (mode === "login" || pwd === pwd2) && !loading;
+  const canSubmit = emailOk && pwdOk && (mode === "login" || (pwd === pwd2 && nickname.trim().length > 0)) && !loading;
 
   function reset() {
     setEmail("");
+    setNickname("");
     setPwd("");
     setPwd2("");
     setErr("");
@@ -37,15 +55,23 @@ export function LoginSheet() {
     if (!canSubmit) return;
     setLoading(true);
     setErr("");
-    await new Promise((r) => setTimeout(r, 700));
-    // mock：任意合法邮箱+密码即成功
-    login(email);
+    const res = mode === "login" ? await login(email, pwd) : await register(email, pwd, nickname);
+    if (res.error) {
+      setErr(zhError(res.error));
+      setLoading(false);
+      return;
+    }
+    if ("needConfirm" in res && res.needConfirm) {
+      setErr("注册成功，请到邮箱点确认链接后再登录");
+      setLoading(false);
+      return;
+    }
     setLoading(false);
     toast(mode === "login" ? "欢迎回来" : "注册成功，已自动登录");
     const action = pending;
     close();
     reset();
-    action?.(); // 立即执行挂起操作（已登录），避免 60ms 延迟期内状态闪烁/操作丢失
+    action?.(); // 立即执行挂起操作（已登录）
   }
 
   return (
@@ -81,10 +107,10 @@ export function LoginSheet() {
               </h2>
               <button
                 type="button"
-                onClick={() => { setMode("login"); setEmail("123456"); setPwd("123456"); setErr(""); }}
+                onClick={() => { setMode("login"); setEmail(DEMO_EMAIL); setPwd(DEMO_PWD); setNickname(""); setErr(""); }}
                 className="mt-2 rounded-full bg-celadon-soft px-3 py-1 text-xs text-celadon-700"
               >
-                体验账号 123456 / 123456（点此一键填入）
+                体验账号（点此一键填入，再点登录）
               </button>
             </div>
 
@@ -92,18 +118,30 @@ export function LoginSheet() {
               <Field icon={<Mail size={16} />}>
                 <input
                   className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-ink-300 dark:text-dark-text"
-                  placeholder="邮箱 / 账号"
-                  type="text"
+                  placeholder="邮箱"
+                  type="email"
                   inputMode="email"
                   autoComplete="username"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                 />
               </Field>
+              {mode === "register" && (
+                <Field icon={<User size={16} />}>
+                  <input
+                    className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-ink-300 dark:text-dark-text"
+                    placeholder="昵称"
+                    type="text"
+                    maxLength={16}
+                    value={nickname}
+                    onChange={(e) => setNickname(e.target.value)}
+                  />
+                </Field>
+              )}
               <Field icon={<Lock size={16} />}>
                 <input
                   className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-ink-300 dark:text-dark-text"
-                  placeholder="密码"
+                  placeholder="密码（至少 6 位）"
                   type={show ? "text" : "password"}
                   autoComplete={mode === "login" ? "current-password" : "new-password"}
                   value={pwd}
@@ -145,7 +183,6 @@ export function LoginSheet() {
                 </button>
               </div>
 
-              {/* 渐隐装饰分隔线 */}
               <div className="my-1 flex items-center justify-center">
                 <span className="h-px w-full bg-gradient-to-r from-transparent via-brass/40 to-transparent" />
               </div>
