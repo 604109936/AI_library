@@ -19,12 +19,13 @@ export default function FlipPage() {
   const [loading, setLoading] = useState(!flipCache);
   const [error, setError] = useState(false);
   const [soundOn, setSoundOn] = useState(true); // 用户想要声音（默认要）
-  const [mutedNow, setMutedNow] = useState(true); // 当前视频「实际」是否静音 → 喇叭图标据此显示（诚实，不说谎）
+  const [mutedNow, setMutedNow] = useState(false); // 当前条视频「实际」是否静音 → 喇叭图标据此显示（诚实）
   const [activeIdx, setActiveIdx] = useState(flipCache?.idx ?? 0);
   const fetching = useRef(false);
   const booksRef = useRef<Book[]>(books);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const videosRef = useRef<(HTMLVideoElement | null)[]>([]); // 各条视频元素，集中控制播放/静音
+  const userPausedRef = useRef<boolean[]>([]); // 各条「是否被用户主动暂停」（页面级单一来源，playActive 据此不强行重播）
   const activeIdxRef = useRef(activeIdx);
   const soundOnRef = useRef(soundOn);
   const mutedNowRef = useRef(mutedNow);
@@ -33,16 +34,19 @@ export default function FlipPage() {
   useEffect(() => { mutedNowRef.current = mutedNow; }, [mutedNow]);
 
   const registerVideo = useCallback((i: number, el: HTMLVideoElement | null) => { videosRef.current[i] = el; }, []);
+  const onActive = useCallback((i: number) => { setActiveIdx(i); if (flipCache) flipCache.idx = i; }, []);
 
-  // 播放当前条、暂停其余；带声被浏览器拦时静音兜底（绝不停在暂停）；把「实际静音态」同步给喇叭图标
+  // 播放当前条、暂停其余；尊重用户主动暂停；带声被浏览器拦时静音兜底（绝不停在暂停）；同步「实际静音态」给喇叭图标
   const playActive = useCallback(() => {
     const i = activeIdxRef.current;
     videosRef.current.forEach((vid, j) => { if (vid && j !== i && !vid.paused) vid.pause(); });
     const v = videosRef.current[i];
     if (!v) return;
+    if (userPausedRef.current[i]) return; // 用户主动暂停的当前条：kick/切条都不强行重播
     v.muted = !soundOnRef.current;
+    setMutedNow(v.muted);
     v.play().then(() => setMutedNow(v.muted)).catch(() => {
-      // 带声自动播放被浏览器拦截 → 静音继续播，绝不停在暂停态
+      // 带声自动播放被浏览器拦截 → 静音继续播，绝不停在暂停态（用户下次手势会在 kick 内带声解锁）
       v.muted = true;
       setMutedNow(true);
       v.play().catch(() => {});
@@ -86,10 +90,31 @@ export default function FlipPage() {
     if (!loading && books.length && activeIdx >= books.length - 2) loadMore();
   }, [activeIdx, books.length, loading, loadMore]);
 
-  // 切到新条即播放（此刻正处于上滑手势的激活窗口内，带声大概率被允许）
-  useEffect(() => { activeIdxRef.current = activeIdx; if (!loading && books.length) playActive(); }, [activeIdx, loading, books.length, playActive]);
+  // 当前条由「滚动落点」决定（snap 落定即准），比 IntersectionObserver 阈值更可靠，避免快速滑动漏报、旧条声音残留
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el || loading || !books.length) return;
+    let raf = 0;
+    const compute = () => {
+      raf = 0;
+      const h = el.clientHeight || 1;
+      const i = Math.max(0, Math.min(Math.round(el.scrollTop / h), booksRef.current.length - 1));
+      if (i !== activeIdxRef.current) onActive(i);
+    };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(compute); };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    el.addEventListener("scrollend", compute);
+    return () => { el.removeEventListener("scroll", onScroll); el.removeEventListener("scrollend", compute); if (raf) cancelAnimationFrame(raf); };
+  }, [loading, books.length, onActive]);
 
-  // 任意手势（点击 / 上滑）同步触发一次播放：微信等浏览器只认「同步发生在用户手势里」的 play，借此解锁带声播放、且绝不暂停
+  // 切到新条：清掉该条「用户暂停」意图(切条默认自动播放) + 立即播放（处于上滑手势激活窗口内，带声大概率被允许）
+  useEffect(() => {
+    activeIdxRef.current = activeIdx;
+    userPausedRef.current[activeIdx] = false;
+    if (!loading && books.length) playActive();
+  }, [activeIdx, loading, books.length, playActive]);
+
+  // 任意手势（点击 / 上滑）同步触发一次播放：手机/微信只认「手势内 play」→ 借此带声解锁；playActive 已尊重 userPaused，不会强行唤醒被暂停的条
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el) return;
@@ -99,11 +124,6 @@ export default function FlipPage() {
     return () => { el.removeEventListener("pointerdown", kick); el.removeEventListener("touchstart", kick); };
   }, [playActive, books.length, loading]);
 
-  function onActive(i: number) {
-    setActiveIdx(i);
-    if (flipCache) flipCache.idx = i;
-  }
-
   // 喇叭：在用户点击（真实手势）里同步开/关声音；开声音时立即 play，确保必出声
   const toggleSound = useCallback(() => {
     const turnOn = mutedNowRef.current; // 当前静音 → 开声音；当前有声 → 静音
@@ -112,7 +132,7 @@ export default function FlipPage() {
     if (v) {
       v.muted = !turnOn;
       setMutedNow(!turnOn);
-      if (turnOn) v.play().catch(() => {});
+      if (turnOn) { userPausedRef.current[activeIdxRef.current] = false; v.play().catch(() => {}); }
     }
   }, []);
 
@@ -134,12 +154,12 @@ export default function FlipPage() {
           <>
             <div ref={scrollerRef} className="h-full snap-y snap-mandatory overflow-y-auto overscroll-contain no-scrollbar">
               {books.map((b, i) => (
-                <FlipSlide key={b.id} book={b} index={i} active={i === activeIdx} registerVideo={registerVideo} onActive={() => onActive(i)} />
+                <FlipSlide key={b.id} book={b} index={i} active={i === activeIdx} registerVideo={registerVideo} userPausedRef={userPausedRef} />
               ))}
             </div>
             {/* 顶部装饰短线 */}
             <div className="pointer-events-none absolute left-1/2 z-10 h-px w-16 -translate-x-1/2 bg-gradient-to-r from-transparent via-brass/70 to-transparent" style={{ top: "calc(env(safe-area-inset-top) + 10px)" }} />
-            {/* 喇叭（页面级，集中控制当前视频；图标反映实际静音态） */}
+            {/* 喇叭（页面级，集中控制当前条；图标反映实际静音态） */}
             <button
               onClick={toggleSound}
               aria-label={mutedNow ? "开启声音" : "静音"}
@@ -175,15 +195,13 @@ function FlipSkeleton() {
   );
 }
 
-function FlipSlide({ book, index, active, registerVideo, onActive }: { book: Book; index: number; active: boolean; registerVideo: (i: number, el: HTMLVideoElement | null) => void; onActive: () => void }) {
+function FlipSlide({ book, index, active, registerVideo, userPausedRef }: { book: Book; index: number; active: boolean; registerVideo: (i: number, el: HTMLVideoElement | null) => void; userPausedRef: { current: boolean[] } }) {
   const router = useRouter();
-  const ref = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const [playing, setPlaying] = useState(true);
+  const [playing, setPlaying] = useState(false); // 仅在视频真正起播(onPlay/onPlaying)后才 true
   const [loaded, setLoaded] = useState(false); // 视频可播放（缓冲完成）
   const [burst, setBurst] = useState(0);
   const [err, setErr] = useState(false);
-  const userPaused = useRef(false); // 用户是否主动点了暂停（区分主动暂停与意外暂停）
   const lastTap = useRef(0);
   const tapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -191,7 +209,6 @@ function FlipSlide({ book, index, active, registerVideo, onActive }: { book: Boo
   const toggleFav = useLibrary((s) => s.toggleFav);
   const myReviews = useLibrary((s) => s.myReviews);
   const toast = useUI((s) => s.toast);
-  const setMediaProgress = useLibrary((s) => s.setMediaProgress);
   const setMediaPlayed = useLibrary((s) => s.setMediaPlayed);
   const pushHistory = useLibrary((s) => s.pushHistory);
   const lastT = useRef<number | null>(null);
@@ -199,25 +216,11 @@ function FlipSlide({ book, index, active, registerVideo, onActive }: { book: Boo
   const lastReport = useRef(0);
   const realId = book.id.split("__")[0];
   const fav = favorites.includes(realId);
-  useReadingClock(playing && !err); // 乱翻观看时长计入「我的-总时长」
+  useReadingClock(active && playing && !err); // 仅「当前可见且在播」的那一条计入「我的-总时长」（避免离屏条多倍计时）
 
-  // 只负责把「当前条」上报给页面（播放/暂停由页面集中控制，保证带声且不暂停）；离开时落进度
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const ob = new IntersectionObserver(
-      (entries) => {
-        const e = entries[0];
-        if (e.isIntersecting) onActive();
-        else { lastT.current = null; writeMedia(true); } // 离开本条：重置增量基准并落历史进度
-      },
-      { threshold: 0.6 }
-    );
-    ob.observe(el);
-    return () => ob.disconnect();
-  }, []); // eslint-disable-line
+  const setVideoRef = useCallback((el: HTMLVideoElement | null) => { videoRef.current = el; registerVideo(index, el); }, [index, registerVideo]);
 
-  // 进度与「泡馆」同一本书共享：写入同一套 mediaProgress(续播位置)/mediaPlayed(真实播放覆盖)/history
+  // 进度与「泡馆」共享 mediaPlayed(真实观看覆盖，用于已读判定)/history；乱翻为发现流，不写 mediaProgress(续播位置归泡馆所有，避免污染/快进)
   function writeMedia(force = false) {
     const v = videoRef.current;
     if (!v || !v.duration) return;
@@ -234,10 +237,10 @@ function FlipSlide({ book, index, active, registerVideo, onActive }: { book: Boo
     const cur = v.currentTime;
     const dur = v.duration || 0;
     if (dur <= 0) return;
-    setMediaProgress(realId, cur / dur); // 续播位置（与泡馆共享）
     if (lastT.current !== null) {
       const d = cur - lastT.current;
-      if (d > 0 && d < 1.5) { playedSec.current += d; setMediaPlayed(realId, playedSec.current / dur); } // 真实播放覆盖（排除拖动/循环跳变）
+      // 仅正常向前推进才累计真实观看覆盖（排除 loop 回绕、拖动等大跳变）
+      if (d > 0 && d < 1.5) { playedSec.current += d; setMediaPlayed(realId, playedSec.current / dur); }
     }
     lastT.current = cur;
     writeMedia();
@@ -254,12 +257,12 @@ function FlipSlide({ book, index, active, registerVideo, onActive }: { book: Boo
       triggerBurst();
     });
   }
-  // 单击切换播放/暂停：用户主动暂停才暂停（onPause 不会自动恢复）；恢复时在点击手势内 play，保持声音
+  // 单击切换播放/暂停：用户主动暂停意图写入页面级 userPausedRef[index]，playActive/kick 据此不强行重播
   function togglePlay() {
     const v = videoRef.current;
     if (!v) return;
-    if (v.paused) { userPaused.current = false; v.play().catch(() => {}); }
-    else { userPaused.current = true; v.pause(); }
+    if (v.paused) { userPausedRef.current[index] = false; v.play().catch(() => {}); }
+    else { userPausedRef.current[index] = true; v.pause(); }
   }
   function onTap() {
     const now = Date.now();
@@ -277,11 +280,11 @@ function FlipSlide({ book, index, active, registerVideo, onActive }: { book: Boo
   }
 
   return (
-    <div ref={ref} className="relative h-full w-full snap-start snap-always overflow-hidden bg-dark-bg">
-      {/* 前景视频：object-cover 铺满整块视频区、裁切到无黑边。muted 由页面集中命令式控制，不用 React prop（避免重渲染解除静音导致暂停） */}
+    <div className="relative h-full w-full snap-start snap-always overflow-hidden bg-dark-bg">
+      {/* 前景视频：object-cover 铺满整块视频区、裁切到无黑边。muted 由页面集中命令式控制(不用 React prop) */}
       {!err ? (
         <video
-          ref={(el) => { videoRef.current = el; registerVideo(index, el); }}
+          ref={setVideoRef}
           src={book.videoUrl}
           className="absolute inset-0 h-full w-full object-cover"
           loop
@@ -294,16 +297,14 @@ function FlipSlide({ book, index, active, registerVideo, onActive }: { book: Boo
           onWaiting={() => setLoaded(false)}
           onPause={() => {
             setPlaying(false);
+            lastT.current = null; // 暂停后重置增量基准，避免跨段误计
             writeMedia(true);
             // 非用户主动暂停、且仍是当前条 → 自动恢复（防快速上滑被 AbortError 误暂停）
-            if (active && !userPaused.current) videoRef.current?.play().catch(() => {});
+            if (active && !userPausedRef.current[index]) videoRef.current?.play().catch(() => {});
           }}
           onLoadedMetadata={(e) => {
-            // 续播：从泡馆/上次离开的位置继续，保持进度一致
+            // 乱翻为发现流，始终从头播；不做续播 seek（避免同书副本/循环导致快进到结尾）。仅以已存覆盖作为累计基线。
             const v = e.currentTarget;
-            const saved = useLibrary.getState().mediaProgress[realId] ?? 0;
-            if (saved > 0 && saved < 0.99 && v.duration) v.currentTime = saved * v.duration;
-            // 续播覆盖累计基线：新会话在已存覆盖上继续累计
             if (v.duration) playedSec.current = (useLibrary.getState().mediaPlayed[realId] ?? 0) * v.duration;
           }}
           onError={() => setErr(true)}
@@ -324,7 +325,7 @@ function FlipSlide({ book, index, active, registerVideo, onActive }: { book: Boo
         </div>
       )}
 
-      {!playing && loaded && !err && (
+      {active && !playing && loaded && !err && (
         <button onClick={togglePlay} aria-label="播放" className="absolute inset-0 flex items-center justify-center">
           <span className="flex h-16 w-16 animate-scale-in items-center justify-center rounded-full bg-black/35 ring-1 ring-celadon/40 backdrop-blur-md">
             <Play size={28} className="ml-1 text-dark-text" />

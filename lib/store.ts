@@ -239,9 +239,16 @@ export const useLibrary = create<LibState>()((set, get) => {
     const u = uid();
     if (u) sync(db.setTextProgress(u, bookId, get().progress[bookId], get().readChapters[bookId] ?? []), "进度");
   };
+  // 媒体进度同步：5 秒节流（首调即写、其后合并为每 5 秒一次尾写），避免播放时每帧 onTimeUpdate 触发数次/秒的 DB upsert
+  const mediaSyncTimer: Record<string, ReturnType<typeof setTimeout>> = {};
+  const mediaSyncAt: Record<string, number> = {};
   const syncMedia = (bookId: string) => {
     const u = uid();
-    if (u) sync(db.setMediaProgress(u, bookId, get().mediaProgress[bookId] ?? 0, get().mediaPlayed[bookId] ?? 0), "进度");
+    if (!u) return;
+    const flushNow = () => { mediaSyncAt[bookId] = Date.now(); sync(db.setMediaProgress(u, bookId, get().mediaProgress[bookId] ?? 0, get().mediaPlayed[bookId] ?? 0), "进度"); };
+    const since = Date.now() - (mediaSyncAt[bookId] ?? 0);
+    if (since >= 5000) { if (mediaSyncTimer[bookId]) { clearTimeout(mediaSyncTimer[bookId]); delete mediaSyncTimer[bookId]; } flushNow(); }
+    else if (!mediaSyncTimer[bookId]) { mediaSyncTimer[bookId] = setTimeout(() => { delete mediaSyncTimer[bookId]; flushNow(); }, 5000 - since); }
   };
   return {
     hydrated: false,
@@ -291,6 +298,8 @@ export const useLibrary = create<LibState>()((set, get) => {
       // 音视频本质同一内容，按「书+大类(av/text)」去重 → 音视频共用一条，与文字稿分开
       const id = real(h.bookId);
       const cat = (m: ReadingMode) => (m === "text" ? "text" : "av");
+      const top = get().history[0];
+      if (top && top.bookId === id && cat(top.mode) === cat(h.mode) && top.progress === h.progress) return; // 已在最前且进度未变 → 不重复 set/写库
       set({ history: [{ ...h, bookId: id }, ...get().history.filter((x) => !(x.bookId === id && cat(x.mode) === cat(h.mode)))].slice(0, 50) });
       const u = uid();
       if (u) sync(db.pushHistory(u, id, h.mode, h.progress, h.lastAt), "历史");
