@@ -231,7 +231,7 @@ function FlipSlide({ book, active, muted, setMuted, onActive }: { book: Book; ac
         // eslint-disable-next-line jsx-a11y/media-has-caption
         <video
           src={book.videoUrl}
-          className="pointer-events-none absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-2xl"
+          className="pointer-events-none absolute inset-0 h-full w-full scale-125 object-cover opacity-90 blur-2xl"
           muted
           loop
           autoPlay
@@ -239,13 +239,13 @@ function FlipSlide({ book, active, muted, setMuted, onActive }: { book: Book; ac
           aria-hidden
         />
       )}
-      {!err && <div className="pointer-events-none absolute inset-0 bg-dark-bg/25" />}
+      {!err && <div className="pointer-events-none absolute inset-0 bg-black/20" />}
       {/* 前景视频：object-contain 完整不裁切；信箱区透出后面的模糊铺底 */}
       {!err ? (
         <video
           ref={videoRef}
           src={book.videoUrl}
-          className="absolute inset-0 h-full w-full object-contain"
+          className="absolute left-1/2 top-1/2 max-h-full max-w-full -translate-x-1/2 -translate-y-1/2"
           loop
           muted={muted}
           playsInline

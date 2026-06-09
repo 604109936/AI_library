@@ -15,7 +15,7 @@ if (!up) { console.log("❌ server not up"); process.exit(1); }
 await page.getByText(/清醒地活|认知觉醒/).first().waitFor({ timeout: 20000 }).catch(() => {});
 await page.waitForTimeout(1000);
 await page.screenshot({ path: ".e2e/flip-loading.png" }); // 可能抓到加载态
-await page.waitForTimeout(3500);
+await page.waitForTimeout(11000); // 多等，让阿里云 OSS 视频在无头里起播
 await page.screenshot({ path: ".e2e/flip-playing.png" }); // 播放态
 console.log("✓ 截图已存 .e2e/flip-loading.png / flip-playing.png");
 await browser.close();
