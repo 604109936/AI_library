@@ -226,26 +226,12 @@ function FlipSlide({ book, active, muted, setMuted, onActive }: { book: Book; ac
 
   return (
     <div ref={ref} className="relative h-full w-full snap-start snap-always overflow-hidden bg-dark-bg">
-      {/* 方案B·模糊视频铺底：仅当前激活条渲染，用同一条视频的模糊放大版填充竖屏信箱区（无黑框、静音、省性能） */}
-      {active && !err && book.videoUrl && (
-        // eslint-disable-next-line jsx-a11y/media-has-caption
-        <video
-          src={book.videoUrl}
-          className="pointer-events-none absolute inset-0 h-full w-full scale-125 object-cover opacity-90 blur-2xl"
-          muted
-          loop
-          autoPlay
-          playsInline
-          aria-hidden
-        />
-      )}
-      {!err && <div className="pointer-events-none absolute inset-0 bg-black/20" />}
-      {/* 前景视频：object-contain 完整不裁切；信箱区透出后面的模糊铺底 */}
+      {/* 前景视频：object-cover 铺满整块视频区、裁切到无黑边（代价：裁掉一点边缘） */}
       {!err ? (
         <video
           ref={videoRef}
           src={book.videoUrl}
-          className="absolute left-1/2 top-1/2 max-h-full max-w-full -translate-x-1/2 -translate-y-1/2"
+          className="absolute inset-0 h-full w-full object-cover"
           loop
           muted={muted}
           playsInline
