@@ -159,14 +159,9 @@ function VideoStage({ book }: { book: Book }) {
       className={
         fs
           ? "fixed inset-y-0 left-1/2 z-[120] flex w-full max-w-app -translate-x-1/2 items-center justify-center bg-black"
-          : "relative aspect-[3/4] w-full overflow-hidden rounded-3xl bg-black shadow-xl ring-1 ring-black/5 dark:ring-white/10"
+          : "relative aspect-[3/4] w-full overflow-hidden rounded-3xl bg-snow shadow-xl ring-1 ring-black/5 dark:bg-dark-card dark:ring-white/10"
       }
     >
-      {/* 非全屏：用同一视频的模糊放大版铺底，填充竖屏视频两侧空隙（不留黑边、不改变 3:4 卡片尺寸） */}
-      {!fs && started && book.videoUrl && (
-        // eslint-disable-next-line jsx-a11y/media-has-caption
-        <video src={book.videoUrl} className="pointer-events-none absolute inset-0 h-full w-full scale-110 object-cover opacity-90 blur-2xl" muted loop autoPlay playsInline aria-hidden />
-      )}
       <video
         ref={ref}
         src={book.videoUrl}
