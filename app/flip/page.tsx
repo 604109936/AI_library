@@ -197,15 +197,12 @@ function FlipSlide({ book, active, muted, setMuted, onActive }: { book: Book; ac
       triggerBurst();
     });
   }
-  // 进入即播放：先尝试带声播放；被浏览器拦截则退为静音自动播放（保证不停在暂停态），UI 同步静音、点一下即恢复声音
+  // 进入即播放（带声）：从「乱翻」tab 点进来时文档已有用户手势，浏览器允许带声自动播放。
+  // 不做静音兜底（用户要求不要静音）；万一被拦（如直接刷新进本页、无任何手势），则停在暂停态、点一下即带声播放。
   function tryPlay() {
     const v = videoRef.current;
     if (!v) return;
-    v.play().then(() => setPlaying(true)).catch(() => {
-      v.muted = true;
-      setMuted(true);
-      v.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
-    });
+    v.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
   }
   function togglePlay() {
     const v = videoRef.current;
