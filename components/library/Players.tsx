@@ -123,10 +123,20 @@ function VideoStage({ book }: { book: Book }) {
     return () => { document.body.style.overflow = prev; };
   }, [fs]);
 
+  // 未播放时一直显示书封（不跳到视频帧）；首次点播放才跳到上次进度
+  function resumeSeek(d: number) {
+    if (resumed.current || d <= 0) return;
+    resumed.current = true;
+    const p = getMediaProgress(book.id);
+    if (p > 0 && p < 0.99 && ref.current) { ref.current.currentTime = p * d; setCur(p * d); }
+  }
   function toggle() {
     const v = ref.current;
     if (!v) return;
-    if (v.paused) { setStarted(true); v.play().catch(() => setStarted(false)); } else v.pause();
+    if (v.paused) {
+      if (!started) { setStarted(true); resumeSeek(v.duration || dur); }
+      v.play().catch(() => setStarted(false));
+    } else v.pause();
   }
   function cycleSpeed() {
     const i = SPEEDS.indexOf(speed);
@@ -141,11 +151,7 @@ function VideoStage({ book }: { book: Book }) {
     const d = e.currentTarget.duration || 0;
     setDur(d);
     primePlayed(d); // 续播覆盖累计基线
-    if (!resumed.current && d > 0) {
-      resumed.current = true;
-      const p = getMediaProgress(book.id);
-      if (p > 0 && p < 0.99) { e.currentTarget.currentTime = p * d; setCur(p * d); }
-    }
+    if (started) resumeSeek(d); // 仅在已开始播放后才跳进度，避免未播放时画面从封面跳到视频帧
   }
 
   return (
@@ -156,13 +162,18 @@ function VideoStage({ book }: { book: Book }) {
           : "relative aspect-[3/4] w-full overflow-hidden rounded-3xl bg-black shadow-xl ring-1 ring-black/5 dark:ring-white/10"
       }
     >
+      {/* 非全屏：用同一视频的模糊放大版铺底，填充竖屏视频两侧空隙（不留黑边、不改变 3:4 卡片尺寸） */}
+      {!fs && started && book.videoUrl && (
+        // eslint-disable-next-line jsx-a11y/media-has-caption
+        <video src={book.videoUrl} className="pointer-events-none absolute inset-0 h-full w-full scale-110 object-cover opacity-90 blur-2xl" muted loop autoPlay playsInline aria-hidden />
+      )}
       <video
         ref={ref}
         src={book.videoUrl}
         poster={book.cover}
         playsInline
         muted={muted}
-        className={fs ? "h-full w-full object-contain" : "h-full w-full object-cover"}
+        className={fs ? "h-full w-full object-cover" : "absolute left-1/2 top-1/2 h-full w-auto -translate-x-1/2 -translate-y-1/2"}
         onClick={toggle}
         onPlay={() => setPlaying(true)}
         onPause={() => { setPlaying(false); flush(); }}
@@ -171,8 +182,12 @@ function VideoStage({ book }: { book: Book }) {
       />
 
       {!started && (
-        <button onClick={toggle} aria-label="播放视频解读" className="absolute inset-0 flex items-center justify-center bg-black/10">
-          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-celadon/85 shadow-celadon backdrop-blur">
+        <button onClick={toggle} aria-label="播放视频解读" className="absolute inset-0 flex items-center justify-center">
+          {book.cover && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={book.cover} alt="" className="absolute inset-0 h-full w-full object-cover" />
+          )}
+          <span className="relative flex h-16 w-16 items-center justify-center rounded-full bg-celadon/85 shadow-celadon backdrop-blur">
             <Play size={30} className="ml-1 fill-snow text-snow" />
           </span>
         </button>
