@@ -82,7 +82,7 @@ export default function FlipPage() {
       ) : (
         <div ref={scrollerRef} className="h-full snap-y snap-mandatory overflow-y-auto overscroll-contain no-scrollbar">
           {books.map((b, i) => (
-            <FlipSlide key={b.id} book={b} muted={muted} onMute={() => setMuted((m) => !m)} onActive={() => onActive(i)} />
+            <FlipSlide key={b.id} book={b} active={i === activeIdx} muted={muted} onMute={() => setMuted((m) => !m)} onActive={() => onActive(i)} />
           ))}
         </div>
       )}
@@ -110,12 +110,11 @@ function FlipSkeleton() {
   );
 }
 
-function FlipSlide({ book, muted, onMute, onActive }: { book: Book; muted: boolean; onMute: () => void; onActive: () => void }) {
+function FlipSlide({ book, active, muted, onMute, onActive }: { book: Book; active: boolean; muted: boolean; onMute: () => void; onActive: () => void }) {
   const router = useRouter();
   const ref = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(true);
-  const [ready, setReady] = useState(false);
   const [burst, setBurst] = useState(0);
   const [err, setErr] = useState(false);
   const lastTap = useRef(0);
@@ -216,44 +215,41 @@ function FlipSlide({ book, muted, onMute, onActive }: { book: Book; muted: boole
 
   return (
     <div ref={ref} className="relative h-[100dvh] w-full snap-start snap-always overflow-hidden bg-dark-bg">
-      {/* 模糊书封背景：填充竖屏信箱区（替代原难看的分类装饰海报）；视频用 object-contain 完整可见、不被裁切/不被底栏挡住内容 */}
-      {book.cover && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={book.cover} alt="" className="pointer-events-none absolute inset-0 h-full w-full scale-110 object-cover opacity-50 blur-2xl" />
+      {/* 方案B·模糊视频铺底：仅当前激活条渲染，用同一条视频的模糊放大版填充竖屏信箱区（无黑框、静音、省性能） */}
+      {active && !err && book.videoUrl && (
+        // eslint-disable-next-line jsx-a11y/media-has-caption
+        <video
+          src={book.videoUrl}
+          className="pointer-events-none absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-2xl"
+          muted
+          loop
+          autoPlay
+          playsInline
+          aria-hidden
+        />
       )}
+      {!err && <div className="pointer-events-none absolute inset-0 bg-dark-bg/25" />}
+      {/* 前景视频：object-contain 完整不裁切；信箱区透出后面的模糊铺底 */}
       {!err ? (
-        <>
-          <video
-            ref={videoRef}
-            src={book.videoUrl}
-            poster={book.cover || undefined}
-            className="absolute inset-0 h-full w-full object-contain"
-            loop
-            muted={muted}
-            playsInline
-            onClick={onTap}
-            onCanPlay={() => setReady(true)}
-            onTimeUpdate={onTime}
-            onLoadedMetadata={(e) => {
-              // 续播：从泡馆/上次离开的位置继续，保持进度一致
-              const v = e.currentTarget;
-              const saved = useLibrary.getState().mediaProgress[realId] ?? 0;
-              if (saved > 0 && saved < 0.99 && v.duration) v.currentTime = saved * v.duration;
-              // 续播覆盖累计基线：新会话在已存覆盖上继续累计
-              if (v.duration) playedSec.current = (useLibrary.getState().mediaPlayed[realId] ?? 0) * v.duration;
-            }}
-            onError={() => setErr(true)}
-          />
-          {/* 视频就绪前的占位：书封（contain，与视频同位），不再用分类海报 */}
-          {book.cover && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={book.cover}
-              alt=""
-              className={"pointer-events-none absolute inset-0 h-full w-full object-contain transition-opacity duration-500 " + (ready ? "opacity-0" : "opacity-100")}
-            />
-          )}
-        </>
+        <video
+          ref={videoRef}
+          src={book.videoUrl}
+          className="absolute inset-0 h-full w-full object-contain"
+          loop
+          muted={muted}
+          playsInline
+          onClick={onTap}
+          onTimeUpdate={onTime}
+          onLoadedMetadata={(e) => {
+            // 续播：从泡馆/上次离开的位置继续，保持进度一致
+            const v = e.currentTarget;
+            const saved = useLibrary.getState().mediaProgress[realId] ?? 0;
+            if (saved > 0 && saved < 0.99 && v.duration) v.currentTime = saved * v.duration;
+            // 续播覆盖累计基线：新会话在已存覆盖上继续累计
+            if (v.duration) playedSec.current = (useLibrary.getState().mediaPlayed[realId] ?? 0) * v.duration;
+          }}
+          onError={() => setErr(true)}
+        />
       ) : (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 text-center text-dark-text/70">
           <Motif name="cloud" className="relative w-24 text-celadon/20" />
