@@ -156,12 +156,10 @@ function VideoStage({ book }: { book: Book }) {
 
   return (
     <div
-      // 非全屏侧边留白用手账纸本色(#EEE4CE)，与视频纸张同色、不分层；明暗主题都用此色（贴合视频而非 APP 主题）
-      style={!fs ? { backgroundColor: "#EEE4CE" } : undefined}
       className={
         fs
           ? "fixed inset-y-0 left-1/2 z-[120] flex w-full max-w-app -translate-x-1/2 items-center justify-center bg-black"
-          : "relative aspect-[3/4] w-full overflow-hidden rounded-3xl shadow-xl ring-1 ring-black/5 dark:ring-white/10"
+          : "relative aspect-[3/4] w-full overflow-hidden rounded-3xl bg-black shadow-xl ring-1 ring-black/5 dark:ring-white/10"
       }
     >
       <video
@@ -170,7 +168,7 @@ function VideoStage({ book }: { book: Book }) {
         poster={book.cover}
         playsInline
         muted={muted}
-        className={fs ? "h-full w-full object-cover" : "absolute left-1/2 top-1/2 h-full w-auto -translate-x-1/2 -translate-y-1/2"}
+        className="h-full w-full object-cover"
         onClick={toggle}
         onPlay={() => setPlaying(true)}
         onPause={() => { setPlaying(false); flush(); }}
