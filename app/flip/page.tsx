@@ -124,6 +124,15 @@ export default function FlipPage() {
     return () => { el.removeEventListener("pointerdown", kick); el.removeEventListener("touchstart", kick); };
   }, [playActive, books.length, loading]);
 
+  // 微信内置浏览器(X5)默认禁止自动播放(连静音也拦)，需等微信 JS 桥就绪后触发，方能「进入即播」而非停在播放按钮
+  useEffect(() => {
+    if (loading || !books.length) return;
+    const kick = () => playActive();
+    if (typeof window !== "undefined" && "WeixinJSBridge" in window) kick();
+    else document.addEventListener("WeixinJSBridgeReady", kick, { once: true });
+    return () => document.removeEventListener("WeixinJSBridgeReady", kick);
+  }, [loading, books.length, playActive]);
+
   // 喇叭：在用户点击（真实手势）里同步开/关声音；开声音时立即 play，确保必出声
   const toggleSound = useCallback(() => {
     const turnOn = mutedNowRef.current; // 当前静音 → 开声音；当前有声 → 静音
