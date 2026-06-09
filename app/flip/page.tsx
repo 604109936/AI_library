@@ -18,7 +18,9 @@ export default function FlipPage() {
   const [books, setBooks] = useState<Book[]>(flipCache?.books ?? []);
   const [loading, setLoading] = useState(!flipCache);
   const [error, setError] = useState(false);
-  const [muted, setMuted] = useState(false); // 默认有声（浏览器拦截自动播放时显示播放按钮，点一下即带声播放）
+  const [muted, setMuted] = useState(false); // 用户手动静音开关（默认有声）
+  const [primed, setPrimed] = useState(false); // 用户已在本页交互过 → 浏览器授予 sticky activation，之后可带声自动播放
+  const primedRef = useRef(false);
   const [activeIdx, setActiveIdx] = useState(flipCache?.idx ?? 0);
   const fetching = useRef(false);
   const booksRef = useRef<Book[]>(books);
@@ -62,6 +64,15 @@ export default function FlipPage() {
     if (!loading && books.length && activeIdx >= books.length - 2) loadMore();
   }, [activeIdx, books.length, loading, loadMore]);
 
+  // 首次任意手势（触摸/上滑/点击）即解锁声音：浏览器授予 sticky activation 后，之后所有视频（含没播过的）都能带声自动播放、绝不暂停
+  useEffect(() => {
+    if (loading || !books.length || primedRef.current) return;
+    const prime = () => { if (primedRef.current) return; primedRef.current = true; setPrimed(true); };
+    window.addEventListener("pointerdown", prime, { once: true, passive: true });
+    window.addEventListener("touchstart", prime, { once: true, passive: true });
+    return () => { window.removeEventListener("pointerdown", prime); window.removeEventListener("touchstart", prime); };
+  }, [loading, books.length]);
+
   function onActive(i: number) {
     setActiveIdx(i);
     if (flipCache) flipCache.idx = i;
@@ -84,7 +95,7 @@ export default function FlipPage() {
         ) : (
           <div ref={scrollerRef} className="h-full snap-y snap-mandatory overflow-y-auto overscroll-contain no-scrollbar">
             {books.map((b, i) => (
-              <FlipSlide key={b.id} book={b} active={i === activeIdx} muted={muted} setMuted={setMuted} onActive={() => onActive(i)} />
+              <FlipSlide key={b.id} book={b} active={i === activeIdx} muted={muted} setMuted={setMuted} primed={primed} onActive={() => onActive(i)} />
             ))}
           </div>
         )}
@@ -113,12 +124,13 @@ function FlipSkeleton() {
   );
 }
 
-function FlipSlide({ book, active, muted, setMuted, onActive }: { book: Book; active: boolean; muted: boolean; setMuted: (v: boolean | ((m: boolean) => boolean)) => void; onActive: () => void }) {
+function FlipSlide({ book, active, muted, setMuted, primed, onActive }: { book: Book; active: boolean; muted: boolean; setMuted: (v: boolean | ((m: boolean) => boolean)) => void; primed: boolean; onActive: () => void }) {
   const router = useRouter();
   const ref = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(true);
   const [loaded, setLoaded] = useState(false); // 视频可播放（缓冲完成）
+  const [autoMuted, setAutoMuted] = useState(false); // 带声自动播放被拦时本条临时静音（保证不暂停）；用户首次交互(primed)后解除
   const [burst, setBurst] = useState(0);
   const [err, setErr] = useState(false);
   const lastTap = useRef(0);
@@ -137,6 +149,7 @@ function FlipSlide({ book, active, muted, setMuted, onActive }: { book: Book; ac
   const realId = book.id.split("__")[0];
   const fav = favorites.includes(realId);
   useReadingClock(playing && !err); // 乱翻观看时长计入「我的-总时长」
+  useEffect(() => { if (primed) setAutoMuted(false); }, [primed]); // 用户已交互 → 解除临时静音、带声继续播（sticky activation 下解除不会暂停）
 
   useEffect(() => {
     const el = ref.current;
@@ -197,12 +210,16 @@ function FlipSlide({ book, active, muted, setMuted, onActive }: { book: Book; ac
       triggerBurst();
     });
   }
-  // 进入即播放（带声）：从「乱翻」tab 点进来时文档已有用户手势，浏览器允许带声自动播放。
-  // 不做静音兜底（用户要求不要静音）；万一被拦（如直接刷新进本页、无任何手势），则停在暂停态、点一下即带声播放。
+  // 进入即播放：先尝试带声播；被浏览器拦(页面尚无手势)时退为「本条静音」继续播——绝不停在暂停。
+  // 用户首次触摸/上滑后(primed)，本条静音自动解除 → 带声；之后所有视频(含没播过的)都直接带声自动播。
   function tryPlay() {
     const v = videoRef.current;
     if (!v) return;
-    v.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+    v.play().then(() => setPlaying(true)).catch(() => {
+      v.muted = true;
+      setAutoMuted(true);
+      v.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+    });
   }
   function togglePlay() {
     const v = videoRef.current;
@@ -233,7 +250,7 @@ function FlipSlide({ book, active, muted, setMuted, onActive }: { book: Book; ac
           src={book.videoUrl}
           className="absolute inset-0 h-full w-full object-cover"
           loop
-          muted={muted}
+          muted={muted || autoMuted}
           playsInline
           onClick={onTap}
           onTimeUpdate={onTime}
