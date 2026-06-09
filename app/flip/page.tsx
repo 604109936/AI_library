@@ -68,24 +68,27 @@ export default function FlipPage() {
   }
 
   return (
-    <main className="h-[100dvh] overflow-hidden bg-dark-bg">
-      {loading ? (
-        <FlipSkeleton />
-      ) : error ? (
-        <div className="flex h-full items-center justify-center text-dark-text">
-          <ErrorState title="内容加载失败" subtitle="请检查网络后重试" onRetry={load} />
-        </div>
-      ) : books.length === 0 ? (
-        <div className="flex h-full items-center justify-center text-dark-text">
-          <EmptyState icon="book" title="暂无视频解读" subtitle="去泡馆挑一本书读读吧" actionText="去泡馆逛逛" actionHref="/library" />
-        </div>
-      ) : (
-        <div ref={scrollerRef} className="h-full snap-y snap-mandatory overflow-y-auto overscroll-contain no-scrollbar">
-          {books.map((b, i) => (
-            <FlipSlide key={b.id} book={b} active={i === activeIdx} muted={muted} onMute={() => setMuted((m) => !m)} onActive={() => onActive(i)} />
-          ))}
-        </div>
-      )}
+    <main className="relative h-[100dvh] overflow-hidden bg-dark-bg">
+      {/* 视频区：占满底栏以上的空间，底栏不再压在视频上 */}
+      <div className="absolute inset-x-0 top-0" style={{ bottom: "calc(3.75rem + env(safe-area-inset-bottom))" }}>
+        {loading ? (
+          <FlipSkeleton />
+        ) : error ? (
+          <div className="flex h-full items-center justify-center text-dark-text">
+            <ErrorState title="内容加载失败" subtitle="请检查网络后重试" onRetry={load} />
+          </div>
+        ) : books.length === 0 ? (
+          <div className="flex h-full items-center justify-center text-dark-text">
+            <EmptyState icon="book" title="暂无视频解读" subtitle="去泡馆挑一本书读读吧" actionText="去泡馆逛逛" actionHref="/library" />
+          </div>
+        ) : (
+          <div ref={scrollerRef} className="h-full snap-y snap-mandatory overflow-y-auto overscroll-contain no-scrollbar">
+            {books.map((b, i) => (
+              <FlipSlide key={b.id} book={b} active={i === activeIdx} muted={muted} setMuted={setMuted} onActive={() => onActive(i)} />
+            ))}
+          </div>
+        )}
+      </div>
       <BottomNav active="flip" variant="dark" />
     </main>
   );
@@ -110,11 +113,12 @@ function FlipSkeleton() {
   );
 }
 
-function FlipSlide({ book, active, muted, onMute, onActive }: { book: Book; active: boolean; muted: boolean; onMute: () => void; onActive: () => void }) {
+function FlipSlide({ book, active, muted, setMuted, onActive }: { book: Book; active: boolean; muted: boolean; setMuted: (v: boolean | ((m: boolean) => boolean)) => void; onActive: () => void }) {
   const router = useRouter();
   const ref = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(true);
+  const [loaded, setLoaded] = useState(false); // 视频可播放（缓冲完成）
   const [burst, setBurst] = useState(0);
   const [err, setErr] = useState(false);
   const lastTap = useRef(0);
@@ -143,7 +147,7 @@ function FlipSlide({ book, active, muted, onMute, onActive }: { book: Book; acti
         const e = entries[0];
         if (e.isIntersecting) {
           onActive();
-          v?.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+          tryPlay(); // 进入即播放（带声被拦截则静音兜底自动播，不停在暂停态）
         } else if (v) {
           v.pause();
           lastT.current = null; // 暂停后重置增量基准，避免跨段误计
@@ -193,10 +197,20 @@ function FlipSlide({ book, active, muted, onMute, onActive }: { book: Book; acti
       triggerBurst();
     });
   }
+  // 进入即播放：先尝试带声播放；被浏览器拦截则退为静音自动播放（保证不停在暂停态），UI 同步静音、点一下即恢复声音
+  function tryPlay() {
+    const v = videoRef.current;
+    if (!v) return;
+    v.play().then(() => setPlaying(true)).catch(() => {
+      v.muted = true;
+      setMuted(true);
+      v.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+    });
+  }
   function togglePlay() {
     const v = videoRef.current;
     if (!v) return;
-    if (v.paused) { v.play().then(() => setPlaying(true)).catch(() => setPlaying(false)); } else { v.pause(); setPlaying(false); lastT.current = null; writeMedia(true); }
+    if (v.paused) { tryPlay(); } else { v.pause(); setPlaying(false); lastT.current = null; writeMedia(true); }
   }
   function onTap() {
     const now = Date.now();
@@ -214,7 +228,7 @@ function FlipSlide({ book, active, muted, onMute, onActive }: { book: Book; acti
   }
 
   return (
-    <div ref={ref} className="relative h-[100dvh] w-full snap-start snap-always overflow-hidden bg-dark-bg">
+    <div ref={ref} className="relative h-full w-full snap-start snap-always overflow-hidden bg-dark-bg">
       {/* 方案B·模糊视频铺底：仅当前激活条渲染，用同一条视频的模糊放大版填充竖屏信箱区（无黑框、静音、省性能） */}
       {active && !err && book.videoUrl && (
         // eslint-disable-next-line jsx-a11y/media-has-caption
@@ -240,6 +254,9 @@ function FlipSlide({ book, active, muted, onMute, onActive }: { book: Book; acti
           playsInline
           onClick={onTap}
           onTimeUpdate={onTime}
+          onCanPlay={() => setLoaded(true)}
+          onPlaying={() => { setLoaded(true); setPlaying(true); }}
+          onWaiting={() => setLoaded(false)}
           onLoadedMetadata={(e) => {
             // 续播：从泡馆/上次离开的位置继续，保持进度一致
             const v = e.currentTarget;
@@ -258,7 +275,15 @@ function FlipSlide({ book, active, muted, onMute, onActive }: { book: Book; acti
         </div>
       )}
 
-      {!playing && !err && (
+      {/* 缓冲加载页：进入/缓冲时显示，缓解黑屏焦虑 */}
+      {active && !err && !loaded && (
+        <div className="pointer-events-none absolute inset-0 z-[6] flex flex-col items-center justify-center gap-3">
+          <span className="h-11 w-11 animate-spin rounded-full border-2 border-white/15 border-t-celadon" />
+          <span className="text-xs tracking-wide text-dark-text/55">视频加载中…</span>
+        </div>
+      )}
+
+      {!playing && loaded && !err && (
         <button onClick={togglePlay} aria-label="播放" className="absolute inset-0 flex items-center justify-center">
           <span className="flex h-16 w-16 animate-scale-in items-center justify-center rounded-full bg-black/35 ring-1 ring-celadon/40 backdrop-blur-md">
             <Play size={28} className="ml-1 text-dark-text" />
@@ -269,7 +294,7 @@ function FlipSlide({ book, active, muted, onMute, onActive }: { book: Book; acti
       <div className="pointer-events-none absolute left-1/2 z-10 h-px w-16 -translate-x-1/2 bg-gradient-to-r from-transparent via-brass/70 to-transparent" style={{ top: "calc(env(safe-area-inset-top) + 10px)" }} />
 
       <button
-        onClick={onMute}
+        onClick={() => setMuted((m) => !m)}
         aria-label={muted ? "取消静音" : "静音"}
         className="absolute right-3 z-20 flex h-9 w-9 items-center justify-center rounded-full bg-black/30 text-dark-text/90 ring-1 ring-brass/30 backdrop-blur-md transition active:scale-90"
         style={{ top: "calc(env(safe-area-inset-top) + 12px)" }}
@@ -292,7 +317,7 @@ function FlipSlide({ book, active, muted, onMute, onActive }: { book: Book; acti
       {/* 右侧操作栏：收藏 + 书评（均不显示数字） */}
       <div
         className="absolute right-3 z-10 flex flex-col items-center gap-6"
-        style={{ bottom: "calc(env(safe-area-inset-bottom) + 232px)" }}
+        style={{ bottom: "150px" }}
       >
         <Action
           icon={<Heart size={30} className={fav ? "fill-rouge text-rouge" : "text-dark-text"} />}
@@ -307,25 +332,17 @@ function FlipSlide({ book, active, muted, onMute, onActive }: { book: Book; acti
         />
       </div>
 
-      <div className="absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-3 px-4" style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 74px)" }}>
-        {playing ? (
-          // 播放时隐藏 书名/作者/标签/简介，避免与视频自带内容互相遮挡打架；暂停时再显示
-          <div className="flex-1" />
-        ) : (
-          <div className="min-w-0 flex-1">
-            <div className="flex items-start">
-              <span className="mr-2 mt-1.5 h-6 w-0.5 shrink-0 rounded-full bg-celadon/80" />
-              <h2 className="font-serif text-[26px] leading-[1.15] tracking-wide text-dark-text drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)]">{book.title}</h2>
-            </div>
-            <p className="mt-1.5 text-[13px] text-dark-text/70">{book.author}</p>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {book.tags.slice(0, 3).map((t) => (
-                <span key={t} className="rounded-full border border-brass/30 bg-black/35 px-2.5 py-1 text-[11px] font-medium text-dark-text/90 backdrop-blur-md">{t}</span>
-              ))}
-            </div>
-            <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-dark-text/85">{book.intro}</p>
+      <div className="absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-3 px-4" style={{ paddingBottom: "16px" }}>
+        {/* 书名/标签/简介常显（不随播放/暂停隐藏）；去掉作者与左侧竖线，书名字号收小 */}
+        <div className="min-w-0 flex-1">
+          <h2 className="font-serif text-[19px] leading-snug tracking-wide text-dark-text drop-shadow-[0_2px_8px_rgba(0,0,0,0.65)]">{book.title}</h2>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {book.tags.slice(0, 3).map((t) => (
+              <span key={t} className="rounded-full border border-brass/30 bg-black/35 px-2.5 py-1 text-[11px] font-medium text-dark-text/90 backdrop-blur-md">{t}</span>
+            ))}
           </div>
-        )}
+          <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-dark-text/85">{book.intro}</p>
+        </div>
         <button
           onClick={() => router.push(`/library/book/${realId}`)}
           className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-celadon/80 px-4 py-2 text-[13px] font-medium text-white ring-1 ring-white/25 backdrop-blur-md transition active:scale-95"
