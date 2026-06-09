@@ -18,7 +18,7 @@ export default function FlipPage() {
   const [books, setBooks] = useState<Book[]>(flipCache?.books ?? []);
   const [loading, setLoading] = useState(!flipCache);
   const [error, setError] = useState(false);
-  const [muted, setMuted] = useState(true);
+  const [muted, setMuted] = useState(false); // 默认有声（浏览器拦截自动播放时显示播放按钮，点一下即带声播放）
   const [activeIdx, setActiveIdx] = useState(flipCache?.idx ?? 0);
   const fetching = useRef(false);
   const booksRef = useRef<Book[]>(books);
@@ -216,13 +216,18 @@ function FlipSlide({ book, muted, onMute, onActive }: { book: Book; muted: boole
 
   return (
     <div ref={ref} className="relative h-[100dvh] w-full snap-start snap-always overflow-hidden bg-dark-bg">
+      {/* 模糊书封背景：填充竖屏信箱区（替代原难看的分类装饰海报）；视频用 object-contain 完整可见、不被裁切/不被底栏挡住内容 */}
+      {book.cover && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={book.cover} alt="" className="pointer-events-none absolute inset-0 h-full w-full scale-110 object-cover opacity-50 blur-2xl" />
+      )}
       {!err ? (
         <>
           <video
             ref={videoRef}
             src={book.videoUrl}
-            poster={book.posterUrl}
-            className="h-full w-full object-cover"
+            poster={book.cover || undefined}
+            className="absolute inset-0 h-full w-full object-contain"
             loop
             muted={muted}
             playsInline
@@ -239,21 +244,18 @@ function FlipSlide({ book, muted, onMute, onActive }: { book: Book; muted: boole
             }}
             onError={() => setErr(true)}
           />
-          {book.posterUrl && (
+          {/* 视频就绪前的占位：书封（contain，与视频同位），不再用分类海报 */}
+          {book.cover && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={book.posterUrl}
+              src={book.cover}
               alt=""
-              className={"pointer-events-none absolute inset-0 h-full w-full object-cover transition-opacity duration-500 " + (ready ? "opacity-0" : "opacity-100")}
+              className={"pointer-events-none absolute inset-0 h-full w-full object-contain transition-opacity duration-500 " + (ready ? "opacity-0" : "opacity-100")}
             />
           )}
         </>
       ) : (
-        <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center text-dark-text/70">
-          {book.posterUrl && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={book.posterUrl} alt="" className="absolute inset-0 h-full w-full object-cover opacity-40" />
-          )}
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 text-center text-dark-text/70">
           <Motif name="cloud" className="relative w-24 text-celadon/20" />
           <p className="relative">这本书的视频暂时无法播放</p>
           <button onClick={() => router.push(`/library/book/${realId}`)} className="relative rounded-full border border-celadon/50 bg-white/8 px-5 py-2 text-sm text-celadon-300 backdrop-blur-md active:scale-95">看图文详情</button>
@@ -287,7 +289,7 @@ function FlipSlide({ book, muted, onMute, onActive }: { book: Book; muted: boole
       )}
 
       <div className="pointer-events-none absolute inset-x-0 top-0 h-[22%] bg-gradient-to-b from-black/45 to-transparent" />
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[62%] bg-gradient-to-t from-dark-bg/92 via-dark-bg/35 to-transparent" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[45%] bg-gradient-to-t from-dark-bg/85 via-dark-bg/15 to-transparent" />
       <div className="pointer-events-none absolute inset-0" style={{ background: "radial-gradient(120% 80% at 50% 42%, transparent 55%, rgba(0,0,0,0.4))" }} />
       <Motif name="branch" className="pointer-events-none absolute bottom-28 -left-4 w-28 text-brass/10" />
 
@@ -310,19 +312,24 @@ function FlipSlide({ book, muted, onMute, onActive }: { book: Book; muted: boole
       </div>
 
       <div className="absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-3 px-4" style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 74px)" }}>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start">
-            <span className="mr-2 mt-1.5 h-6 w-0.5 shrink-0 rounded-full bg-celadon/80" />
-            <h2 className="font-serif text-[26px] leading-[1.15] tracking-wide text-dark-text drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)]">{book.title}</h2>
+        {playing ? (
+          // 播放时隐藏 书名/作者/标签/简介，避免与视频自带内容互相遮挡打架；暂停时再显示
+          <div className="flex-1" />
+        ) : (
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start">
+              <span className="mr-2 mt-1.5 h-6 w-0.5 shrink-0 rounded-full bg-celadon/80" />
+              <h2 className="font-serif text-[26px] leading-[1.15] tracking-wide text-dark-text drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)]">{book.title}</h2>
+            </div>
+            <p className="mt-1.5 text-[13px] text-dark-text/70">{book.author}</p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {book.tags.slice(0, 3).map((t) => (
+                <span key={t} className="rounded-full border border-brass/30 bg-black/35 px-2.5 py-1 text-[11px] font-medium text-dark-text/90 backdrop-blur-md">{t}</span>
+              ))}
+            </div>
+            <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-dark-text/85">{book.intro}</p>
           </div>
-          <p className="mt-1.5 text-[13px] text-dark-text/70">{book.author}</p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {book.tags.slice(0, 3).map((t) => (
-              <span key={t} className="rounded-full border border-brass/30 bg-black/35 px-2.5 py-1 text-[11px] font-medium text-dark-text/90 backdrop-blur-md">{t}</span>
-            ))}
-          </div>
-          <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-dark-text/85">{book.intro}</p>
-        </div>
+        )}
         <button
           onClick={() => router.push(`/library/book/${realId}`)}
           className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-celadon/80 px-4 py-2 text-[13px] font-medium text-white ring-1 ring-white/25 backdrop-blur-md transition active:scale-95"

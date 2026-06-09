@@ -58,9 +58,13 @@ export default function MePage() {
   const readSeconds = useLibrary((s) => s.readSeconds);
   // 总时长=真实累计阅读/收听时长（音视频+文字之和）
   const durLabel = readSeconds >= 3600 ? `${(readSeconds / 3600).toFixed(1)}h` : `${Math.floor(readSeconds / 60)}分`;
-  // 已读=至少一种模式(音视频/文字)读完的书，同一本只计一次；进行中=按模式分开计、仅未读完的记录
-  const readCount = new Set(history.filter((h) => h.progress >= 100).map((h) => h.bookId)).size;
-  const ongoing = history.filter((h) => h.progress < 100).length;
+  // 已读/进行中均按「书」统计数量，同一本书音视频+文字稿不重复计数
+  const doneBooks = new Set(history.filter((h) => h.progress >= 100).map((h) => h.bookId));
+  const readCount = doneBooks.size; // 已读=任一模式读完的书（去重）
+  // 进行中=有进度但未读完的书（按书去重）；同书若已读完则不再计入进行中
+  const ongoingBooks = new Set(history.filter((h) => h.progress < 100).map((h) => h.bookId));
+  doneBooks.forEach((id) => ongoingBooks.delete(id));
+  const ongoing = ongoingBooks.size;
   const stats = [
     { label: "总时长", value: user ? durLabel : "—", icon: Clock, href: undefined as string | undefined },
     { label: "已读", value: user ? String(readCount) : "—", icon: BookCheck, href: "/me/history?status=read" },
