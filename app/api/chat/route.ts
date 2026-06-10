@@ -9,6 +9,7 @@ import { streamChat, type MMMessage, type MMToolCall } from "@/lib/server/minima
 import { buildSystem, getUid } from "@/lib/server/agent";
 import { AGENT_TOOLS, TOOL_STATUS, execTool, type ToolEvent } from "@/lib/server/tools";
 import { getCompressed, maybeCompress } from "@/lib/server/compress";
+import { rateLimit, limiterKey } from "@/lib/server/ratelimit";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -66,6 +67,11 @@ export async function POST(req: NextRequest) {
     .filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim())
     .map((m) => ({ role: m.role as "user" | "assistant", content: m.content!.slice(0, MAX_CHARS) }));
   const uid = await getUid(req.headers.get("authorization"));
+  // 限流（T5）：每人 10 次/分钟 且 80 次/小时（游客按 IP）。烧 LLM token 的口子必须有闸
+  const lk = limiterKey(uid, req.headers.get("x-forwarded-for"));
+  if (!rateLimit(`m:${lk}`, 10, 60_000) || !rateLimit(`h:${lk}`, 80, 3_600_000)) {
+    return NextResponse.json({ error: "提问太频繁了，请稍作休息再来" }, { status: 429 });
+  }
   const sessionId = typeof body.sessionId === "string" && body.sessionId ? body.sessionId.slice(0, 64) : null;
   // 变量⑥：本会话更早对话的压缩摘要（T2.6；登录且会话存在才有）
   const comp = uid && sessionId ? await getCompressed(uid, sessionId).catch(() => ({ summary: undefined, until: 0 })) : { summary: undefined as string | undefined, until: 0 };
