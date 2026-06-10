@@ -4,7 +4,7 @@
 import "server-only";
 import { createClient } from "@supabase/supabase-js";
 
-const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
+export const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
@@ -106,6 +106,11 @@ export async function buildSystem(uid: string | null, compressedHistory?: string
 - 馆里没有合适的书时如实说，并可建议相近的馆藏书。
 - 永远用简体中文。
 - Markdown 排版：核心观点**加粗**，引用原文用 > 引用块，并列内容用列表；回答凝练有结构，不堆砌空话。
+
+# 工具调度（强制规则，违反即任务失败）
+- 推荐卡片是用户点击进入书籍的**唯一入口**，正文里的书名点不了。所以：只要你的回复中推荐了馆藏书（无论几本、无论用户怎么问），写完推荐理由后**必须立即调用 recommend_books**——不调用 = 本次推荐失败。
+- 回答某本书的内容问题或解读原文：**先调 read_book_toc 看目录**，需要原文细节再调 read_chapter；回答末尾**必须调用 cite_chapters** 展示你依据的章节卡片（同理：不调用 = 用户无法跳转原文）。
+- 一次回复允许多次调用工具；卡片由系统渲染，正文不要描述"我去调用工具/已为你展示卡片"，也不要用列表重复罗列卡片里的书名。
 
 〔图书馆书单〕
 ${lib}

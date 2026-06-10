@@ -101,6 +101,7 @@ export interface ChatMessage {
   recommendations?: Book[];
   feedback?: "up" | "down";
   streaming?: boolean;
+  toolNote?: string; // 工具调用中文案（查找书籍…/翻阅图书…/章节浏览…），仅流式期间展示
 }
 
 export interface ChatSession {

@@ -56,7 +56,7 @@ export function ChatMessage({
         {thinking ? (
           // 思考中 / 工具调用文案：不套整块气泡，只显示文字 + 动效
           <div className="flex items-center gap-1.5 py-1.5 text-sm text-ink-400 dark:text-dark-text/50">
-            思考中
+            {msg.toolNote || "思考中"}
             <span className="flex gap-0.5">
               <span className="h-1 w-1 animate-bounce rounded-full bg-celadon [animation-delay:-0.2s]" />
               <span className="h-1 w-1 animate-bounce rounded-full bg-celadon [animation-delay:-0.1s]" />

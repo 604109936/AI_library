@@ -7,8 +7,30 @@ import { BottomNav } from "@/components/shell/BottomNav";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { Mascot } from "@/components/chat/Mascot";
 import { Motif } from "@/components/ui/Motif";
-import { exampleQuestions } from "@/lib/api";
+import { exampleQuestions, getBook, getChapters } from "@/lib/api";
 import { supabase } from "@/lib/supabase/client";
+
+// 引用卡数据回填：服务端只给 {b:book_id, c:章序号}，这里拉书与章节拼出展示字段
+async function buildCitations(items: { b: string; c: number }[]): Promise<Citation[]> {
+  const out: Citation[] = [];
+  for (const it of items.slice(0, 4)) {
+    try {
+      const [book, chapters] = await Promise.all([getBook(it.b), getChapters(it.b)]);
+      const ch = chapters.find((x) => x.no === it.c);
+      if (!book || !ch) continue;
+      out.push({
+        bookId: book.id,
+        bookTitle: book.title,
+        coverSeed: book.coverSeed,
+        cover: book.cover,
+        chapterNo: ch.no,
+        chapterTitle: ch.title,
+        snippet: (ch.content ?? "").replace(/\s+/g, " ").trim().slice(0, 60),
+      });
+    } catch {}
+  }
+  return out;
+}
 import { sampleSessions } from "@/lib/mock/data";
 import { useChat, useUI } from "@/lib/store";
 import type { Book, Citation, ChatMessage as TMsg } from "@/lib/types";
@@ -135,27 +157,62 @@ function ChatInner() {
         })
       )
       .then(async (r) => {
-        const j = await r.json().catch(() => null);
-        if (!r.ok || !j?.content) throw new Error(j?.error ?? "服务暂时不可用");
-        return String(j.content);
-      })
-      .then((answer) => {
+        if (!r.ok || !r.body) {
+          const j = await r.json().catch(() => null);
+          throw new Error(j?.error ?? "服务暂时不可用");
+        }
+        // T2.4 真流式：逐行消费 NDJSON 事件（文本增量/工具状态/卡片信号）。
+        // MiniMax 上游以大块推送，前端用「追赶打字机」平滑渐显：落后越多追越快，体感连续。
+        const apply = (patch: Partial<TMsg>) => setMessages((prev) => prev.map((m) => (m.id === aId ? { ...m, ...patch } : m)));
+        let acc = "";
+        let shown = 0;
+        let ended = false;
+        const smooth = () => {
+          if (timer.current) return;
+          timer.current = setInterval(() => {
+            if (fetchCtrl.current !== ctrl && !ended) return; // stop() 已接管收尾
+            if (shown < acc.length) {
+              shown = Math.min(acc.length, shown + Math.max(2, Math.ceil((acc.length - shown) / 25)));
+              apply({ content: acc.slice(0, shown), toolNote: undefined });
+            } else if (ended) {
+              if (timer.current) clearInterval(timer.current);
+              timer.current = null;
+              apply({ content: acc, streaming: false, toolNote: undefined });
+              busyRef.current = false;
+              setBusy(false);
+            }
+          }, 16);
+        };
+        const handle = async (ev: { t: string; v?: unknown }) => {
+          if (ev.t === "d" && typeof ev.v === "string") { acc += ev.v; smooth(); }
+          else if (ev.t === "status" && typeof ev.v === "string") apply({ toolNote: ev.v });
+          else if (ev.t === "recs" && Array.isArray(ev.v)) {
+            // 触发即出卡：只收 book_id，前端拉展示数据（封面/书名/作者）
+            const books = (await Promise.all((ev.v as string[]).map((id) => getBook(id).catch(() => null)))).filter(Boolean) as Book[];
+            if (books.length) apply({ recommendations: books });
+          } else if (ev.t === "cites" && Array.isArray(ev.v)) {
+            const cites = await buildCitations(ev.v as { b: string; c: number }[]);
+            if (cites.length) apply({ citations: cites });
+          } else if (ev.t === "err") throw new Error(typeof ev.v === "string" ? ev.v : "服务暂时不可用");
+        };
+        const reader = r.body.getReader();
+        const dec = new TextDecoder();
+        let buf = "";
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          let nl: number;
+          while ((nl = buf.indexOf("\n")) >= 0) {
+            const line = buf.slice(0, nl).trim();
+            buf = buf.slice(nl + 1);
+            if (line) await handle(JSON.parse(line));
+          }
+        }
         if (fetchCtrl.current !== ctrl) return; // 已被停止/新请求取代
         fetchCtrl.current = null;
-        pendingReply.current = { id: aId, citations: [], recommendations: [] };
-        let i = 0;
-        timer.current = setInterval(() => {
-          i += 4;
-          const partial = answer.slice(0, i);
-          setMessages((prev) => prev.map((m) => (m.id === aId ? { ...m, content: partial } : m)));
-          if (i >= answer.length) {
-            if (timer.current) clearInterval(timer.current);
-            setMessages((prev) => prev.map((m) => (m.id === aId ? { ...m, content: answer, streaming: false } : m)));
-            pendingReply.current = null;
-            busyRef.current = false;
-            setBusy(false);
-          }
-        }, 16);
+        ended = true;
+        smooth(); // 流结束：让打字机追完剩余文字后收尾（若无任何增量也会直接收尾）
       })
       .catch((e: unknown) => {
         if (fetchCtrl.current !== ctrl) return; // 用户主动停止，stop() 已收尾
