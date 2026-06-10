@@ -14,26 +14,35 @@ import type { Book } from "@/lib/types";
 // 模块级缓存：离开乱翻（如去写书评）再返回时，保持同一视频流与所在位置
 let flipCache: { books: Book[]; idx: number } | null = null;
 
+const SLOTS = 3; // 视频池大小：当前条 ±1，复用 3 个 <video> 元素，永不新建/卸载 → 永远只 3 个解码器
+const slotOf = (i: number) => ((i % SLOTS) + SLOTS) % SLOTS;
+// 槽位 s 当前承载哪本书的下标（取 [a-1,a,a+1] 中 slotOf===s 的那条）
+function slotIdx(s: number, a: number, n: number) {
+  for (const i of [a - 1, a, a + 1]) if (i >= 0 && i < n && slotOf(i) === s) return i;
+  return -1;
+}
+
 export default function FlipPage() {
   const router = useRouter();
   const [books, setBooks] = useState<Book[]>(flipCache?.books ?? []);
   const [loading, setLoading] = useState(!flipCache);
   const [error, setError] = useState(false);
-  const [soundOn, setSoundOn] = useState(true); // 用户想要声音（默认要）
-  const [mutedNow, setMutedNow] = useState(false); // 当前视频「实际」是否静音 → 喇叭图标据此显示
+  const [soundOn, setSoundOn] = useState(true);
+  const [mutedNow, setMutedNow] = useState(false);
   const [activeIdx, setActiveIdx] = useState(flipCache?.idx ?? 0);
-  const [loaded, setLoaded] = useState(false); // 当前视频可播放（缓冲完成）
+  const [loaded, setLoaded] = useState(false); // 当前视频可播
   const [playing, setPlaying] = useState(false); // 当前视频在播
-  const [vErr, setVErr] = useState(false); // 当前视频加载失败
+  const [userPaused, setUserPausedState] = useState(false); // 用户主动暂停（只此态显示播放按钮）
+  const [vErr, setVErr] = useState(false);
 
   const fetching = useRef(false);
   const booksRef = useRef<Book[]>(books);
   const scrollerRef = useRef<HTMLDivElement>(null);
-  const videoRef = useRef<HTMLVideoElement | null>(null); // 全程唯一复用的 <video>（永不卸载/新建 → 永远只占 1 个解码器）
+  const videoRefs = useRef<(HTMLVideoElement | null)[]>([]); // 3 个复用视频元素
   const activeIdxRef = useRef(activeIdx);
   const soundOnRef = useRef(soundOn);
   const mutedNowRef = useRef(mutedNow);
-  const userPausedRef = useRef(false); // 用户是否主动暂停当前视频
+  const userPausedRef = useRef(false);
   const lastT = useRef<number | null>(null);
   const playedSec = useRef(0);
   const lastReport = useRef(0);
@@ -44,11 +53,13 @@ export default function FlipPage() {
   useEffect(() => { booksRef.current = books; }, [books]);
   useEffect(() => { soundOnRef.current = soundOn; }, [soundOn]);
   useEffect(() => { mutedNowRef.current = mutedNow; }, [mutedNow]);
-  useReadingClock(playing && !vErr); // 单视频：仅在播放时计时（天然只有一条，无多倍计时问题）
+  useReadingClock(playing && !vErr);
 
-  // 写历史（针对当前 active 书）
+  const setUserPaused = useCallback((v: boolean) => { userPausedRef.current = v; setUserPausedState(v); }, []);
+  const activeVideo = () => videoRefs.current[slotOf(activeIdxRef.current)] ?? null;
+
   const writeMedia = useCallback((force = false) => {
-    const v = videoRef.current;
+    const v = activeVideo();
     const b = booksRef.current[activeIdxRef.current];
     if (!v || !v.duration || !b) return;
     const rid = b.id.split("__")[0];
@@ -61,9 +72,11 @@ export default function FlipPage() {
     pushHistory({ bookId: rid, bookTitle: b.title, author: b.author, coverSeed: b.coverSeed, cover: b.cover, mode: "video", progress: prog, lastAt: new Date().toISOString() });
   }, [pushHistory]);
 
-  // 播放当前视频：带声被拦则静音兜底（绝不停在暂停）；同步真实静音态给喇叭图标
+  // 播当前槽位视频、暂停其余；带声被拦则静音兜底（绝不暂停）
   const playActive = useCallback(() => {
-    const v = videoRef.current;
+    const aSlot = slotOf(activeIdxRef.current);
+    videoRefs.current.forEach((v, s) => { if (v && s !== aSlot && !v.paused) v.pause(); });
+    const v = videoRefs.current[aSlot];
     if (!v || userPausedRef.current) return;
     v.muted = !soundOnRef.current;
     setMutedNow(v.muted);
@@ -82,14 +95,10 @@ export default function FlipPage() {
       .catch(() => { setError(true); setLoading(false); });
   }, []);
 
-  // 首次进入：加载；从缓存返回：恢复到离开时的视频
   useEffect(() => {
     if (flipCache && flipCache.books.length) {
       const idx = flipCache.idx;
-      requestAnimationFrame(() => {
-        const el = scrollerRef.current;
-        if (el) el.scrollTop = idx * el.clientHeight;
-      });
+      requestAnimationFrame(() => { const el = scrollerRef.current; if (el) el.scrollTop = idx * el.clientHeight; });
       return;
     }
     load();
@@ -99,11 +108,7 @@ export default function FlipPage() {
     if (fetching.current) return;
     fetching.current = true;
     getFlip(booksRef.current.map((b) => b.id))
-      .then((more) => setBooks((cur) => {
-        const next = [...cur, ...more];
-        if (flipCache) flipCache.books = next;
-        return next;
-      }))
+      .then((more) => setBooks((cur) => { const next = [...cur, ...more]; if (flipCache) flipCache.books = next; return next; }))
       .finally(() => { fetching.current = false; });
   }, []);
 
@@ -111,27 +116,24 @@ export default function FlipPage() {
     if (!loading && books.length && activeIdx >= books.length - 2) loadMore();
   }, [activeIdx, books.length, loading, loadMore]);
 
-  // 切到新条：先落上一条进度 → 同一个 video 换源 → 播（绝不新建 video 元素）
+  // 切到新条：落上一条进度 → 重置基准 → 播当前槽位
   useEffect(() => {
-    const v = videoRef.current;
-    const b = books[activeIdx];
-    if (loading || !b) return;
-    writeMedia(true); // flush 上一条（此刻 activeIdxRef 仍是旧值）
+    writeMedia(true);
     activeIdxRef.current = activeIdx;
     if (flipCache) flipCache.idx = activeIdx;
+    if (loading || !books.length) return;
     lastT.current = null;
-    userPausedRef.current = false;
+    setUserPaused(false);
     setVErr(false);
-    setPlaying(false);
-    if (v && b.videoUrl) {
-      if (v.getAttribute("src") !== b.videoUrl) { setLoaded(false); v.src = b.videoUrl; v.load(); }
-      playActive();
-    }
-  }, [activeIdx, books, loading, writeMedia, playActive]);
+    const v = activeVideo();
+    setLoaded(v ? v.readyState >= 3 : false);
+    setPlaying(v ? !v.paused : false);
+    playActive();
+  }, [activeIdx, books.length, loading, writeMedia, setUserPaused, playActive]);
 
   const onActive = useCallback((i: number) => { setActiveIdx(i); }, []);
 
-  // 当前条由滚动落点决定（snap 落定即准）
+  // 当前条由滚动落点决定
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el || loading || !books.length) return;
@@ -148,7 +150,7 @@ export default function FlipPage() {
     return () => { el.removeEventListener("scroll", onScroll); el.removeEventListener("scrollend", compute); if (raf) cancelAnimationFrame(raf); };
   }, [loading, books.length, onActive]);
 
-  // 任意手势同步触发播放（微信只认手势内 play → 带声解锁）
+  // 手势内触发播放（微信只认手势内 play → 带声解锁）
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el) return;
@@ -158,7 +160,7 @@ export default function FlipPage() {
     return () => { el.removeEventListener("pointerdown", kick); el.removeEventListener("touchstart", kick); };
   }, [playActive, books.length, loading]);
 
-  // 微信内置浏览器(X5)默认禁止自动播放，等 JS 桥就绪后触发
+  // 微信 X5 默认禁自动播放，等 JS 桥就绪触发
   useEffect(() => {
     if (loading || !books.length) return;
     const kick = () => playActive();
@@ -168,38 +170,38 @@ export default function FlipPage() {
   }, [loading, books.length, playActive]);
 
   const toggleSound = useCallback(() => {
-    const turnOn = mutedNowRef.current; // 当前静音 → 开声音；当前有声 → 静音
+    const turnOn = mutedNowRef.current;
     setSoundOn(turnOn);
-    const v = videoRef.current;
-    if (v) {
-      v.muted = !turnOn;
-      setMutedNow(!turnOn);
-      if (turnOn) { userPausedRef.current = false; v.play().catch(() => {}); }
-    }
-  }, []);
+    const v = activeVideo();
+    if (v) { v.muted = !turnOn; setMutedNow(!turnOn); if (turnOn) { setUserPaused(false); v.play().catch(() => {}); } }
+  }, [setUserPaused]);
 
   const togglePlay = useCallback(() => {
-    const v = videoRef.current;
+    const v = activeVideo();
     if (!v) return;
-    if (v.paused) { userPausedRef.current = false; v.play().catch(() => {}); }
-    else { userPausedRef.current = true; v.pause(); }
-  }, []);
+    if (v.paused) { setUserPaused(false); v.play().catch(() => {}); }
+    else { setUserPaused(true); v.pause(); }
+  }, [setUserPaused]);
 
-  function onTime(e: React.SyntheticEvent<HTMLVideoElement>) {
+  // 当前槽位视频事件（仅 active 槽位生效）
+  const isActive = (s: number) => slotOf(activeIdxRef.current) === s;
+  const onSlotTime = (s: number, e: React.SyntheticEvent<HTMLVideoElement>) => {
+    if (!isActive(s)) return;
     const v = e.currentTarget;
     const b = booksRef.current[activeIdxRef.current];
     if (!b) return;
-    const cur = v.currentTime;
-    const dur = v.duration || 0;
+    const cur = v.currentTime; const dur = v.duration || 0;
     if (dur <= 0) return;
     const rid = b.id.split("__")[0];
-    if (lastT.current !== null) {
-      const d = cur - lastT.current;
-      if (d > 0 && d < 1.5) { playedSec.current += d; setMediaPlayed(rid, playedSec.current / dur); } // 真实观看覆盖（仅正常前进）
-    }
+    if (lastT.current !== null) { const d = cur - lastT.current; if (d > 0 && d < 1.5) { playedSec.current += d; setMediaPlayed(rid, playedSec.current / dur); } }
     lastT.current = cur;
     writeMedia();
-  }
+  };
+  const onSlotMeta = (s: number, e: React.SyntheticEvent<HTMLVideoElement>) => {
+    if (!isActive(s)) return;
+    const v = e.currentTarget; const b = booksRef.current[activeIdxRef.current];
+    if (b && v.duration) { const rid = b.id.split("__")[0]; playedSec.current = (useLibrary.getState().mediaPlayed[rid] ?? 0) * v.duration; }
+  };
 
   return (
     <main className="relative h-[100dvh] overflow-hidden bg-dark-bg">
@@ -216,36 +218,54 @@ export default function FlipPage() {
           </div>
         ) : (
           <>
-            {/* 唯一视频：固定铺底、全程复用换源、绝不卸载 → 永远只占 1 个解码器 */}
-            {!vErr ? (
-              // eslint-disable-next-line jsx-a11y/media-has-caption
-              <video
-                ref={videoRef}
-                className="absolute inset-0 z-0 h-full w-full object-cover"
-                loop
-                playsInline
-                onTimeUpdate={onTime}
-                onCanPlay={() => setLoaded(true)}
-                onPlay={() => setPlaying(true)}
-                onPlaying={() => { setLoaded(true); setPlaying(true); }}
-                onWaiting={() => setLoaded(false)}
-                onPause={() => { setPlaying(false); lastT.current = null; writeMedia(true); }}
-                onLoadedMetadata={(e) => {
-                  const v = e.currentTarget;
-                  const b = booksRef.current[activeIdxRef.current];
-                  if (b && v.duration) { const rid = b.id.split("__")[0]; playedSec.current = (useLibrary.getState().mediaPlayed[rid] ?? 0) * v.duration; }
-                }}
-                onError={() => { if (videoRef.current?.getAttribute("src")) setVErr(true); }}
-              />
-            ) : (
-              <div className="absolute inset-0 z-0 flex flex-col items-center justify-center gap-3 px-8 text-center text-dark-text/70">
+            <div ref={scrollerRef} className="relative h-full snap-y snap-mandatory overflow-y-auto overscroll-contain no-scrollbar">
+             {/* 滚动内容包裹层：高 = 书数×单屏；视频与卡片都在其内，随内容一起滚（绝对定位相对此层、不被钉在视口） */}
+             <div className="relative w-full" style={{ height: `${books.length * 100}%` }}>
+              {/* 视频池：3 个复用元素，定位在各自卡片偏移、随内容一起滚（跟手），仅占 3 个解码器 */}
+              {Array.from({ length: SLOTS }, (_, s) => {
+                const i = slotIdx(s, activeIdx, books.length);
+                const b = i >= 0 ? books[i] : undefined;
+                return (
+                  // eslint-disable-next-line jsx-a11y/media-has-caption
+                  <video
+                    key={`slot-${s}`}
+                    ref={(el) => { videoRefs.current[s] = el; }}
+                    src={b?.videoUrl}
+                    className="absolute inset-x-0 z-0 w-full object-cover"
+                    style={{ top: i >= 0 ? `${(i / books.length) * 100}%` : "-200%", height: `${100 / books.length}%` }}
+                    loop
+                    playsInline
+                    onTimeUpdate={(e) => onSlotTime(s, e)}
+                    onCanPlay={() => { if (isActive(s)) setLoaded(true); }}
+                    onPlay={() => { if (isActive(s)) setPlaying(true); }}
+                    onPlaying={() => { if (isActive(s)) { setLoaded(true); setPlaying(true); } }}
+                    onWaiting={() => { if (isActive(s)) setLoaded(false); }}
+                    onPause={() => { if (isActive(s)) { setPlaying(false); lastT.current = null; writeMedia(true); if (!userPausedRef.current) videoRefs.current[s]?.play().catch(() => {}); } }}
+                    onLoadedMetadata={(e) => onSlotMeta(s, e)}
+                    onError={() => { if (isActive(s) && videoRefs.current[s]?.getAttribute("src")) setVErr(true); }}
+                  />
+                );
+              })}
+
+              {/* 每条占位 div：撑起滚动高度 + snap；仅当前条 ±2 渲染 overlay 内容（虚拟化，支持 100+ 本） */}
+              {books.map((b, i) => (
+                <div key={b.id} className="relative z-10 w-full snap-start snap-always" style={{ height: `${100 / books.length}%` }}>
+                  {Math.abs(i - activeIdx) <= 2 && <FlipOverlay book={b} onTogglePlay={togglePlay} />}
+                </div>
+              ))}
+             </div>
+            </div>
+
+            {/* 当前视频加载失败兜底 */}
+            {vErr && (
+              <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 px-8 text-center text-dark-text/70">
                 <Motif name="cloud" className="relative w-24 text-celadon/20" />
                 <p className="relative">这本书的视频暂时无法播放</p>
-                <button onClick={() => { const b = books[activeIdx]; if (b) router.push(`/library/book/${b.id.split("__")[0]}`); }} className="relative rounded-full border border-celadon/50 bg-white/8 px-5 py-2 text-sm text-celadon-300 backdrop-blur-md active:scale-95">看图文详情</button>
+                <button onClick={() => { const b = books[activeIdx]; if (b) router.push(`/library/book/${b.id.split("__")[0]}`); }} className="pointer-events-auto relative rounded-full border border-celadon/50 bg-white/8 px-5 py-2 text-sm text-celadon-300 backdrop-blur-md active:scale-95">看图文详情</button>
               </div>
             )}
 
-            {/* 缓冲加载页（当前视频） */}
+            {/* 缓冲加载页 */}
             {!vErr && !loaded && (
               <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center gap-3">
                 <span className="h-11 w-11 animate-spin rounded-full border-2 border-white/15 border-t-celadon" />
@@ -253,8 +273,8 @@ export default function FlipPage() {
               </div>
             )}
 
-            {/* 暂停时的播放按钮（仅中央小圆可点，四周落到滚动层不挡操作） */}
-            {!vErr && !playing && loaded && (
+            {/* 播放按钮：仅用户主动暂停时显示（杜绝"暂停显示但在放"） */}
+            {!vErr && userPaused && loaded && (
               <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
                 <button onClick={togglePlay} aria-label="播放" className="pointer-events-auto flex h-16 w-16 animate-scale-in items-center justify-center rounded-full bg-black/35 ring-1 ring-celadon/40 backdrop-blur-md">
                   <Play size={28} className="ml-1 text-dark-text" />
@@ -262,16 +282,7 @@ export default function FlipPage() {
               </div>
             )}
 
-            {/* 滚动容器：每条仅 overlay（透明，露出底层视频），负责 snap 与当前条侦测 */}
-            <div ref={scrollerRef} className="absolute inset-0 z-10 snap-y snap-mandatory overflow-y-auto overscroll-contain no-scrollbar">
-              {books.map((b) => (
-                <FlipSlide key={b.id} book={b} onTogglePlay={togglePlay} />
-              ))}
-            </div>
-
-            {/* 顶部装饰短线 */}
             <div className="pointer-events-none absolute left-1/2 z-20 h-px w-16 -translate-x-1/2 bg-gradient-to-r from-transparent via-brass/70 to-transparent" style={{ top: "calc(env(safe-area-inset-top) + 10px)" }} />
-            {/* 喇叭（页面级，控制唯一视频；图标反映实际静音态） */}
             <button
               onClick={toggleSound}
               aria-label={mutedNow ? "开启声音" : "静音"}
@@ -307,8 +318,8 @@ function FlipSkeleton() {
   );
 }
 
-// 每条仅渲染叠加层（文字/收藏/书评/渐变/点击层），不含 video。视频由页面级单元素统一承载。
-function FlipSlide({ book, onTogglePlay }: { book: Book; onTogglePlay: () => void }) {
+// 每条叠加层（文字/收藏/书评/渐变/点击层），透明铺在视频上；视频由池统一承载
+function FlipOverlay({ book, onTogglePlay }: { book: Book; onTogglePlay: () => void }) {
   const router = useRouter();
   const [burst, setBurst] = useState(0);
   const lastTap = useRef(0);
@@ -320,32 +331,17 @@ function FlipSlide({ book, onTogglePlay }: { book: Book; onTogglePlay: () => voi
   const realId = book.id.split("__")[0];
   const fav = favorites.includes(realId);
 
-  function triggerBurst() {
-    setBurst((n) => n + 1);
-    setTimeout(() => setBurst((n) => Math.max(0, n - 1)), 800);
-  }
-  function favOnly() {
-    requireLogin(() => {
-      if (!useLibrary.getState().isFav(realId)) { toggleFav(realId); toast("已收藏"); }
-      triggerBurst();
-    });
-  }
+  function triggerBurst() { setBurst((n) => n + 1); setTimeout(() => setBurst((n) => Math.max(0, n - 1)), 800); }
+  function favOnly() { requireLogin(() => { if (!useLibrary.getState().isFav(realId)) { toggleFav(realId); toast("已收藏"); } triggerBurst(); }); }
   function onTap() {
     const now = Date.now();
-    if (now - lastTap.current < 280) {
-      if (tapTimer.current) clearTimeout(tapTimer.current);
-      lastTap.current = 0;
-      favOnly();
-    } else {
-      lastTap.current = now;
-      tapTimer.current = setTimeout(() => { onTogglePlay(); lastTap.current = 0; }, 280);
-    }
+    if (now - lastTap.current < 280) { if (tapTimer.current) clearTimeout(tapTimer.current); lastTap.current = 0; favOnly(); }
+    else { lastTap.current = now; tapTimer.current = setTimeout(() => { onTogglePlay(); lastTap.current = 0; }, 280); }
   }
   function openReview() { requireLogin(() => router.push(`/library/book/${realId}/review/new`)); }
 
   return (
-    <div className="relative h-full w-full snap-start snap-always overflow-hidden">
-      {/* 透明点击层：单击播放/暂停，双击收藏 */}
+    <div className="absolute inset-0 overflow-hidden">
       <button className="absolute inset-0 z-0" onClick={onTap} aria-label="播放 / 暂停" />
 
       {burst > 0 && (
@@ -360,19 +356,9 @@ function FlipSlide({ book, onTogglePlay }: { book: Book; onTogglePlay: () => voi
       <div className="pointer-events-none absolute inset-0" style={{ background: "radial-gradient(120% 80% at 50% 42%, transparent 55%, rgba(0,0,0,0.4))" }} />
       <Motif name="branch" className="pointer-events-none absolute bottom-28 -left-4 w-28 text-brass/10" />
 
-      {/* 右侧操作栏：收藏 + 书评 */}
       <div className="absolute right-3 z-10 flex flex-col items-center gap-6" style={{ bottom: "150px" }}>
-        <Action
-          icon={<Heart size={30} className={fav ? "fill-rouge text-rouge" : "text-dark-text"} />}
-          ariaLabel={fav ? "已收藏" : "收藏"}
-          pressed={fav}
-          onClick={() => requireLogin(() => { const n = toggleFav(realId); toast(n ? "已收藏" : "已取消收藏"); if (n) triggerBurst(); })}
-        />
-        <Action
-          icon={<MessageSquare size={28} className="text-dark-text" />}
-          ariaLabel={myReviews.some((r) => r.bookId === realId) ? "编辑书评" : "写书评"}
-          onClick={openReview}
-        />
+        <Action icon={<Heart size={30} className={fav ? "fill-rouge text-rouge" : "text-dark-text"} />} ariaLabel={fav ? "已收藏" : "收藏"} pressed={fav} onClick={() => requireLogin(() => { const n = toggleFav(realId); toast(n ? "已收藏" : "已取消收藏"); if (n) triggerBurst(); })} />
+        <Action icon={<MessageSquare size={28} className="text-dark-text" />} ariaLabel={myReviews.some((r) => r.bookId === realId) ? "编辑书评" : "写书评"} onClick={openReview} />
       </div>
 
       <div className="absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-3 px-4" style={{ paddingBottom: "16px" }}>
@@ -385,10 +371,7 @@ function FlipSlide({ book, onTogglePlay }: { book: Book; onTogglePlay: () => voi
           </div>
           <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-dark-text/85">{book.intro}</p>
         </div>
-        <button
-          onClick={() => router.push(`/library/book/${realId}`)}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-celadon/80 px-4 py-2 text-[13px] font-medium text-white ring-1 ring-white/25 backdrop-blur-md transition active:scale-95"
-        >
+        <button onClick={() => router.push(`/library/book/${realId}`)} className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-celadon/80 px-4 py-2 text-[13px] font-medium text-white ring-1 ring-white/25 backdrop-blur-md transition active:scale-95">
           读这本书 <ArrowRight size={15} />
         </button>
       </div>
