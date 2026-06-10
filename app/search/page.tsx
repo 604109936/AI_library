@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, Search as SearchIcon, X, Flame } from "lucide-react";
 import { BookRow } from "@/components/library/BookCard";
 import { Skeleton, EmptyState, ErrorState } from "@/components/ui/States";
-import { search, hotSearches } from "@/lib/api";
+import { search, getHotSearches } from "@/lib/api";
 import { useUI } from "@/lib/store";
 
 export default function SearchPage() {
@@ -29,6 +29,9 @@ export default function SearchPage() {
     queryFn: () => search(q),
     enabled: q.length > 0,
   });
+  // 热门搜索：真实书目动态生成（点出去必有结果；T3.4 换 search_logs 聚合）
+  const hotQ = useQuery({ queryKey: ["hotSearches"], queryFn: getHotSearches, staleTime: 10 * 60 * 1000 });
+  const hotSearches = hotQ.data ?? [];
 
   const hasResult = !!data && data.books.length > 0;
 
@@ -88,16 +91,18 @@ export default function SearchPage() {
                 </div>
               </section>
             )}
-            <section>
-              <h2 className="mb-2 flex items-center gap-1 text-sm text-ink dark:text-dark-text"><Flame size={14} className="text-rouge" /> 热门搜索</h2>
-              <div className="flex flex-wrap gap-2">
-                {hotSearches.map((t) => (
-                  <button key={t} onClick={() => submit(t)} className="rounded-full bg-celadon-soft px-3 py-1.5 text-xs text-celadon-700 dark:bg-celadon/20 dark:text-celadon-300">
-                    {t}
-                  </button>
-                ))}
-              </div>
-            </section>
+            {hotSearches.length > 0 && (
+              <section>
+                <h2 className="mb-2 flex items-center gap-1 text-sm text-ink dark:text-dark-text"><Flame size={14} className="text-rouge" /> 热门搜索</h2>
+                <div className="flex flex-wrap gap-2">
+                  {hotSearches.map((t) => (
+                    <button key={t} onClick={() => submit(t)} className="rounded-full bg-celadon-soft px-3 py-1.5 text-xs text-celadon-700 dark:bg-celadon/20 dark:text-celadon-300">
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
           </div>
         ) : isLoading ? (
           <div className="space-y-3">

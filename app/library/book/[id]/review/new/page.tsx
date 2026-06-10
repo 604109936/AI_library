@@ -11,8 +11,18 @@ import { useAuth, useLibrary, useUI } from "@/lib/store";
 
 const MAX = 2000;
 
+// 门禁外壳：必须等登录态与「我的数据」都加载完成再初始化表单。
+// 否则直刷本页时 myReviews 还是空，表单以空内容定格，用户一提交就把云端原书评整条洗掉（Review P1）。
 export default function ReviewEditor({ params }: { params: { id: string } }) {
-  const { id } = params;
+  const authHydrated = useAuth((s) => s.hydrated);
+  const libHydrated = useLibrary((s) => s.hydrated);
+  if (!authHydrated || !libHydrated) {
+    return <main className="flex min-h-[100dvh] items-center justify-center text-sm text-ink-300">加载中…</main>;
+  }
+  return <ReviewForm id={params.id} />;
+}
+
+function ReviewForm({ id }: { id: string }) {
   const real = id.split("__")[0];
   const router = useRouter();
   const openLogin = useUI((s) => s.openLogin);

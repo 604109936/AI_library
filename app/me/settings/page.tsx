@@ -8,6 +8,7 @@ import { RequireAuth } from "@/components/shell/RequireAuth";
 import { Avatar } from "@/components/ui/Avatar";
 import { Motif } from "@/components/ui/Motif";
 import { useAuth, useUI, useReader, type Theme, type ReaderBg } from "@/lib/store";
+import { supabase } from "@/lib/supabase/client";
 
 const THEMES: { key: Theme; label: string }[] = [
   { key: "light", label: "浅色" },
@@ -30,27 +31,60 @@ export default function SettingsPage() {
   const [newPwd, setNewPwd] = useState("");
   const [confirmPwd, setConfirmPwd] = useState("");
   const [feedback, setFeedback] = useState("");
+  const [acting, setActing] = useState(false); // 改密/注销请求中（防重复提交）
   const pwdValid = oldPwd.length >= 6 && newPwd.length >= 6 && newPwd === confirmPwd;
 
   function close() {
     setSheet(null);
     setOldPwd(""); setNewPwd(""); setConfirmPwd(""); setFeedback("");
   }
-  function submitPwd() {
-    if (!pwdValid) return;
-    close();
-    toast("密码已修改");
+  // 真实改密：先用原密码重新登录校验，再调 Auth 更新（Review P1：原实现是本地假成功）
+  async function submitPwd() {
+    if (!pwdValid || acting) return;
+    setActing(true);
+    try {
+      const email = user?.email || user?.account || "";
+      const { error: e1 } = await supabase.auth.signInWithPassword({ email, password: oldPwd });
+      if (e1) { toast("原密码不正确", "error"); return; }
+      const { error: e2 } = await supabase.auth.updateUser({ password: newPwd });
+      if (e2) {
+        toast(/different from the old/i.test(e2.message) ? "新密码不能与原密码相同" : "修改失败，请稍后重试", "error");
+        return;
+      }
+      close();
+      toast("密码已修改");
+    } finally {
+      setActing(false);
+    }
   }
   function submitFeedback() {
     if (!feedback.trim()) return;
     close();
     toast("感谢反馈，我们会认真查看");
   }
-  function doDeactivate() {
-    close();
-    logout();
-    toast("账号已注销", "info");
-    router.replace("/library");
+  // 真实注销：云函数用 service_role 删 auth 账号（用户数据表全部 on delete cascade 级联清除）
+  async function doDeactivate() {
+    if (acting) return;
+    setActing(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) { toast("登录态已失效，请重新登录", "error"); return; }
+      const r = await fetch("/api/account/delete", { method: "POST", headers: { authorization: `Bearer ${token}` } });
+      if (!r.ok) {
+        const j = await r.json().catch(() => null);
+        toast(j?.error ?? "注销失败，请稍后重试", "error");
+        return;
+      }
+      close();
+      await logout().catch(() => {}); // 账号已删，signOut 失败也无妨，本地清理在 logout 内完成
+      toast("账号已注销", "info");
+      router.replace("/library");
+    } catch {
+      toast("注销失败，请检查网络后重试", "error");
+    } finally {
+      setActing(false);
+    }
   }
   function doLogout() {
     close();
@@ -137,14 +171,14 @@ export default function SettingsPage() {
                   <Field label="新密码" value={newPwd} onChange={setNewPwd} placeholder="至少 6 位" />
                   <Field label="确认新密码" value={confirmPwd} onChange={setConfirmPwd} placeholder="再次输入新密码" />
                   {newPwd && confirmPwd && newPwd !== confirmPwd && <p className="mb-2 text-xs text-rouge">两次输入的新密码不一致</p>}
-                  <button onClick={submitPwd} disabled={!pwdValid} className="mt-2 w-full rounded-2xl bg-celadon py-3 text-sm text-snow disabled:opacity-40 active:scale-[0.99]">确认修改</button>
+                  <button onClick={submitPwd} disabled={!pwdValid || acting} className="mt-2 w-full rounded-2xl bg-celadon py-3 text-sm text-snow disabled:opacity-40 active:scale-[0.99]">{acting ? "修改中…" : "确认修改"}</button>
                 </>
               )}
               {sheet === "deactivate" && (
                 <>
                   <h3 className="mb-2 text-center font-serif text-base text-rouge">注销账号</h3>
-                  <p className="mb-4 text-center text-sm leading-6 text-ink-500 dark:text-dark-text/60">注销后账号将无法登录，本地的收藏、笔记、书评、阅读记录都会被清除，且不可恢复。确定要注销吗？</p>
-                  <button onClick={doDeactivate} className="w-full rounded-2xl bg-rouge py-3 text-sm text-snow active:scale-[0.99]">确认注销</button>
+                  <p className="mb-4 text-center text-sm leading-6 text-ink-500 dark:text-dark-text/60">注销后账号将被永久删除，云端的收藏、笔记、书评、阅读记录与对话全部清除，且不可恢复。确定要注销吗？</p>
+                  <button onClick={doDeactivate} disabled={acting} className="w-full rounded-2xl bg-rouge py-3 text-sm text-snow disabled:opacity-40 active:scale-[0.99]">{acting ? "注销中…" : "确认注销"}</button>
                   <button onClick={close} className="mt-2 w-full rounded-2xl py-3 text-sm text-ink-500 dark:text-dark-text/60">再想想</button>
                 </>
               )}
@@ -158,7 +192,7 @@ export default function SettingsPage() {
               {sheet === "logout" && (
                 <>
                   <h3 className="mb-2 text-center font-serif text-base text-ink dark:text-dark-text">退出登录</h3>
-                  <p className="mb-4 text-center text-sm leading-6 text-ink-500 dark:text-dark-text/60">退出后本地的收藏、笔记将清空，确定退出吗？</p>
+                  <p className="mb-4 text-center text-sm leading-6 text-ink-500 dark:text-dark-text/60">退出后本机缓存将清空；你的收藏、笔记等已保存在云端，重新登录即可恢复。确定退出吗？</p>
                   <button onClick={doLogout} className="w-full rounded-2xl bg-rouge py-3 text-sm text-snow active:scale-[0.99]">退出登录</button>
                   <button onClick={close} className="mt-2 w-full rounded-2xl py-3 text-sm text-ink-500 dark:text-dark-text/60">取消</button>
                 </>

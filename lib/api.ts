@@ -1,17 +1,9 @@
 // 数据访问层。
 // 目录类读取（首页/分类/详情/章节/搜索/乱翻）已接 Supabase（真实数据，公开读）。
-// 智学回复(buildChatReply)/读者评价(getBookReviews)/示例问/热门搜索 暂留 mock，
-// 分别待 3.7（minimax Agent）、用户数据阶段、3.8（search_logs 聚合）替换。
+// 读者评价(getBookReviews)暂留 mock（本版数据-only 不展示）；热门搜索过渡期由真实书目动态生成（T3.4 改 search_logs 聚合）。
 import { supabase } from "@/lib/supabase/client";
-import {
-  books as mockBooks,
-  categories as mockCategories,
-  chaptersByBook,
-  reviewsByBook,
-  hotSearches,
-  exampleQuestions,
-} from "@/lib/mock/data";
-import type { Book, Category, Chapter, Citation, Paged, Review } from "@/lib/types";
+import { reviewsByBook, exampleQuestions } from "@/lib/mock/data";
+import type { Book, Category, Chapter, Paged, Review } from "@/lib/types";
 
 const PAGE = 6;
 
@@ -95,7 +87,7 @@ export async function getHome(): Promise<{
   const banners = categories
     .map((c) => allBooks.find((b) => b.categoryId === c.id))
     .filter((b): b is Book => !!b);
-  // 热门好书：按「入库时间」由远到近（已读完的由前端过滤后取 20）
+  // 热门好书：按「入库时间」最早→最近（2026-06-12 用户终裁，文档同步更新；不用 created_at）；已读完的由前端过滤后取 20
   const recommend = [...allBooks].sort((a, b) => +new Date(a.shelvedAt) - +new Date(b.shelvedAt));
   return { banners, categories, recommend };
 }
@@ -199,47 +191,20 @@ export async function getBookReviews(bookId: string, sort: "hot" | "new"): Promi
   return list;
 }
 
-// 智学：mock 流式回答 + 引用 + 推荐（3.7 接 minimax Agent 后替换）。
-export function buildChatReply(question: string): {
-  answer: string;
-  citations: Citation[];
-  recommendations: Book[];
-} {
-  const q = question || "";
-  const wantRecommend = /推荐|哪些|书单|类似|有没有|想读|读什么/.test(q);
-
-  let target = mockBooks.find((b) => q.includes(b.title));
-  if (!target) {
-    const cat = mockCategories.find((c) => q.includes(c.name));
-    if (cat) target = mockBooks.find((b) => b.categoryId === cat.id);
-  }
-  if (!target) {
-    target = mockBooks.find((b) => b.tags.some((t) => q.includes(t)) || (q.length > 1 && b.summary.includes(q.slice(0, 2))));
-  }
-  if (!target) target = mockBooks[Math.floor(Math.random() * mockBooks.length)];
-
-  const ch1 = chaptersByBook[target.id]?.[0];
-  const answer = wantRecommend
-    ? `根据你的问题，我从馆藏里挑了几本很契合的书。\n\n首推 **《${target.title}》**（${target.author}）：${target.summary}\n\n> ${target.summary.slice(0, 40)}……\n\n你可以点下方的推荐书目卡片，直接开始阅读。`
-    : `关于「${q || target.title}」，我在馆藏中找到了相关内容。\n\n**《${target.title}》**（${target.author}）谈到：${target.summary}\n\n> 来源：《${target.title}》第${ch1?.no ?? 1}章 ${ch1?.title ?? ""}\n\n如果想深入，点击下方引用卡片可跳到原文对应章节。`;
-
-  const citations: Citation[] = ch1
-    ? [
-        {
-          bookId: target.id,
-          bookTitle: target.title,
-          coverSeed: target.coverSeed,
-          cover: target.cover,
-          chapterNo: ch1.no,
-          chapterTitle: ch1.title,
-          snippet: ch1.content.slice(0, 50).replace(/\n/g, " ") + "…",
-        },
-      ]
-    : [];
-  const recommendations = wantRecommend
-    ? [target, ...mockBooks.filter((b) => b.id !== target!.id && b.categoryId === target!.categoryId)].slice(0, 5)
-    : [];
-  return { answer, citations, recommendations };
+// 热门搜索（过渡版）：由真实书库动态生成（书名 + 高频标签），保证每个词点出去都有结果；
+// T3.4 接 search_logs 全站聚合 Top20 后替换，函数签名不变。
+let hotCache: { words: string[]; at: number } | null = null;
+export async function getHotSearches(): Promise<string[]> {
+  if (hotCache && Date.now() - hotCache.at < 10 * 60 * 1000) return hotCache.words;
+  const { data, error } = await supabase.from("books").select("title, tags").order("shelved_at", { ascending: false }).limit(30);
+  if (error) throw error;
+  const titles = (data ?? []).map((b: any) => String(b.title)).slice(0, 8);
+  const tagCount = new Map<string, number>();
+  for (const b of data ?? []) for (const t of (b.tags ?? []) as string[]) tagCount.set(t, (tagCount.get(t) ?? 0) + 1);
+  const tags = Array.from(tagCount.entries()).sort((a, b) => b[1] - a[1]).map(([t]) => t);
+  const words = Array.from(new Set([...titles, ...tags])).slice(0, 12);
+  hotCache = { words, at: Date.now() };
+  return words;
 }
 
-export { exampleQuestions, hotSearches };
+export { exampleQuestions };

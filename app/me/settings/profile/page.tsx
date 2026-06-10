@@ -23,6 +23,19 @@ export default function ProfileEdit() {
   const fileRef = useRef<HTMLInputElement>(null);
   const bioRef = useRef<HTMLTextAreaElement>(null);
 
+  // 冷加载回填：直刷本页时 user 可能尚未从云端加载完成，state 以空初始化定格——
+  // 待 user 就绪后回填一次（仅一次，不打扰用户后续编辑），否则点保存会把云端昵称/简介/头像洗掉（Review P1）
+  const inited = useRef(false);
+  useEffect(() => {
+    if (user && !inited.current) {
+      inited.current = true;
+      setNickname(user.nickname ?? "");
+      setBio(user.bio ?? "");
+      setSeed(user.avatarSeed ?? 7);
+      setAvatarUrl(user.avatarUrl);
+    }
+  }, [user]);
+
   // 简介输入框高度随内容自适应
   useEffect(() => {
     const t = bioRef.current;
