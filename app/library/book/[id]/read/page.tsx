@@ -1,9 +1,12 @@
 "use client";
-import { Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronLeft, List, Check, Trash2, Settings2, StickyNote, PenLine, Copy } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import type { Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { getBook, getChapters } from "@/lib/api";
 import { Skeleton, ErrorState } from "@/components/ui/States";
 import { Motif } from "@/components/ui/Motif";
@@ -78,6 +81,19 @@ function ReaderInner({ id }: { id: string }) {
   const realId = id.split("__")[0];
   const readCh = readChapters[realId] ?? [];
   const chapterNotes = cur ? notes.filter((n) => n.bookId === realId && n.chapterId === cur.id) : [];
+
+  // Markdown 渲染：按「章节内容」memo，使笔记/其它状态变化时不重渲染正文 DOM（我们对其做命令式高亮，才不会被 React 协调冲掉）
+  const md = useMemo(
+    () => <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{cur?.content ?? ""}</ReactMarkdown>,
+    [cur?.content]
+  );
+  // 渲染（含切章）后给正文打高亮；笔记增删时重标
+  useIsoLayoutEffect(() => {
+    const root = contentRef.current;
+    if (!root) return;
+    const ns = cur ? notes.filter((n) => n.bookId === realId && n.chapterId === cur.id) : [];
+    applyHighlights(root, ns, setActiveNote);
+  }, [cur?.id, cur?.content, notes, realId]);
 
   useEffect(() => {
     if (resumed.current || !chapters.length) return;
@@ -164,7 +180,7 @@ function ReaderInner({ id }: { id: string }) {
       pre.setEnd(range.startContainer, range.startOffset);
       const raw = sel.toString();
       const hint = pre.toString().length + (raw.length - raw.trimStart().length);
-      const start = locate(cur.content, text, hint);
+      const start = locate(contentRef.current?.textContent ?? "", text, hint);
       const rect = range.getBoundingClientRect();
       const below = rect.top < 110;
       setMenu({ x: rect.left + rect.width / 2, y: below ? rect.bottom + 10 : rect.top - 10, text, below, start });
@@ -290,10 +306,10 @@ function ReaderInner({ id }: { id: string }) {
         <div
           ref={contentRef}
           onContextMenu={(e) => e.preventDefault()}
-          className="mx-auto max-w-[680px] whitespace-pre-wrap font-serif leading-[1.9]"
+          className="mx-auto max-w-[680px] break-words font-serif leading-[1.9]"
           style={{ fontSize: reader.fontSize, WebkitTouchCallout: "none" }}
         >
-          {renderHighlighted(cur.content, chapterNotes, setActiveNote)}
+          {md}
         </div>
         <div className="mx-auto mt-8 flex max-w-[680px] justify-between">
           <button disabled={idx <= 0} onClick={() => setCurId(chapters[idx - 1].id)} className="rounded-full border border-current/20 px-4 py-1.5 text-xs disabled:pointer-events-none disabled:opacity-30">上一章</button>
@@ -472,40 +488,78 @@ function ReaderInner({ id }: { id: string }) {
   );
 }
 
-/** 把正文中命中已存笔记摘录的片段包裹为可点击高亮（完整覆盖选中文本） */
-function renderHighlighted(text: string, notes: NoteItem[], onClick: (n: NoteItem) => void) {
-  const marks: { start: number; end: number; note: NoteItem }[] = [];
+// Markdown 渲染样式（新中式排版）；颜色继承当前阅读背景的文字色
+const mdComponents: Components = {
+  h1: ({ children }) => <h1 className="mb-3 mt-6 font-serif text-[1.45em] font-semibold tracking-wide">{children}</h1>,
+  h2: ({ children }) => <h2 className="mb-2.5 mt-5 font-serif text-[1.25em] font-semibold tracking-wide">{children}</h2>,
+  h3: ({ children }) => <h3 className="mb-2 mt-4 font-serif text-[1.12em] font-semibold">{children}</h3>,
+  p: ({ children }) => <p className="my-3.5">{children}</p>,
+  ul: ({ children }) => <ul className="my-3 list-disc space-y-1.5 pl-6 marker:text-celadon">{children}</ul>,
+  ol: ({ children }) => <ol className="my-3 list-decimal space-y-1.5 pl-6 marker:text-celadon">{children}</ol>,
+  li: ({ children }) => <li className="leading-[1.8] [&>p]:my-1">{children}</li>,
+  blockquote: ({ children }) => <blockquote className="my-4 border-l-[3px] border-celadon/50 pl-4 opacity-80">{children}</blockquote>,
+  strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+  em: ({ children }) => <em className="italic">{children}</em>,
+  hr: () => <hr className="my-7 border-0 border-t border-current/15" />,
+  a: ({ children, href }) => <a href={href} target="_blank" rel="noreferrer" className="text-celadon underline underline-offset-2">{children}</a>,
+  code: ({ children }) => <code className="rounded bg-current/10 px-1.5 py-0.5 font-sans text-[0.88em]">{children}</code>,
+  img: () => null, // 阅读正文不渲染图片
+};
+
+/** 渲染后用 DOM 包裹方式给正文打高亮：以「可见文本偏移 + 摘录就近匹配」定位，跨粗体/标题等多元素也逐文本节点精确包裹 */
+function applyHighlights(root: HTMLElement, notes: NoteItem[], onClick: (n: NoteItem) => void) {
+  // 先卸掉旧 mark（还原文本），再按最新笔记重标，保证幂等
+  root.querySelectorAll("mark[data-note]").forEach((m) => {
+    const p = m.parentNode;
+    if (!p) return;
+    while (m.firstChild) p.insertBefore(m.firstChild, m);
+    p.removeChild(m);
+  });
+  root.normalize(); // 合并相邻文本节点，保证偏移连续
+  const full = root.textContent ?? "";
+  const ranges: { start: number; end: number; note: NoteItem }[] = [];
   notes.forEach((n) => {
     if (!n.excerpt) return;
-    // 用真实摘录 + 就近偏移定位：标记必覆盖完整摘录，重复文本也能挑对正确的一处
-    const i = locate(text, n.excerpt, typeof n.start === "number" ? n.start : 0);
-    if (i >= 0) marks.push({ start: i, end: i + n.excerpt.length, note: n });
+    const i = locate(full, n.excerpt, typeof n.start === "number" ? n.start : 0);
+    if (i >= 0) ranges.push({ start: i, end: i + n.excerpt.length, note: n });
   });
-  if (!marks.length) return text;
-  marks.sort((a, b) => a.start - b.start);
-  const clean: typeof marks = [];
+  ranges.sort((a, b) => a.start - b.start);
+  const clean: typeof ranges = [];
   let lastEnd = 0;
-  for (const m of marks) if (m.start >= lastEnd) { clean.push(m); lastEnd = m.end; }
-  const out: React.ReactNode[] = [];
-  let pos = 0;
-  // 所有片段（含纯文本）都带稳定 key，避免 React 在多次高亮后协调错配文本节点
-  clean.forEach((m) => {
-    if (m.start > pos) out.push(<span key={"t" + pos}>{text.slice(pos, m.start)}</span>);
-    out.push(
-      <mark
-        key={"m" + m.start}
-        id={"mk-" + m.note.id}
-        onClick={() => onClick(m.note)}
-        className="cursor-pointer rounded-[3px]"
-        style={{ background: m.note.color + "80", color: "inherit", textDecoration: m.note.note ? "underline dotted" : undefined, textDecorationColor: m.note.note ? m.note.color : undefined, textUnderlineOffset: 3 }}
-      >
-        {text.slice(m.start, m.end)}
-      </mark>
-    );
-    pos = m.end;
+  for (const r of ranges) if (r.start >= lastEnd) { clean.push(r); lastEnd = r.end; }
+  clean.forEach((r) => wrapRange(root, r, onClick));
+}
+
+function wrapRange(root: HTMLElement, r: { start: number; end: number; note: NoteItem }, onClick: (n: NoteItem) => void) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const segs: { node: Text; from: number; to: number }[] = [];
+  let offset = 0;
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    const t = node as Text;
+    const len = t.nodeValue?.length ?? 0;
+    const from = Math.max(r.start, offset) - offset;
+    const to = Math.min(r.end, offset + len) - offset;
+    if (from < to) segs.push({ node: t, from, to });
+    offset += len;
+  }
+  segs.forEach((seg, idx) => {
+    let target = seg.node;
+    if (seg.from > 0) target = target.splitText(seg.from);
+    if (seg.to - seg.from < (target.nodeValue?.length ?? 0)) target.splitText(seg.to - seg.from);
+    const mark = document.createElement("mark");
+    mark.setAttribute("data-note", r.note.id);
+    if (idx === 0) mark.id = "mk-" + r.note.id; // 仅首段挂 id，供「我的笔记」跳转定位
+    mark.className = "cursor-pointer rounded-[3px]";
+    mark.style.background = r.note.color + "80";
+    mark.style.color = "inherit";
+    if (r.note.note) { mark.style.textDecoration = "underline dotted"; mark.style.textDecorationColor = r.note.color; mark.style.textUnderlineOffset = "3px"; }
+    const parent = target.parentNode;
+    if (!parent) return;
+    parent.replaceChild(mark, target);
+    mark.appendChild(target);
+    mark.addEventListener("click", () => onClick(r.note));
   });
-  if (pos < text.length) out.push(<span key={"t" + pos}>{text.slice(pos)}</span>);
-  return out;
 }
 
 function ToolBtn({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
