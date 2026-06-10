@@ -87,7 +87,9 @@ function ChatInner() {
     if (timer.current) clearInterval(timer.current);
     if (thinkTimer.current) clearTimeout(thinkTimer.current);
     if (pressTimer.current) clearTimeout(pressTimer.current);
-    fetchCtrl.current?.abort(); // 离开页面终止在途请求
+    const c = fetchCtrl.current; // 先置空再中断：避免 catch 误判为"运行中的请求出错"而在新页面弹错误 toast
+    fetchCtrl.current = null;
+    c?.abort();
   }, []);
 
   // 从历史打开指定会话：记录定位意图（无搜索→到最后；有搜索→命中处的最后一条）
@@ -147,16 +149,18 @@ function ChatInner() {
 
   // T2.1：答案来源 = 云函数 /api/chat（MiniMax 真实大模型，带多轮上下文）；
   // 拿到完整回答后仍用打字机渐显（T2.4 升级为 SSE 真流式）。
-  function send(text: string) {
+  function send(text: string, base?: TMsg[]) {
     const q = text.trim();
     if (!q || busyRef.current) return;
     busyRef.current = true;
     setInput("");
+    if (timer.current) { clearInterval(timer.current); timer.current = null; } // 兜底清残留打字机
     const n = `${Date.now()}-${seq.current++}`;
     const userMsg: TMsg = { id: "u" + n, role: "user", content: q };
     const aId = "a" + n;
     const aMsg: TMsg = { id: aId, role: "assistant", content: "", streaming: true };
-    const history = [...messages, userMsg].map((m) => ({ role: m.role, content: m.content }));
+    // base：重新生成时传入「已截掉旧回答」的消息列表，避免旧渲染闭包把被删的回答又拼进上下文（模型会被旧答案锚定而复读）
+    const history = [...(base ?? messages), userMsg].map((m) => ({ role: m.role, content: m.content }));
     setMessages((prev) => [...prev, userMsg, aMsg]);
     setBusy(true);
 
@@ -245,8 +249,11 @@ function ChatInner() {
         smooth(); // 流结束：让打字机追完剩余文字后收尾（若无任何增量也会直接收尾）
       })
       .catch((e: unknown) => {
+        if (e instanceof Error && e.name === "AbortError") return; // 卸载/停止导致的中断不是错误
         if (fetchCtrl.current !== ctrl) return; // 用户主动停止，stop() 已收尾
         fetchCtrl.current = null;
+        // 必须清掉打字机 interval：否则残留空转的旧 interval 会让下一次提问永远渲染不出字（P0）
+        if (timer.current) { clearInterval(timer.current); timer.current = null; }
         const msg = e instanceof Error && e.message && e.message !== "Failed to fetch" ? e.message : "网络开小差了，请稍后重试";
         setMessages((prev) => prev.map((m) => (m.id === aId ? { ...m, content: msg, streaming: false } : m)));
         busyRef.current = false;
@@ -293,8 +300,9 @@ function ChatInner() {
     const lastUserIdx = messages.map((m) => m.role).lastIndexOf("user");
     if (lastUserIdx < 0) return;
     const q = messages[lastUserIdx].content;
-    setMessages((prev) => prev.slice(0, lastUserIdx));
-    setTimeout(() => send(q), 30);
+    const base = messages.slice(0, lastUserIdx); // 显式传给 send：旧闭包里的 messages 还带着被删的回答
+    setMessages(base);
+    setTimeout(() => send(q, base), 30);
   }
 
   function newSession() {
