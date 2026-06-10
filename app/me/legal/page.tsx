@@ -67,7 +67,7 @@ function LegalInner() {
             <p className="text-sm leading-7 text-ink-700 dark:text-dark-text/70">{s.p}</p>
           </section>
         ))}
-        <p className="mt-8 text-center text-xs text-ink-300">更新日期 2026-06-12 · AI 图书馆</p>
+        <p className="mt-8 text-center text-xs text-ink-300">更新日期 2026-06-10 · AI 图书馆</p>
       </div>
       <Motif name="mountain" className="mx-auto mt-4 h-14 w-56 text-celadon/20" />
     </main>
