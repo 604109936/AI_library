@@ -407,7 +407,7 @@ function FlipOverlay({ book, onTogglePlay }: { book: Book; onTogglePlay: () => v
       )}
 
       <div className="pointer-events-none absolute inset-x-0 top-0 h-[22%] bg-gradient-to-b from-black/45 to-transparent" />
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[45%] bg-gradient-to-t from-dark-bg/85 via-dark-bg/15 to-transparent" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[32%] bg-gradient-to-t from-dark-bg/80 via-dark-bg/15 to-transparent" />
       <div className="pointer-events-none absolute inset-0" style={{ background: "radial-gradient(120% 80% at 50% 42%, transparent 55%, rgba(0,0,0,0.4))" }} />
       <Motif name="branch" className="pointer-events-none absolute bottom-28 -left-4 w-28 text-brass/10" />
 
@@ -416,18 +416,19 @@ function FlipOverlay({ book, onTogglePlay }: { book: Book; onTogglePlay: () => v
         <Action icon={<MessageSquare size={28} className="text-dark-text" />} ariaLabel={myReviews.some((r) => r.bookId === realId) ? "编辑书评" : "写书评"} onClick={openReview} />
       </div>
 
+      {/* 底部信息：整体缩小、收紧行距，少挡视频内嵌字幕 */}
       <div className="absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-3 px-4" style={{ paddingBottom: "24px" }}>
         <div className="min-w-0 flex-1">
-          <h2 className="font-serif text-[19px] leading-snug tracking-wide text-dark-text drop-shadow-[0_2px_8px_rgba(0,0,0,0.65)]">{book.title}</h2>
-          <div className="mt-2 flex flex-wrap gap-1.5">
+          <h2 className="font-serif text-[15px] leading-snug tracking-wide text-dark-text drop-shadow-[0_2px_8px_rgba(0,0,0,0.65)]">{book.title}</h2>
+          <div className="mt-1 flex flex-wrap gap-1">
             {book.tags.slice(0, 3).map((t) => (
-              <span key={t} className="rounded-full border border-brass/30 bg-black/35 px-2.5 py-1 text-[11px] font-medium text-dark-text/90 backdrop-blur-md">{t}</span>
+              <span key={t} className="rounded-full border border-brass/30 bg-black/35 px-2 py-0.5 text-[10px] font-medium text-dark-text/90 backdrop-blur-md">{t}</span>
             ))}
           </div>
-          <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-dark-text/85">{book.intro}</p>
+          <p className="mt-1 line-clamp-2 text-[11px] leading-[16px] text-dark-text/80">{book.intro}</p>
         </div>
-        <button onClick={() => router.push(`/library/book/${realId}`)} className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-celadon/80 px-4 py-2 text-[13px] font-medium text-white ring-1 ring-white/25 backdrop-blur-md transition active:scale-95">
-          读这本书 <ArrowRight size={15} />
+        <button onClick={() => router.push(`/library/book/${realId}`)} className="inline-flex shrink-0 items-center gap-1 rounded-full bg-celadon/80 px-3 py-1.5 text-[12px] font-medium text-white ring-1 ring-white/25 backdrop-blur-md transition active:scale-95">
+          读这本书 <ArrowRight size={13} />
         </button>
       </div>
     </div>
