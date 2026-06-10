@@ -136,14 +136,14 @@ export async function* streamChat(
   }
 }
 
-export async function chatOnce(messages: MMMessage[], opts?: { maxTokens?: number; temperature?: number }): Promise<string> {
+export async function chatOnce(messages: MMMessage[], opts?: { maxTokens?: number; temperature?: number; model?: string }): Promise<string> {
   const key = process.env.MINIMAX_API_KEY;
   if (!key) throw new Error("服务端未配置 MINIMAX_API_KEY");
   const r = await fetch(`${BASE}/v1/chat/completions`, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
     body: JSON.stringify({
-      model: MODEL,
+      model: opts?.model ?? MODEL,
       messages,
       max_tokens: opts?.maxTokens ?? 2048,
       temperature: opts?.temperature ?? 0.8,

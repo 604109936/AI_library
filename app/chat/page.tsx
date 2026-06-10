@@ -152,7 +152,7 @@ function ChatInner() {
             "content-type": "application/json",
             ...(data.session?.access_token ? { authorization: `Bearer ${data.session.access_token}` } : {}),
           },
-          body: JSON.stringify({ messages: history }),
+          body: JSON.stringify({ messages: history, sessionId: sessionId.current }),
           signal: ctrl.signal,
         })
       )

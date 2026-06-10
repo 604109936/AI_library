@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { streamChat, type MMMessage, type MMToolCall } from "@/lib/server/minimax";
 import { buildSystem, getUid } from "@/lib/server/agent";
 import { AGENT_TOOLS, TOOL_STATUS, execTool, type ToolEvent } from "@/lib/server/tools";
+import { getCompressed, maybeCompress } from "@/lib/server/compress";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -18,8 +19,8 @@ const MAX_ROUNDS = 5; // 工具循环上限（防失控）
 type Emit = (e: { t: "d" | "status" | "end" | "err"; v?: string } | ToolEvent) => void;
 
 // Agent 循环：模型流式产出 → 有工具调用则执行并回灌结果 → 直到纯文本收尾
-async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signal?: AbortSignal) {
-  const system = await buildSystem(uid);
+async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signal?: AbortSignal, compressed?: string) {
+  const system = await buildSystem(uid, compressed);
   const convo: MMMessage[] = [{ role: "system", content: system }, ...msgs];
   for (let round = 0; ; round++) {
     let text = "";
@@ -40,7 +41,7 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
 }
 
 export async function POST(req: NextRequest) {
-  let body: { messages?: { role?: string; content?: string }[]; stream?: boolean };
+  let body: { messages?: { role?: string; content?: string }[]; stream?: boolean; sessionId?: string };
   try {
     body = await req.json();
   } catch {
@@ -55,6 +56,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "缺少用户消息" }, { status: 400 });
   }
   const uid = await getUid(req.headers.get("authorization"));
+  const sessionId = typeof body.sessionId === "string" && body.sessionId ? body.sessionId.slice(0, 64) : null;
+  // 变量⑥：本会话更早对话的压缩摘要（T2.6；登录且会话存在才有）
+  const compressed = uid && sessionId ? await getCompressed(uid, sessionId).catch(() => undefined) : undefined;
+  // 答完后台检查是否需要压缩（fire-and-forget，不阻塞响应）
+  const afterAnswer = () => { if (uid && sessionId) maybeCompress(uid, sessionId); };
 
   // 一次性 JSON 模式（脚本验证/调试）
   if (body.stream === false) {
@@ -64,7 +70,8 @@ export async function POST(req: NextRequest) {
       await runAgent(msgs, uid, (e) => {
         if (e.t === "d" && e.v) content += e.v;
         if (e.t === "recs" || e.t === "cites") events.push(e as ToolEvent);
-      });
+      }, undefined, compressed);
+      afterAnswer();
       return NextResponse.json({ content, events });
     } catch (e) {
       console.error("[/api/chat]", e);
@@ -78,8 +85,9 @@ export async function POST(req: NextRequest) {
     async start(controller) {
       const emit: Emit = (e) => { try { controller.enqueue(enc.encode(JSON.stringify(e) + "\n")); } catch {} };
       try {
-        await runAgent(msgs, uid, emit, req.signal);
+        await runAgent(msgs, uid, emit, req.signal, compressed);
         emit({ t: "end" });
+        afterAnswer();
       } catch (e) {
         if (!(e instanceof Error && e.name === "AbortError")) {
           console.error("[/api/chat]", e);
