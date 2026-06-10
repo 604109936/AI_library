@@ -7,7 +7,7 @@ import { BottomNav } from "@/components/shell/BottomNav";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { Mascot } from "@/components/chat/Mascot";
 import { Motif } from "@/components/ui/Motif";
-import { buildChatReply, exampleQuestions } from "@/lib/api";
+import { exampleQuestions } from "@/lib/api";
 import { sampleSessions } from "@/lib/mock/data";
 import { useChat, useUI } from "@/lib/store";
 import type { Book, Citation, ChatMessage as TMsg } from "@/lib/types";
@@ -33,6 +33,7 @@ function ChatInner() {
   const busyRef = useRef(false);
   const seq = useRef(0);
   const pendingReply = useRef<{ id: string; citations: Citation[]; recommendations: Book[] } | null>(null);
+  const fetchCtrl = useRef<AbortController | null>(null);
   const pendingLocate = useRef<Locate | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -43,6 +44,7 @@ function ChatInner() {
     if (timer.current) clearInterval(timer.current);
     if (thinkTimer.current) clearTimeout(thinkTimer.current);
     if (pressTimer.current) clearTimeout(pressTimer.current);
+    fetchCtrl.current?.abort(); // 离开页面终止在途请求
   }, []);
 
   // 从历史打开指定会话：记录定位意图（无搜索→到最后；有搜索→命中处的最后一条）
@@ -100,6 +102,8 @@ function ChatInner() {
     upsertSession({ id: sessionId.current, title: firstUser.content.slice(0, 20), updatedAt: new Date().toISOString(), messages: msgs });
   }
 
+  // T2.1：答案来源 = 云函数 /api/chat（MiniMax 真实大模型，带多轮上下文）；
+  // 拿到完整回答后仍用打字机渐显（T2.4 升级为 SSE 真流式）。
   function send(text: string) {
     const q = text.trim();
     if (!q || busyRef.current) return;
@@ -109,38 +113,64 @@ function ChatInner() {
     const userMsg: TMsg = { id: "u" + n, role: "user", content: q };
     const aId = "a" + n;
     const aMsg: TMsg = { id: aId, role: "assistant", content: "", streaming: true };
+    const history = [...messages, userMsg].map((m) => ({ role: m.role, content: m.content }));
     setMessages((prev) => [...prev, userMsg, aMsg]);
     setBusy(true);
 
-    const { answer, citations, recommendations } = buildChatReply(q);
-    pendingReply.current = { id: aId, citations, recommendations };
-    thinkTimer.current = setTimeout(() => {
-      let i = 0;
-      timer.current = setInterval(() => {
-        i += 2;
-        const partial = answer.slice(0, i);
-        setMessages((prev) => prev.map((m) => (m.id === aId ? { ...m, content: partial } : m)));
-        if (i >= answer.length) {
-          if (timer.current) clearInterval(timer.current);
-          setMessages((prev) => prev.map((m) => (m.id === aId ? { ...m, content: answer, citations, recommendations, streaming: false } : m)));
-          pendingReply.current = null;
-          busyRef.current = false;
-          setBusy(false);
-        }
-      }, 16);
-    }, 600);
+    const ctrl = new AbortController();
+    fetchCtrl.current = ctrl;
+    fetch("/api/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ messages: history }),
+      signal: ctrl.signal,
+    })
+      .then(async (r) => {
+        const j = await r.json().catch(() => null);
+        if (!r.ok || !j?.content) throw new Error(j?.error ?? "服务暂时不可用");
+        return String(j.content);
+      })
+      .then((answer) => {
+        if (fetchCtrl.current !== ctrl) return; // 已被停止/新请求取代
+        fetchCtrl.current = null;
+        pendingReply.current = { id: aId, citations: [], recommendations: [] };
+        let i = 0;
+        timer.current = setInterval(() => {
+          i += 4;
+          const partial = answer.slice(0, i);
+          setMessages((prev) => prev.map((m) => (m.id === aId ? { ...m, content: partial } : m)));
+          if (i >= answer.length) {
+            if (timer.current) clearInterval(timer.current);
+            setMessages((prev) => prev.map((m) => (m.id === aId ? { ...m, content: answer, streaming: false } : m)));
+            pendingReply.current = null;
+            busyRef.current = false;
+            setBusy(false);
+          }
+        }, 16);
+      })
+      .catch((e: unknown) => {
+        if (fetchCtrl.current !== ctrl) return; // 用户主动停止，stop() 已收尾
+        fetchCtrl.current = null;
+        const msg = e instanceof Error && e.message && e.message !== "Failed to fetch" ? e.message : "网络开小差了，请稍后重试";
+        setMessages((prev) => prev.map((m) => (m.id === aId ? { ...m, content: msg, streaming: false } : m)));
+        busyRef.current = false;
+        setBusy(false);
+        toast(msg, "error");
+      });
   }
 
   function stop() {
+    if (fetchCtrl.current) { fetchCtrl.current.abort(); fetchCtrl.current = null; }
     if (thinkTimer.current) clearTimeout(thinkTimer.current);
     if (timer.current) clearInterval(timer.current);
     const pr = pendingReply.current;
     setMessages((prev) =>
-      prev.map((m) => {
-        if (!m.streaming) return m;
-        if (pr && m.id === pr.id) return { ...m, citations: pr.citations, recommendations: pr.recommendations, streaming: false };
-        return { ...m, streaming: false };
-      })
+      prev
+        .map((m) => {
+          if (!m.streaming) return m;
+          if (pr && m.id === pr.id) return { ...m, citations: pr.citations, recommendations: pr.recommendations, streaming: false };
+          return { ...m, content: m.content || "（已停止）", streaming: false };
+        })
     );
     pendingReply.current = null;
     busyRef.current = false;
