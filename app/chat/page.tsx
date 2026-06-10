@@ -9,6 +9,7 @@ import { ChatMessage } from "@/components/chat/ChatMessage";
 import { Mascot } from "@/components/chat/Mascot";
 import { Motif } from "@/components/ui/Motif";
 import { getBook, getChapters, getHome } from "@/lib/api";
+import { stripCardMarkers } from "@/lib/chatMarkers";
 import { greeting, buildQuestions, buildGuestQuestions } from "@/lib/chatWelcome";
 import { supabase } from "@/lib/supabase/client";
 import { useAuth, useChat, useLibrary, useUI } from "@/lib/store";
@@ -80,7 +81,6 @@ function ChatInner() {
   const thinkTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const busyRef = useRef(false);
   const seq = useRef(0);
-  const pendingReply = useRef<{ id: string; citations: Citation[]; recommendations: Book[] } | null>(null);
   const fetchCtrl = useRef<AbortController | null>(null);
   const pendingLocate = useRef<Locate | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -194,7 +194,8 @@ function ChatInner() {
     const aMsg: TMsg = { id: aId, role: "assistant", content: "", streaming: true };
     // base：重新生成时传入「已截掉旧回答」的消息列表，避免旧渲染闭包把被删的回答又拼进上下文（模型会被旧答案锚定而复读）
     // 错误/中断占位消息（error 标记）不进上下文：模型会把报错文案当成自己说过的话
-    const history = [...(base ?? messages), userMsg].filter((m) => !m.error).map((m) => ({ role: m.role, content: m.content }));
+    // 卡片占位标记也必须剥掉：模型看到 [[recs:0,2]] 会模仿着往回答里写
+    const history = [...(base ?? messages), userMsg].filter((m) => !m.error).map((m) => ({ role: m.role, content: stripCardMarkers(m.content) }));
     // 点踩后重新生成：把踩的原因作为一次性指示喂给模型（不渲染、不落库），反馈当场可感知地生效
     if (regenHint.current) {
       history.splice(history.length - 1, 0, { role: "user", content: `（说明：你上一条回答被我标记了「${regenHint.current}」，请换个角度重新回答，不要重复原来的说法）` });
@@ -230,28 +231,29 @@ function ChatInner() {
         let acc = "";
         let shown = 0;
         let ended = false;
-        // 卡片数据先暂存（事件到达就预取），等打字机吐完字与收尾一起亮相，避免吐字中途插卡的顿挫感
-        let pendingRecs: Book[] | null = null;
-        let pendingCites: Citation[] | null = null;
+        // 卡片交错渲染：工具事件到达时把占位标记插进 acc 当前位置（正好在两轮模型文字之间），
+        // 数据立即挂上消息；打字机推进到标记处卡片自然亮相——顺序与模型行为一致（理由→卡片→后话）
+        const recsAcc: Book[] = [];
+        const citesAcc: Citation[] = [];
+        const markerSpans: [number, number][] = []; // 标记在 acc 中的区间：打字机一步跨过，不让半截标记可见
+        const pushMarker = (kind: "recs" | "cites", from: number, to: number) => {
+          if (!acc.endsWith("\n\n")) acc += acc.endsWith("\n") ? "\n" : "\n\n";
+          const marker = `[[${kind}:${from},${to}]]\n\n`;
+          markerSpans.push([acc.length, acc.length + marker.length]);
+          acc += marker;
+        };
         const smooth = () => {
           if (timer.current) return;
           timer.current = setInterval(() => {
             if (fetchCtrl.current !== ctrl && !ended) return; // stop() 已接管收尾
             if (shown < acc.length) {
               shown = Math.min(acc.length, shown + Math.max(2, Math.ceil((acc.length - shown) / 25)));
+              for (const [s, e] of markerSpans) if (shown > s && shown < e) shown = e; // 不停在标记中间
               apply({ content: acc.slice(0, shown) }); // 不动 toolNote：工具状态由事件自己管理
             } else if (ended) {
               if (timer.current) clearInterval(timer.current);
               timer.current = null;
-              apply({
-                content: acc,
-                streaming: false,
-                toolNote: undefined,
-                recsPending: undefined,
-                ...(pendingRecs?.length ? { recommendations: pendingRecs } : {}),
-                ...(pendingCites?.length ? { citations: pendingCites } : {}),
-              });
-              pendingReply.current = null;
+              apply({ content: acc, streaming: false, toolNote: undefined });
               busyRef.current = false;
               setBusy(false);
               setShowJump(false);
@@ -262,14 +264,24 @@ function ChatInner() {
           if (ev.t === "d" && typeof ev.v === "string") { acc += ev.v; apply({ toolNote: undefined }); smooth(); } // 新文字到达才清工具状态
           else if (ev.t === "status" && typeof ev.v === "string") apply({ toolNote: ev.v });
           else if (ev.t === "recs" && Array.isArray(ev.v)) {
-            // 预取展示数据（封面/书名/作者）；先亮骨架卡占位（"书正在从架上取下来"），收尾时换真卡
-            apply({ recsPending: true });
+            // 预取展示数据（封面/书名/作者）后插标记；handle 在行循环里被 await，期间不会有新文字混进 acc，位置不漂移
             const books = (await Promise.all((ev.v as string[]).map((id) => getBook(id).catch(() => null)))).filter(Boolean) as Book[];
-            if (books.length) { pendingRecs = books; pendingReply.current = { id: aId, citations: pendingCites ?? [], recommendations: books }; }
-            else apply({ recsPending: undefined });
+            if (books.length) {
+              const from = recsAcc.length;
+              recsAcc.push(...books);
+              pushMarker("recs", from, recsAcc.length);
+              apply({ recommendations: recsAcc.slice() });
+              smooth();
+            }
           } else if (ev.t === "cites" && Array.isArray(ev.v)) {
             const cites = await buildCitations(ev.v as { b: string; c: number }[]);
-            if (cites.length) { pendingCites = cites; pendingReply.current = { id: aId, citations: cites, recommendations: pendingRecs ?? [] }; }
+            if (cites.length) {
+              const from = citesAcc.length;
+              citesAcc.push(...cites);
+              pushMarker("cites", from, citesAcc.length);
+              apply({ citations: citesAcc.slice() });
+              smooth();
+            }
           } else if (ev.t === "err") throw new Error(typeof ev.v === "string" ? ev.v : "服务暂时不可用");
         };
         const reader = r.body.getReader();
@@ -309,18 +321,15 @@ function ChatInner() {
     if (fetchCtrl.current) { fetchCtrl.current.abort(); fetchCtrl.current = null; }
     if (thinkTimer.current) clearTimeout(thinkTimer.current);
     if (timer.current) clearInterval(timer.current);
-    const pr = pendingReply.current;
+    // 卡片数据在事件到达时已挂上消息：内容里有标记按标记位置渲染，标记没吐到则回退末尾渲染，不会丢卡
     setMessages((prev) =>
-      prev
-        .map((m) => {
-          if (!m.streaming) return m;
-          if (pr && m.id === pr.id) return { ...m, citations: pr.citations, recommendations: pr.recommendations, streaming: false };
-          return m.content
-            ? { ...m, streaming: false }
-            : { ...m, content: "好，先停在这里。想继续随时叫我", streaming: false, error: true };
-        })
+      prev.map((m) => {
+        if (!m.streaming) return m;
+        return m.content
+          ? { ...m, streaming: false, toolNote: undefined }
+          : { ...m, content: "好，先停在这里。想继续随时叫我", streaming: false, toolNote: undefined, error: true };
+      })
     );
-    pendingReply.current = null;
     busyRef.current = false;
     setBusy(false);
     setShowJump(false);

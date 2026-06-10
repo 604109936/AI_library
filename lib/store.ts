@@ -502,10 +502,14 @@ export const useChat = create<ChatState>()(
           // 世代校验：加载期间已退出/换号 → 晚到数据不回写、不上传（防把 A 的会话灌进 B 的账号）
           if (useAuth.getState().user?.id !== uid) return;
           const cloudIds = new Set(cloud.map((s) => s.id));
+          // 共享体验账号不做合并上传：任何设备的本地旧会话在登录 demo 时都会整批灌进云端（脏数据源头），只读云端即可
+          const isSharedDemo = useAuth.getState().user?.email === "demo@ailibrary.app";
           // 仅"真·游客会话或本人会话"合并上传；其它账号残留一律丢弃
-          const localOnly = get().sessions.filter(
-            (s) => !cloudIds.has(s.id) && (!s.ownerUid || s.ownerUid === "guest" || s.ownerUid === uid)
-          );
+          const localOnly = isSharedDemo
+            ? []
+            : get().sessions.filter(
+                (s) => !cloudIds.has(s.id) && (!s.ownerUid || s.ownerUid === "guest" || s.ownerUid === uid)
+              );
           for (const s of localOnly) chatSync(chatDb.upsert(uid, s));
           set({
             sessions: [...cloud, ...localOnly.map((s) => ({ ...s, ownerUid: uid }))].sort(

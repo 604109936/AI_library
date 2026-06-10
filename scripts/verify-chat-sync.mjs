@@ -68,4 +68,9 @@ await page.waitForTimeout(2500);
 const hasItem = await page.evaluate((q) => (document.body.textContent || "").includes(q.slice(0, 10)), Q);
 console.log(`④ 清本地后历史页云端回显：${hasItem ? "✅ 看得到本次会话" : "❌ 没回显"}`);
 await browser.close();
+// ⑤ 用后即清：demo 是共享体验账号，测试会话留在云端会把历史页刷成脏数据
+if (target) {
+  await admin.from("chat_sessions").delete().eq("user_id", uid).eq("id", target.id);
+  console.log("⑤ 测试会话已清理");
+}
 console.log(target && hasItem ? "\n✅ T2.5 对话云同步验证通过" : "\n⚠️ 有项未通过");

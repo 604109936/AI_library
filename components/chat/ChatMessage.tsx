@@ -3,12 +3,12 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import type { Components } from "react-markdown";
 import { ThumbsUp, ThumbsDown, Copy, RotateCw, Pencil } from "lucide-react";
 import { BookCover } from "@/components/ui/BookCover";
-import { Mascot } from "@/components/chat/Mascot";
-import { Skeleton } from "@/components/ui/States";
+import { splitCardSegments, stripCardMarkers, hasCardMarker } from "@/lib/chatMarkers";
 import { useAuth, useLibrary, useUI } from "@/lib/store";
-import type { ChatMessage as TMsg } from "@/lib/types";
+import type { Book, Citation, ChatMessage as TMsg } from "@/lib/types";
 
 // 反馈标签（对齐补充文档：推荐偏差 / 答疑有误 / 解读没用 / 其它，「其它」可个性化输入）
 const FEEDBACK = ["推荐偏差", "答疑有误", "解读没用", "其它"];
@@ -39,6 +39,79 @@ function recBadge(bookId: string, fav: boolean, pct: number, played: number): { 
   return null;
 }
 
+// 表格在手机气泡里必然挤爆（用户明确不要表格）：System 已禁止小涤输出表格，
+// 这里再做渲染兜底——万一漏出表格语法，降级为紧凑的行式列表而非 <table>
+const MD_COMPONENTS: Components = {
+  table: ({ children }) => <div className="my-2 space-y-1.5 text-sm">{children}</div>,
+  thead: ({ children }) => <div className="pb-1 font-medium text-ink dark:text-dark-text">{children}</div>,
+  tbody: ({ children }) => <div className="space-y-1.5">{children}</div>,
+  tr: ({ children }) => <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">{children}</div>,
+  th: ({ children }) => <span className="font-medium">{children}</span>,
+  td: ({ children }) => <span className="text-ink-700 dark:text-dark-text/80">{children}</span>,
+};
+
+/* 推荐书目卡组：封面叠"懂你"徽标（已读完 / 在读 N% / 在书架）。
+   交错渲染后卡组出现在工具调用的真实位置（理由之后、后话之前），fade-up 让它"亮相"而非"闪现" */
+function RecsBlock({ books }: { books: Book[] }) {
+  const favorites = useLibrary((s) => s.favorites);
+  const progress = useLibrary((s) => s.progress);
+  const mediaPlayed = useLibrary((s) => s.mediaPlayed);
+  return (
+    <div className="my-3 animate-fade-up first:mt-0 last:mb-0">
+      <p className="mb-2 text-xs font-medium text-ink-700 dark:text-dark-text/70">为你挑的书</p>
+      <div className="-mx-1 flex gap-2.5 overflow-x-auto px-1 pb-1 no-scrollbar">
+        {books.map((b) => {
+          const badge = recBadge(b.id, favorites.includes(b.id), progress[b.id]?.pct ?? 0, mediaPlayed[b.id] ?? 0);
+          return (
+            <Link key={b.id} href={`/library/book/${b.id}`} className="w-[88px] shrink-0">
+              <div className="relative">
+                <BookCover title={b.title} seed={b.coverSeed} src={b.cover} className="w-[88px]" showText={false} />
+                {badge && (
+                  <span className={"absolute left-1 top-1 rounded-full px-1.5 py-0.5 text-[10px] leading-none text-snow " + (badge.done ? "bg-ink/55" : "bg-celadon/90")}>
+                    {badge.text}
+                  </span>
+                )}
+              </div>
+              <p className="mt-1.5 truncate text-xs text-ink dark:text-dark-text">{b.title}</p>
+              <p className="truncate text-[10px] text-ink-300">{b.author}</p>
+            </Link>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* 引用章节卡组：出处与读者进度缝起来（"你正读到这里/你读过这章"），点击直达原文 */
+function CitesBlock({ cites }: { cites: Citation[] }) {
+  const progress = useLibrary((s) => s.progress);
+  return (
+    <div className="my-3 animate-fade-up space-y-2 first:mt-0 last:mb-0">
+      <p className="text-[11px] text-ink-300">依据原文 {cites.length} 处，点击可直达</p>
+      {cites.map((c, i) => {
+        const myCh = progress[c.bookId]?.chapterNo ?? 0;
+        const mark = myCh === c.chapterNo ? "你正读到这里" : myCh > c.chapterNo ? "你读过这章" : null;
+        return (
+          <Link
+            key={i}
+            href={`/library/book/${c.bookId}/read?ch=${c.bookId}-c${c.chapterNo}`}
+            className="flex gap-2 rounded-xl border border-line p-2 active:bg-moon/50 dark:border-white/10 dark:active:bg-white/5"
+          >
+            <BookCover title={c.bookTitle} seed={c.coverSeed} src={c.cover} className="w-9 shrink-0" showText={false} />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-start gap-1.5">
+                <p className="min-w-0 flex-1 truncate text-xs font-medium text-ink dark:text-dark-text">《{c.bookTitle}》第{c.chapterNo}章 {c.chapterTitle}</p>
+                {mark && <span className="shrink-0 text-[10px] text-celadon-700 dark:text-celadon-300">{mark}</span>}
+              </div>
+              <p className="mt-0.5 line-clamp-2 text-[11px] text-ink-500 dark:text-dark-text/55">{c.snippet}</p>
+            </div>
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
 export function ChatMessage({
   msg,
   onRegenerate,
@@ -54,9 +127,6 @@ export function ChatMessage({
 }) {
   const ringCls = highlight ? " ring-2 ring-celadon/70 ring-offset-2 ring-offset-moon dark:ring-offset-dark-bg" : "";
   const toast = useUI((s) => s.toast);
-  const favorites = useLibrary((s) => s.favorites);
-  const progress = useLibrary((s) => s.progress);
-  const mediaPlayed = useLibrary((s) => s.mediaPlayed);
   const [fb, setFb] = useState<"up" | "down" | null>(msg.feedback ?? null);
   const [showFb, setShowFb] = useState(false);
   const [picked, setPicked] = useState<string[]>([]);
@@ -74,6 +144,11 @@ export function ChatMessage({
   }
 
   const thinking = msg.streaming && !msg.content;
+  // 卡片交错渲染：按占位标记切段，卡片出现在工具调用的真实位置；
+  // 没有标记的老消息（或停止时标记还没吐出来）回退为渲染在末尾，卡不会丢
+  const segments = splitCardSegments(msg.content);
+  const recsInFlow = hasCardMarker(msg.content, "recs");
+  const citesInFlow = hasCardMarker(msg.content, "cites");
 
   function submitFeedback() {
     onFeedbackDetail?.(picked, picked.includes("其它") ? other.trim() : "");
@@ -83,220 +158,155 @@ export function ChatMessage({
   }
 
   return (
-    <div className="flex gap-2">
-      <Mascot size={32} className="mt-0.5 shrink-0" />
-      <div className="min-w-0 flex-1">
-        {thinking ? (
-          // 思考中 / 工具调用文案：不套整块气泡，只显示文字 + 动效（等待文案随时间轮换）
-          <div className="flex items-center gap-1.5 py-1.5 text-sm text-ink-400 dark:text-dark-text/50">
-            <ThinkingNote override={msg.toolNote} />
-            <span className="flex gap-0.5">
-              <span className="h-1 w-1 animate-bounce rounded-full bg-celadon [animation-delay:-0.2s]" />
-              <span className="h-1 w-1 animate-bounce rounded-full bg-celadon [animation-delay:-0.1s]" />
-              <span className="h-1 w-1 animate-bounce rounded-full bg-celadon" />
-            </span>
-          </div>
-        ) : (
-          <div className={"rounded-2xl rounded-tl-sm bg-snow px-3.5 py-3 shadow-sm transition dark:bg-dark-card" + ringCls}>
-            {/* 不放流式光标：Markdown 渲染为块级段落，光标会被挤到独立一行像根"杵着的竖线" */}
-            <div className="prose-cn">
-              {/* 表格在手机气泡里必然挤爆（用户明确不要表格）：System 已禁止小涤输出表格，
-                  这里再做渲染兜底——万一漏出表格语法，降级为紧凑的行式列表而非 <table> */}
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  table: ({ children }) => <div className="my-2 space-y-1.5 text-sm">{children}</div>,
-                  thead: ({ children }) => <div className="pb-1 font-medium text-ink dark:text-dark-text">{children}</div>,
-                  tbody: ({ children }) => <div className="space-y-1.5">{children}</div>,
-                  tr: ({ children }) => <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">{children}</div>,
-                  th: ({ children }) => <span className="font-medium">{children}</span>,
-                  td: ({ children }) => <span className="text-ink-700 dark:text-dark-text/80">{children}</span>,
-                }}
-              >
-                {msg.content}
-              </ReactMarkdown>
-            </div>
-
-            {/* 流式中卡片数据已就绪：先亮骨架卡占位（"书正在从架上取下来"），收尾时换真卡 */}
-            {msg.streaming && msg.recsPending && !msg.recommendations && (
-              <div className="mt-3">
-                <p className="mb-2 text-xs font-medium text-ink-700 dark:text-dark-text/70">为你挑的书</p>
-                <div className="flex gap-2.5">
-                  {[0, 1].map((i) => (
-                    <div key={i} className="w-[88px]">
-                      <Skeleton className="aspect-[3/4] w-[88px] rounded-lg" />
-                      <Skeleton className="mt-1.5 h-3 w-16 rounded" />
-                    </div>
-                  ))}
+    <div>
+      {thinking ? (
+        // 思考中 / 工具调用文案：不套整块气泡，只显示文字 + 动效（等待文案随时间轮换）
+        <div className="flex items-center gap-1.5 py-1.5 text-sm text-ink-400 dark:text-dark-text/50">
+          <ThinkingNote override={msg.toolNote} />
+          <span className="flex gap-0.5">
+            <span className="h-1 w-1 animate-bounce rounded-full bg-celadon [animation-delay:-0.2s]" />
+            <span className="h-1 w-1 animate-bounce rounded-full bg-celadon [animation-delay:-0.1s]" />
+            <span className="h-1 w-1 animate-bounce rounded-full bg-celadon" />
+          </span>
+        </div>
+      ) : (
+        <div className={"rounded-2xl rounded-tl-sm bg-snow px-3.5 py-3 shadow-sm transition dark:bg-dark-card" + ringCls}>
+          {/* 不放流式光标：Markdown 渲染为块级段落，光标会被挤到独立一行像根"杵着的竖线" */}
+          {segments.map((seg, i) => {
+            if (seg.kind === "text") {
+              if (!seg.text.trim()) return null;
+              return (
+                <div key={i} className="prose-cn">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
+                    {seg.text}
+                  </ReactMarkdown>
                 </div>
-              </div>
-            )}
+              );
+            }
+            if (seg.kind === "recs") {
+              const books = (msg.recommendations ?? []).slice(seg.from, seg.to);
+              return books.length ? <RecsBlock key={i} books={books} /> : null;
+            }
+            const cites = (msg.citations ?? []).slice(seg.from, seg.to);
+            return cites.length ? <CitesBlock key={i} cites={cites} /> : null;
+          })}
 
-            {/* 引用卡 */}
-            {msg.citations && msg.citations.length > 0 && (
-              <div className="mt-3 space-y-2">
-                <p className="text-[11px] text-ink-300">依据原文 {msg.citations.length} 处，点击可直达</p>
-                {msg.citations.map((c, i) => {
-                  const myCh = progress[c.bookId]?.chapterNo ?? 0;
-                  const mark = myCh === c.chapterNo ? "你正读到这里" : myCh > c.chapterNo ? "你读过这章" : null;
-                  return (
-                    <Link
-                      key={i}
-                      href={`/library/book/${c.bookId}/read?ch=${c.bookId}-c${c.chapterNo}`}
-                      className="flex gap-2 rounded-xl border border-line p-2 active:bg-moon/50 dark:border-white/10 dark:active:bg-white/5"
-                    >
-                      <BookCover title={c.bookTitle} seed={c.coverSeed} src={c.cover} className="w-9 shrink-0" showText={false} />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-start gap-1.5">
-                          <p className="min-w-0 flex-1 truncate text-xs font-medium text-ink dark:text-dark-text">《{c.bookTitle}》第{c.chapterNo}章 {c.chapterTitle}</p>
-                          {/* 出处与我的进度缝起来：从"查资料"变成"回到我的书" */}
-                          {mark && <span className="shrink-0 text-[10px] text-celadon-700 dark:text-celadon-300">{mark}</span>}
-                        </div>
-                        <p className="mt-0.5 line-clamp-2 text-[11px] text-ink-500 dark:text-dark-text/55">{c.snippet}</p>
-                      </div>
-                    </Link>
-                  );
-                })}
-              </div>
-            )}
+          {/* 回退：数组里有卡但正文没有对应标记（老消息/中途停止）→ 渲染在末尾。
+              流式中不回退：标记还在路上，先出现在末尾再跳到正确位置会很怪 */}
+          {!msg.streaming && !citesInFlow && !!msg.citations?.length && <CitesBlock cites={msg.citations} />}
+          {!msg.streaming && !recsInFlow && !!msg.recommendations?.length && <RecsBlock books={msg.recommendations} />}
+        </div>
+      )}
 
-            {/* 推荐书目：封面叠"懂你"徽标（已读完 / 在读 N% / 在书架） */}
-            {msg.recommendations && msg.recommendations.length > 0 && (
-              <div className="mt-3">
-                <p className="mb-2 text-xs font-medium text-ink-700 dark:text-dark-text/70">为你挑的书</p>
-                <div className="-mx-1 flex gap-2.5 overflow-x-auto px-1 pb-1 no-scrollbar">
-                  {msg.recommendations.map((b) => {
-                    const badge = recBadge(b.id, favorites.includes(b.id), progress[b.id]?.pct ?? 0, mediaPlayed[b.id] ?? 0);
-                    return (
-                      <Link key={b.id} href={`/library/book/${b.id}`} className="w-[88px] shrink-0">
-                        <div className="relative">
-                          <BookCover title={b.title} seed={b.coverSeed} src={b.cover} className="w-[88px]" showText={false} />
-                          {badge && (
-                            <span className={"absolute left-1 top-1 rounded-full px-1.5 py-0.5 text-[10px] leading-none text-snow " + (badge.done ? "bg-ink/55" : "bg-celadon/90")}>
-                              {badge.text}
-                            </span>
-                          )}
-                        </div>
-                        <p className="mt-1.5 truncate text-xs text-ink dark:text-dark-text">{b.title}</p>
-                        <p className="truncate text-[10px] text-ink-300">{b.author}</p>
-                      </Link>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+      {/* 工具调用中（已有正文时显示在气泡下方）：翻开《某本书》… / 细读章节… */}
+      {msg.streaming && !!msg.content && msg.toolNote && (
+        <div className="mt-1.5 flex items-center gap-1.5 pl-1 text-xs text-ink-400 dark:text-dark-text/50">
+          {msg.toolNote}
+          <span className="flex gap-0.5">
+            <span className="h-1 w-1 animate-bounce rounded-full bg-celadon [animation-delay:-0.2s]" />
+            <span className="h-1 w-1 animate-bounce rounded-full bg-celadon [animation-delay:-0.1s]" />
+            <span className="h-1 w-1 animate-bounce rounded-full bg-celadon" />
+          </span>
+        </div>
+      )}
 
-        {/* 工具调用中（已有正文时显示在气泡下方）：在书架间找书… / 翻开这本书… / 细读章节… */}
-        {msg.streaming && !!msg.content && msg.toolNote && (
-          <div className="mt-1.5 flex items-center gap-1.5 pl-1 text-xs text-ink-400 dark:text-dark-text/50">
-            {msg.toolNote}
-            <span className="flex gap-0.5">
-              <span className="h-1 w-1 animate-bounce rounded-full bg-celadon [animation-delay:-0.2s]" />
-              <span className="h-1 w-1 animate-bounce rounded-full bg-celadon [animation-delay:-0.1s]" />
-              <span className="h-1 w-1 animate-bounce rounded-full bg-celadon" />
-            </span>
-          </div>
-        )}
-
-        {/* 操作栏（触区统一 32px，视觉图标不变） */}
-        {!msg.streaming && (
-          <div className="mt-1 flex items-center gap-1 pl-0.5 text-ink-300">
-            <button
-              aria-label="赞"
-              aria-pressed={fb === "up"}
-              className="flex h-8 w-8 items-center justify-center"
-              onClick={() => {
-                const v = fb === "up" ? null : "up";
-                setFb(v);
-                setShowFb(false);
-                onFeedback?.(v);
-                if (v) toast("记住了，你喜欢这样的讲法");
-              }}
-            >
-              <ThumbsUp size={15} className={fb === "up" ? "text-celadon" : ""} />
+      {/* 操作栏（触区统一 32px，视觉图标不变） */}
+      {!msg.streaming && (
+        <div className="mt-1 flex items-center gap-1 pl-0.5 text-ink-300">
+          <button
+            aria-label="赞"
+            aria-pressed={fb === "up"}
+            className="flex h-8 w-8 items-center justify-center"
+            onClick={() => {
+              const v = fb === "up" ? null : "up";
+              setFb(v);
+              setShowFb(false);
+              onFeedback?.(v);
+              if (v) toast("记住了，你喜欢这样的讲法");
+            }}
+          >
+            <ThumbsUp size={15} className={fb === "up" ? "text-celadon" : ""} />
+          </button>
+          <button
+            aria-label="踩"
+            aria-pressed={fb === "down"}
+            className="flex h-8 w-8 items-center justify-center"
+            onClick={() => {
+              const v = fb === "down" ? null : "down";
+              setFb(v);
+              setShowFb(v === "down");
+              if (v === "down" && msg.feedbackReasons?.length) setPicked(msg.feedbackReasons);
+              onFeedback?.(v);
+            }}
+          >
+            <ThumbsDown size={15} className={fb === "down" ? "text-celadon" : ""} />
+          </button>
+          <button
+            aria-label="复制"
+            className="flex h-8 w-8 items-center justify-center"
+            onClick={() => {
+              if (navigator.clipboard?.writeText) {
+                // 复制给人看的文本：剥掉卡片占位标记
+                navigator.clipboard.writeText(stripCardMarkers(msg.content)).then(() => toast("已复制")).catch(() => toast("复制失败", "error"));
+              } else {
+                toast("复制失败", "error");
+              }
+            }}
+          >
+            <Copy size={15} />
+          </button>
+          {onRegenerate && (
+            <button onClick={onRegenerate} className="flex h-8 items-center gap-1 px-1.5 text-xs text-celadon-700 dark:text-celadon-300">
+              <RotateCw size={14} /> 重新生成
             </button>
+          )}
+          {/* 反馈留痕：踩过且填过原因 → 常驻小标，点按可重新修改（"它记住了"看得见） */}
+          {fb === "down" && !showFb && msg.feedbackReasons && msg.feedbackReasons.length > 0 && (
             <button
-              aria-label="踩"
-              aria-pressed={fb === "down"}
-              className="flex h-8 w-8 items-center justify-center"
-              onClick={() => {
-                const v = fb === "down" ? null : "down";
-                setFb(v);
-                setShowFb(v === "down");
-                if (v === "down" && msg.feedbackReasons?.length) setPicked(msg.feedbackReasons);
-                onFeedback?.(v);
-              }}
+              onClick={() => { setPicked(msg.feedbackReasons ?? []); setShowFb(true); }}
+              className="ml-auto flex h-8 items-center gap-1 px-1 text-[11px] text-ink-300"
             >
-              <ThumbsDown size={15} className={fb === "down" ? "text-celadon" : ""} />
+              <Pencil size={11} /> 已反馈 · {msg.feedbackReasons[0]}
             </button>
-            <button
-              aria-label="复制"
-              className="flex h-8 w-8 items-center justify-center"
-              onClick={() => {
-                if (navigator.clipboard?.writeText) {
-                  navigator.clipboard.writeText(msg.content).then(() => toast("已复制")).catch(() => toast("复制失败", "error"));
-                } else {
-                  toast("复制失败", "error");
-                }
-              }}
-            >
-              <Copy size={15} />
-            </button>
-            {onRegenerate && (
-              <button onClick={onRegenerate} className="flex h-8 items-center gap-1 px-1.5 text-xs text-celadon-700 dark:text-celadon-300">
-                <RotateCw size={14} /> 重新生成
-              </button>
-            )}
-            {/* 反馈留痕：踩过且填过原因 → 常驻小标，点按可重新修改（"它记住了"看得见） */}
-            {fb === "down" && !showFb && msg.feedbackReasons && msg.feedbackReasons.length > 0 && (
-              <button
-                onClick={() => { setPicked(msg.feedbackReasons ?? []); setShowFb(true); }}
-                className="ml-auto flex h-8 items-center gap-1 px-1 text-[11px] text-ink-300"
-              >
-                <Pencil size={11} /> 已反馈 · {msg.feedbackReasons[0]}
-              </button>
-            )}
-          </div>
-        )}
+          )}
+        </div>
+      )}
 
-        {/* 点踩反馈浮层：点击空白处不提交即关闭（层级须高于输入区/底栏 z-40，否则盖不住） */}
-        {showFb && (
-          <>
-            <div className="fixed inset-0 z-[55]" onClick={() => setShowFb(false)} />
-            <div className="relative z-[56] mt-2 rounded-lg border border-line bg-snow p-3 shadow-lg dark:border-white/10 dark:bg-dark-card">
-              <p className="mb-2 text-xs text-ink-500 dark:text-dark-text/60">哪里没说好？告诉我，下次改</p>
-              <div className="flex flex-wrap gap-2">
-                {FEEDBACK.map((f) => (
-                  <button
-                    key={f}
-                    onClick={() => setPicked((p) => (p.includes(f) ? p.filter((x) => x !== f) : [...p, f]))}
-                    className={"rounded-full px-2.5 py-1.5 text-xs " + (picked.includes(f) ? "bg-celadon text-snow" : "bg-moon text-ink-500 dark:bg-dark-bg dark:text-dark-text/70")}
-                  >
-                    {f}
-                  </button>
-                ))}
-              </div>
-              {picked.includes("其它") && (
-                <textarea
-                  autoFocus
-                  value={other}
-                  onChange={(e) => setOther(e.target.value.slice(0, 200))}
-                  placeholder="说说具体问题…"
-                  className="mt-2 h-16 w-full resize-none rounded-lg border border-line bg-moon p-2 text-xs text-ink outline-none focus:border-celadon dark:border-white/10 dark:bg-dark-bg dark:text-dark-text"
-                />
-              )}
-              <button
-                onClick={submitFeedback}
-                className="mt-3 rounded-full bg-celadon px-4 py-1.5 text-xs text-snow active:scale-95"
-              >
-                提交
-              </button>
+      {/* 点踩反馈浮层：点击空白处不提交即关闭（层级须高于输入区/底栏 z-40，否则盖不住） */}
+      {showFb && (
+        <>
+          <div className="fixed inset-0 z-[55]" onClick={() => setShowFb(false)} />
+          <div className="relative z-[56] mt-2 rounded-lg border border-line bg-snow p-3 shadow-lg dark:border-white/10 dark:bg-dark-card">
+            <p className="mb-2 text-xs text-ink-500 dark:text-dark-text/60">哪里没说好？告诉我，下次改</p>
+            <div className="flex flex-wrap gap-2">
+              {FEEDBACK.map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setPicked((p) => (p.includes(f) ? p.filter((x) => x !== f) : [...p, f]))}
+                  className={"rounded-full px-2.5 py-1.5 text-xs " + (picked.includes(f) ? "bg-celadon text-snow" : "bg-moon text-ink-500 dark:bg-dark-bg dark:text-dark-text/70")}
+                >
+                  {f}
+                </button>
+              ))}
             </div>
-          </>
-        )}
-      </div>
+            {picked.includes("其它") && (
+              <textarea
+                autoFocus
+                value={other}
+                onChange={(e) => setOther(e.target.value.slice(0, 200))}
+                placeholder="说说具体问题…"
+                className="mt-2 h-16 w-full resize-none rounded-lg border border-line bg-moon p-2 text-xs text-ink outline-none focus:border-celadon dark:border-white/10 dark:bg-dark-bg dark:text-dark-text"
+              />
+            )}
+            <button
+              onClick={submitFeedback}
+              className="mt-3 rounded-full bg-celadon px-4 py-1.5 text-xs text-snow active:scale-95"
+            >
+              提交
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

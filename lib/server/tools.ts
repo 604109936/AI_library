@@ -12,6 +12,26 @@ export const TOOL_STATUS: Record<string, string> = {
   cite_chapters: "整理出处…",
 };
 
+// 状态文案带书名：「翻开《认知觉醒》…」比「翻开这本书…」更有"它真的在替我翻书"的实感。
+// 查询失败/参数缺失时回落通用文案；书名查询极轻（主键单行），不拖慢工具执行
+export async function toolStatus(name: string, argsJson: string): Promise<string> {
+  const base = TOOL_STATUS[name] ?? "查阅资料…";
+  if (name !== "read_book_toc" && name !== "read_chapter") return base;
+  try {
+    const args = JSON.parse(argsJson || "{}");
+    const id = String(args.book_id ?? "");
+    if (!id) return base;
+    const { data } = await admin.from("books").select("title").eq("id", id).maybeSingle();
+    const title = (data as any)?.title;
+    if (!title) return base;
+    if (name === "read_book_toc") return `翻开《${title}》…`;
+    const no = Number(args.chapter_no);
+    return Number.isFinite(no) ? (no === 0 ? `细读《${title}》前言…` : `细读《${title}》第${no}章…`) : `细读《${title}》…`;
+  } catch {
+    return base;
+  }
+}
+
 export const AGENT_TOOLS: MMTool[] = [
   {
     type: "function",

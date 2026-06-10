@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import { streamChat, type MMMessage, type MMToolCall } from "@/lib/server/minimax";
 import { buildSystem, getUid } from "@/lib/server/agent";
-import { AGENT_TOOLS, TOOL_STATUS, execTool, type ToolEvent } from "@/lib/server/tools";
+import { AGENT_TOOLS, toolStatus, execTool, type ToolEvent } from "@/lib/server/tools";
 import { getCompressed, maybeCompress } from "@/lib/server/compress";
 import { rateLimit, limiterKey } from "@/lib/server/ratelimit";
 
@@ -47,7 +47,7 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
     }
     convo.push({ role: "assistant", content: text, tool_calls: calls });
     for (const c of calls) {
-      emit({ t: "status", v: TOOL_STATUS[c.function.name] ?? "查阅资料…" });
+      emit({ t: "status", v: await toolStatus(c.function.name, c.function.arguments) }); // 带书名：「翻开《认知觉醒》…」
       const { result, event } = await execTool(c.function.name, c.function.arguments);
       if (event) emit(event);
       convo.push({ role: "tool", tool_call_id: c.id, content: result });

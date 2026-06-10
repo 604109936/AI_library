@@ -285,17 +285,22 @@ export default function FlipPage() {
             <div ref={scrollerRef} className="relative h-full snap-y snap-mandatory overflow-y-auto overscroll-contain no-scrollbar">
              {/* 滚动内容包裹层：高 = 书数×单屏；视频与卡片都在其内，随内容一起滚（绝对定位相对此层、不被钉在视口） */}
              <div className="relative w-full" style={{ height: `${books.length * 100}%` }}>
-              {/* 封面垫底：与视频同 z 且 DOM 在前 → 永远垫在视频之下，视频出帧自然盖住；用 <img> 不新增解码压力 */}
+              {/* 封面垫底（视频未出帧时可见）：大图重度 blur 压暗只做氛围，前景居中一张适中锐利封面——
+                  音乐播放器式构图，避免封面糊满全屏的压迫感；与视频同 z 且 DOM 在前 → 视频出帧自然盖住 */}
               {books.map((b, i) =>
                 b.cover && Math.abs(i - activeIdx) <= 1 ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
+                  <div
                     key={`backdrop-${b.id}`}
-                    src={b.cover}
-                    alt=""
-                    className="absolute inset-x-0 z-0 w-full object-cover blur-sm brightness-50"
+                    className="absolute inset-x-0 z-0 overflow-hidden"
                     style={{ top: `${(i / books.length) * 100}%`, height: `${100 / books.length}%` }}
-                  />
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={b.cover} alt="" className="absolute inset-0 h-full w-full scale-110 object-cover blur-2xl brightness-[0.35]" />
+                    <div className="absolute inset-0 flex items-center justify-center pb-24">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={b.cover} alt="" className="w-44 rounded-xl object-cover shadow-2xl ring-1 ring-white/15" />
+                    </div>
+                  </div>
                 ) : null
               )}
               {/* 视频池：3 个复用元素，定位在各自卡片偏移、随内容一起滚（跟手），仅占 3 个解码器 */}

@@ -97,6 +97,8 @@ export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
+  // 卡片交错渲染：content 内嵌占位标记 [[recs:起,止]]/[[cites:起,止]]，指向下面两个数组的切片，
+  // 卡片渲染在工具调用的真实位置（无标记的老消息回退末尾渲染）；标记随 content 落库
   citations?: Citation[];
   recommendations?: Book[];
   feedback?: "up" | "down";
@@ -105,7 +107,6 @@ export interface ChatMessage {
   streaming?: boolean;
   toolNote?: string; // 工具调用中文案（查找书籍…/翻阅图书…/章节浏览…），仅流式期间展示
   error?: boolean; // 错误/中断占位消息：组装上下文时剔除（防模型把报错文案当成自己说过的话）
-  recsPending?: boolean; // 流式中推荐卡数据已就绪（先渲染骨架卡占位，收尾时换真卡）
 }
 
 export interface ChatSession {
