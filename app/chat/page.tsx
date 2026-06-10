@@ -8,6 +8,7 @@ import { ChatMessage } from "@/components/chat/ChatMessage";
 import { Mascot } from "@/components/chat/Mascot";
 import { Motif } from "@/components/ui/Motif";
 import { exampleQuestions } from "@/lib/api";
+import { supabase } from "@/lib/supabase/client";
 import { sampleSessions } from "@/lib/mock/data";
 import { useChat, useUI } from "@/lib/store";
 import type { Book, Citation, ChatMessage as TMsg } from "@/lib/types";
@@ -119,12 +120,20 @@ function ChatInner() {
 
     const ctrl = new AbortController();
     fetchCtrl.current = ctrl;
-    fetch("/api/chat", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ messages: history }),
-      signal: ctrl.signal,
-    })
+    // 登录态附带 Supabase token：云函数据此注入「这位读者」的个人数据（游客则无）
+    supabase.auth
+      .getSession()
+      .then(({ data }) =>
+        fetch("/api/chat", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...(data.session?.access_token ? { authorization: `Bearer ${data.session.access_token}` } : {}),
+          },
+          body: JSON.stringify({ messages: history }),
+          signal: ctrl.signal,
+        })
+      )
       .then(async (r) => {
         const j = await r.json().catch(() => null);
         if (!r.ok || !j?.content) throw new Error(j?.error ?? "服务暂时不可用");
