@@ -57,10 +57,18 @@ export default function SettingsPage() {
       setActing(false);
     }
   }
-  function submitFeedback() {
-    if (!feedback.trim()) return;
-    close();
-    toast("感谢反馈，我们会认真查看");
+  // T4.4 反馈真落库：feedback 表只写不读（RLS 仅本人可写，无读策略 → 只有管理员能看）
+  async function submitFeedback() {
+    if (!feedback.trim() || acting || !user) return;
+    setActing(true);
+    try {
+      const { error } = await supabase.from("feedback").insert({ user_id: user.id, content: feedback.trim() });
+      if (error) { toast("提交失败，请稍后重试", "error"); return; }
+      close();
+      toast("感谢反馈，我们会认真查看");
+    } finally {
+      setActing(false);
+    }
   }
   // 真实注销：云函数用 service_role 删 auth 账号（用户数据表全部 on delete cascade 级联清除）
   async function doDeactivate() {
@@ -186,7 +194,7 @@ export default function SettingsPage() {
                 <>
                   <h3 className="mb-3 text-center font-serif text-base text-ink dark:text-dark-text">意见反馈</h3>
                   <textarea autoFocus value={feedback} onChange={(e) => setFeedback(e.target.value.slice(0, 500))} placeholder="说说你的想法或遇到的问题，我们会认真查看…" className="h-28 w-full resize-none rounded-2xl border border-line bg-moon p-3 text-sm text-ink outline-none focus:border-celadon dark:border-white/10 dark:bg-dark-bg dark:text-dark-text" />
-                  <button onClick={submitFeedback} disabled={!feedback.trim()} className="mt-3 w-full rounded-2xl bg-celadon py-3 text-sm text-snow disabled:opacity-40 active:scale-[0.99]">提交反馈</button>
+                  <button onClick={submitFeedback} disabled={!feedback.trim() || acting} className="mt-3 w-full rounded-2xl bg-celadon py-3 text-sm text-snow disabled:opacity-40 active:scale-[0.99]">{acting ? "提交中…" : "提交反馈"}</button>
                 </>
               )}
               {sheet === "logout" && (

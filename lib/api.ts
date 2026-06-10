@@ -151,16 +151,54 @@ export async function getChapter(bookId: string, chapterId: string): Promise<Cha
   return data ? toChapter(data) : null;
 }
 
+// 乱翻书池（T3.2）：登录读者优先读个性化日更 flip_feed（Cron 每天用 minimax 按阅读偏好生成，
+// 排除已读、在读优先）；新用户/游客/当天未生成 → 回退最新入库 50 本有视频的书。
+// 模块级短缓存：续拉（loadMore）每次都会进来，5 分钟内不重复打库；按 uid 隔离防换号串池。
+let flipPoolCache: { key: string; books: Book[]; at: number } | null = null;
+async function flipPool(): Promise<Book[]> {
+  const { data: sess } = await supabase.auth.getSession();
+  const uid = sess.session?.user?.id ?? "guest";
+  if (flipPoolCache && flipPoolCache.key === uid && Date.now() - flipPoolCache.at < 5 * 60 * 1000) return flipPoolCache.books;
+  let books: Book[] = [];
+  if (uid !== "guest") {
+    // 取最近一期日更（RLS 只放行本人行）。不强卡“当天”：Cron 偶发失败时退回上一期个性化，比直接掉回退池体验好
+    const { data } = await supabase.from("flip_feed").select("book_ids").eq("user_id", uid).order("gen_date", { ascending: false }).limit(1).maybeSingle();
+    const ids: string[] = (data?.book_ids ?? []) as string[];
+    if (ids.length) {
+      const got = await getBooksByIds(ids);
+      const map = new Map(got.filter((b) => b.hasVideo && b.videoUrl).map((b) => [b.id, b]));
+      books = ids.map((id) => map.get(id)).filter((b): b is Book => !!b); // 严格按 feed 顺序还原（getBooksByIds 不保序）
+    }
+  }
+  if (!books.length) {
+    const { data, error } = await supabase.from("books").select(BOOK_SELECT).eq("has_video", true).order("shelved_at", { ascending: false }).limit(50);
+    if (error) throw error;
+    books = (data ?? []).map(toBook).filter((b) => b.videoUrl);
+  }
+  flipPoolCache = { key: uid, books, at: Date.now() };
+  return books;
+}
+
 export async function getFlip(seenIds: string[]): Promise<Book[]> {
-  // 乱翻：有视频的书池（个性化 flip_feed 在 3.8）。当前=取全部有视频书，洗牌分批下滑。
-  const { data, error } = await supabase.from("books").select(BOOK_SELECT).eq("has_video", true);
-  if (error) throw error;
-  const videoBooks = (data ?? []).map(toBook);
-  if (videoBooks.length === 0) return [];
-  const round = Math.floor(seenIds.length / Math.max(1, videoBooks.length));
-  const shuffled = [...videoBooks].sort(() => Math.random() - 0.5);
-  // 复制本批并赋唯一 id 后缀，避免无限滚动时 key 冲突
-  return shuffled.map((b) => (round === 0 && seenIds.length === 0 ? b : { ...b, id: `${b.id}__f${seenIds.length}_${b.coverSeed}` }));
+  const pool = await flipPool();
+  if (pool.length === 0) return [];
+  // 首批按 feed 顺序（个性化排序生效）；划完一轮后续拉打乱重发，并赋唯一 id 后缀防 key 冲突
+  if (seenIds.length === 0) return pool;
+  const shuffled = [...pool].sort(() => Math.random() - 0.5);
+  return shuffled.map((b) => ({ ...b, id: `${b.id}__f${seenIds.length}_${b.coverSeed}` }));
+}
+
+// T3.3 搜索行为上报：有效搜索（有结果）写一条 search_logs，供热门搜索聚合。
+// fire-and-forget：失败静默；同一 SPA 生命周期内同词只记一次（防输入抖动/反复点击刷热度）
+const loggedTerms = new Set<string>();
+export function logSearch(term: string) {
+  const t = term.trim().slice(0, 50);
+  if (!t || loggedTerms.has(t)) return;
+  loggedTerms.add(t);
+  supabase.auth
+    .getSession()
+    .then(({ data }) => supabase.from("search_logs").insert({ term: t, user_id: data.session?.user?.id ?? null }))
+    .then(() => {}, () => {});
 }
 
 export interface SearchResult {
@@ -191,18 +229,32 @@ export async function getBookReviews(bookId: string, sort: "hot" | "new"): Promi
   return list;
 }
 
-// 热门搜索（过渡版）：由真实书库动态生成（书名 + 高频标签），保证每个词点出去都有结果；
-// T3.4 接 search_logs 全站聚合 Top20 后替换，函数签名不变。
+// 热门搜索（T3.4）：第一优先 = 全站搜索热词 Top20（RPC get_hot_searches 聚合近 30 天 search_logs，
+// 仅保留仍命中现有馆藏 书名/作者/标签 的词，点出去必有结果）；冷启动热词不足 12 个时，
+// 用真实书目（书名 + 高频标签）补足——保证上线第一天热门区也不空。
 let hotCache: { words: string[]; at: number } | null = null;
 export async function getHotSearches(): Promise<string[]> {
   if (hotCache && Date.now() - hotCache.at < 10 * 60 * 1000) return hotCache.words;
-  const { data, error } = await supabase.from("books").select("title, tags").order("shelved_at", { ascending: false }).limit(30);
-  if (error) throw error;
-  const titles = (data ?? []).map((b: any) => String(b.title)).slice(0, 8);
-  const tagCount = new Map<string, number>();
-  for (const b of data ?? []) for (const t of (b.tags ?? []) as string[]) tagCount.set(t, (tagCount.get(t) ?? 0) + 1);
-  const tags = Array.from(tagCount.entries()).sort((a, b) => b[1] - a[1]).map(([t]) => t);
-  const words = Array.from(new Set([...titles, ...tags])).slice(0, 12);
+  let hot: string[] = [];
+  try {
+    const { data } = await supabase.rpc("get_hot_searches", { p_limit: 20, p_days: 30 });
+    if (Array.isArray(data)) hot = data.filter((w: unknown): w is string => typeof w === "string" && !!w);
+  } catch {
+    // RPC 失败不致命：走下方书目兜底
+  }
+  if (hot.length < 12) {
+    const { data, error } = await supabase.from("books").select("title, tags").order("shelved_at", { ascending: false }).limit(30);
+    if (error) {
+      if (hot.length) return hot; // 热词已有就先用着，不缓存（下次重试补足）
+      throw error;
+    }
+    const titles = (data ?? []).map((b: any) => String(b.title)).slice(0, 8);
+    const tagCount = new Map<string, number>();
+    for (const b of data ?? []) for (const t of (b.tags ?? []) as string[]) tagCount.set(t, (tagCount.get(t) ?? 0) + 1);
+    const tags = Array.from(tagCount.entries()).sort((a, b) => b[1] - a[1]).map(([t]) => t);
+    hot = Array.from(new Set([...hot, ...titles, ...tags])).slice(0, 12);
+  }
+  const words = hot.slice(0, 20);
   hotCache = { words, at: Date.now() };
   return words;
 }

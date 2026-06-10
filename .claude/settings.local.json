@@ -19,7 +19,26 @@
       "Bash(curl -s -o /dev/null -w \"局域网 192.168.1.8:3000 → HTTP %{http_code}\\\\n\" \"http://192.168.1.8:3000/library\")",
       "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" \"http://localhost:3000/manifest.webmanifest\")",
       "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" \"http://localhost:3000/icon.svg\")",
-      "Bash(curl -s \"http://localhost:3000/library\")"
+      "Bash(curl -s \"http://localhost:3000/library\")",
+      "Bash(node --env-file=.env.local scripts/import-books.mjs --overwrite)",
+      "Bash(git status*)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(git show*)",
+      "Bash(git add*)",
+      "Bash(git commit*)",
+      "Bash(git branch*)",
+      "Bash(node scripts/*)",
+      "Bash(node --env-file=.env.local scripts/*)",
+      "Bash(pnpm exec tsc*)",
+      "Bash(pnpm lint*)",
+      "Bash(pnpm dev*)",
+      "Bash(curl -s*)",
+      "Bash(E2E_BASE=* node scripts/*)",
+      "Bash(BOOK_ID=* node scripts/*)",
+      "Bash(BOOK_ID=* ADV=* node scripts/*)",
+      "PowerShell(Get-Process *)",
+      "PowerShell(Stop-Process -Id *)"
     ]
   }
 }

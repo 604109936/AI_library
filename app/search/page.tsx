@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, Search as SearchIcon, X, Flame } from "lucide-react";
 import { BookRow } from "@/components/library/BookCard";
 import { Skeleton, EmptyState, ErrorState } from "@/components/ui/States";
-import { search, getHotSearches } from "@/lib/api";
+import { search, getHotSearches, logSearch } from "@/lib/api";
 import { useUI } from "@/lib/store";
 
 export default function SearchPage() {
@@ -35,9 +35,10 @@ export default function SearchPage() {
 
   const hasResult = !!data && data.books.length > 0;
 
-  // 仅“有结果”时写入历史（提交/点击只切换 q，由此 effect 统一记录，避免零结果词污染最近搜索）
+  // 仅“有结果”时写入历史（提交/点击只切换 q，由此 effect 统一记录，避免零结果词污染最近搜索）；
+  // 同时上报 search_logs 供热门搜索聚合（T3.3，库内去重防刷）
   useEffect(() => {
-    if (q && hasResult) addRecent(q);
+    if (q && hasResult) { addRecent(q); logSearch(q); }
   }, [q, hasResult, addRecent]);
 
   function submit(term: string) {

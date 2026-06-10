@@ -7,8 +7,32 @@ import { RequireAuth } from "@/components/shell/RequireAuth";
 import { Avatar } from "@/components/ui/Avatar";
 import { Motif } from "@/components/ui/Motif";
 import { useAuth, useUI } from "@/lib/store";
+import { supabase } from "@/lib/supabase/client";
 
 const PRESET_SEEDS = [1, 2, 3, 4, 5, 6, 7, 8];
+
+// 头像入库前先压一道：最长边 ≤512、JPEG 85%（手机原图动辄几 MB，传原图又慢又费存储）
+async function compressImage(file: File, max = 512): Promise<Blob> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((ok, no) => {
+      const i = new Image();
+      i.onload = () => ok(i);
+      i.onerror = () => no(new Error("图片解码失败"));
+      i.src = url;
+    });
+    const scale = Math.min(1, max / Math.max(img.width, img.height));
+    const w = Math.max(1, Math.round(img.width * scale));
+    const h = Math.max(1, Math.round(img.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    canvas.getContext("2d")!.drawImage(img, 0, 0, w, h);
+    return await new Promise<Blob>((ok, no) => canvas.toBlob((b) => (b ? ok(b) : no(new Error("图片压缩失败"))), "image/jpeg", 0.85));
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
 
 export default function ProfileEdit() {
   const router = useRouter();
@@ -20,8 +44,10 @@ export default function ProfileEdit() {
   const [seed, setSeed] = useState(user?.avatarSeed ?? 7);
   const [avatarUrl, setAvatarUrl] = useState<string | undefined>(user?.avatarUrl);
   const [picker, setPicker] = useState(false);
+  const [saving, setSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const bioRef = useRef<HTMLTextAreaElement>(null);
+  const pendingBlob = useRef<Blob | null>(null); // 已选但未保存的头像（点保存才真上传，取消不留垃圾文件）
 
   // 冷加载回填：直刷本页时 user 可能尚未从云端加载完成，state 以空初始化定格——
   // 待 user 就绪后回填一次（仅一次，不打扰用户后续编辑），否则点保存会把云端昵称/简介/头像洗掉（Review P1）
@@ -48,27 +74,47 @@ export default function ProfileEdit() {
     seed !== (user?.avatarSeed ?? 7) ||
     avatarUrl !== user?.avatarUrl;
 
-  function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
+  async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
     e.target.value = "";
     if (!f) return;
     if (!f.type.startsWith("image/")) { toast("请选择图片文件", "error"); return; }
-    const reader = new FileReader();
-    reader.onload = () => {
-      setAvatarUrl(reader.result as string);
-      setPicker(false);
-      toast("头像已更新，记得保存");
-    };
-    reader.onerror = () => toast("读取图片失败", "error");
-    reader.readAsDataURL(f);
+    try {
+      const blob = await compressImage(f);
+      pendingBlob.current = blob;
+      // 本地预览用 dataURL（压缩后很小）；真上传发生在「保存」
+      const reader = new FileReader();
+      reader.onload = () => { setAvatarUrl(reader.result as string); setPicker(false); toast("头像已选好，记得保存"); };
+      reader.onerror = () => toast("读取图片失败", "error");
+      reader.readAsDataURL(blob);
+    } catch {
+      toast("图片处理失败，请换一张试试", "error");
+    }
   }
 
-  function save() {
+  // T4.3 真保存：新头像传 Supabase Storage（avatars/<uid>/，策略限本人），拿公网 URL 写 profiles.avatar_url；
+  // 选预设头像 = 显式清除云端头像（avatarUrl 传 undefined → DB 置 null）
+  async function save() {
     if (!nickname.trim()) { toast("昵称不能为空", "error"); return; }
     if (!dirty) { router.back(); return; }
-    updateProfile({ nickname: nickname.trim(), bio: bio.trim(), avatarSeed: seed, avatarUrl });
-    toast("已保存");
-    router.back();
+    if (saving || !user) return;
+    setSaving(true);
+    try {
+      let finalUrl = avatarUrl;
+      if (pendingBlob.current) {
+        const path = `${user.id}/avatar.jpg`;
+        const { error } = await supabase.storage.from("avatars").upload(path, pendingBlob.current, { upsert: true, contentType: "image/jpeg" });
+        if (error) { toast("头像上传失败，请检查网络后重试", "error"); return; }
+        const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+        finalUrl = `${data.publicUrl}?v=${Date.now()}`; // 固定路径覆盖上传，加版本参数破 CDN 缓存
+        pendingBlob.current = null;
+      }
+      await updateProfile({ nickname: nickname.trim(), bio: bio.trim(), avatarSeed: seed, avatarUrl: finalUrl });
+      toast("已保存");
+      router.back();
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -111,8 +157,8 @@ export default function ProfileEdit() {
             </Row>
           </div>
 
-          <button onClick={save} className="mt-6 w-full rounded-2xl bg-celadon py-3.5 text-sm font-medium text-snow shadow-celadon active:scale-[0.99]">
-            保存
+          <button onClick={save} disabled={saving} className="mt-6 w-full rounded-2xl bg-celadon py-3.5 text-sm font-medium text-snow shadow-celadon disabled:opacity-60 active:scale-[0.99]">
+            {saving ? "保存中…" : "保存"}
           </button>
         </div>
       </RequireAuth>
@@ -136,7 +182,7 @@ export default function ProfileEdit() {
                 {PRESET_SEEDS.map((sd) => {
                   const active = sd === seed && !avatarUrl;
                   return (
-                    <button key={sd} onClick={() => { setSeed(sd); setAvatarUrl(undefined); setPicker(false); }} className="relative flex items-center justify-center">
+                    <button key={sd} onClick={() => { setSeed(sd); setAvatarUrl(undefined); pendingBlob.current = null; setPicker(false); }} className="relative flex items-center justify-center">
                       <Avatar seed={sd} size={56} ring={active} />
                       {active && <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-celadon text-snow"><Check size={12} /></span>}
                     </button>

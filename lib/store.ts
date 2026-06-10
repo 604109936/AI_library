@@ -120,7 +120,8 @@ export const useAuth = create<AuthState>()((set, get) => ({
     if (patch.nickname !== undefined) db.nickname = patch.nickname;
     if (patch.bio !== undefined) db.bio = patch.bio;
     if (patch.avatarSeed !== undefined) db.avatar_seed = patch.avatarSeed;
-    if (patch.avatarUrl !== undefined) db.avatar_url = patch.avatarUrl;
+    // avatarUrl 用「键是否存在」判断：传 undefined 表示明确清除云端头像（换回预设），否则永远清不掉
+    if ("avatarUrl" in patch) db.avatar_url = patch.avatarUrl ?? null;
     if (Object.keys(db).length) await supabase.from("profiles").update(db).eq("id", u.id);
   },
 }));
