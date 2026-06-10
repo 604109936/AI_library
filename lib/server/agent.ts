@@ -24,6 +24,8 @@ async function libraryVar(): Promise<string> {
     admin.from("books").select("id,title,author,category_id,tags,ai_digest").order("id"),
     admin.from("categories").select("id,name"),
   ]);
+  // 查询失败必须抛错而不是缓存空书单：否则一次 DB 抖动会让小涤"馆藏0本"持续10分钟（铁律又禁止编书=荐书下线）
+  if (books.error || cats.error || !books.data?.length) throw new Error(`书单加载失败：${books.error?.message ?? cats.error?.message ?? "空数据"}`);
   const catName = new Map((cats.data ?? []).map((c: any) => [c.id, c.name]));
   const lines = (books.data ?? []).map((b: any) =>
     `- [${b.id}]《${b.title}》作者：${b.author || "佚名"}｜分类：${catName.get(b.category_id) ?? b.category_id}｜标签：${(b.tags ?? []).join("/")}｜概要：${(b.ai_digest ?? "").trim() || "（暂无）"}`

@@ -4,6 +4,7 @@
 //   {"t":"cites","v":[{b,c}]} {"t":"end"} {"t":"err","v":消息}
 // body.stream === false 时返回一次性 JSON（脚本/调试用）。
 import { NextRequest, NextResponse } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import { streamChat, type MMMessage, type MMToolCall } from "@/lib/server/minimax";
 import { buildSystem, getUid } from "@/lib/server/agent";
 import { AGENT_TOOLS, TOOL_STATUS, execTool, type ToolEvent } from "@/lib/server/tools";
@@ -12,7 +13,10 @@ import { getCompressed, maybeCompress } from "@/lib/server/compress";
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
-const MAX_TURNS = 20; // 上下文裁剪（T2.6 做压缩前的简单上限）
+// 上下文窗口与压缩器对齐（compress.ts KEEP=40）：有压缩信息时按 compressed_until 动态裁剪，
+// 无压缩（游客/新会话）时兜底取最近 40 条——窗口若小于 KEEP 会产生"既不在摘要也不在请求"的黑洞
+const MAX_TURNS = 40;
+const HARD_CAP = 64; // 绝对上限（防异常超长请求）
 const MAX_CHARS = 4000; // 单条消息长度护栏
 const MAX_ROUNDS = 5; // 工具循环上限（防失控）
 
@@ -29,7 +33,17 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
       if (ev.type === "delta") { text += ev.text; emit({ t: "d", v: ev.text }); }
       else calls = ev.calls;
     }
-    if (!calls?.length || round >= MAX_ROUNDS) break;
+    if (!calls?.length) break;
+    if (round >= MAX_ROUNDS) {
+      // 轮次耗尽：纯出卡工具仍执行（正文可能已承诺"为你推荐/依据如下"，卡片是用户唯一点击入口），其余丢弃
+      for (const c of calls) {
+        if (c.function.name === "recommend_books" || c.function.name === "cite_chapters") {
+          const { event } = await execTool(c.function.name, c.function.arguments);
+          if (event) emit(event);
+        }
+      }
+      break;
+    }
     convo.push({ role: "assistant", content: text, tool_calls: calls });
     for (const c of calls) {
       emit({ t: "status", v: TOOL_STATUS[c.function.name] ?? "查阅资料…" });
@@ -48,19 +62,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "请求体不是合法 JSON" }, { status: 400 });
   }
   const raw = Array.isArray(body.messages) ? body.messages : [];
-  const msgs: MMMessage[] = raw
+  const all: MMMessage[] = raw
     .filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim())
-    .slice(-MAX_TURNS)
     .map((m) => ({ role: m.role as "user" | "assistant", content: m.content!.slice(0, MAX_CHARS) }));
-  if (!msgs.length || msgs[msgs.length - 1].role !== "user") {
-    return NextResponse.json({ error: "缺少用户消息" }, { status: 400 });
-  }
   const uid = await getUid(req.headers.get("authorization"));
   const sessionId = typeof body.sessionId === "string" && body.sessionId ? body.sessionId.slice(0, 64) : null;
   // 变量⑥：本会话更早对话的压缩摘要（T2.6；登录且会话存在才有）
-  const compressed = uid && sessionId ? await getCompressed(uid, sessionId).catch(() => undefined) : undefined;
-  // 答完后台检查是否需要压缩（fire-and-forget，不阻塞响应）
-  const afterAnswer = () => { if (uid && sessionId) maybeCompress(uid, sessionId); };
+  const comp = uid && sessionId ? await getCompressed(uid, sessionId).catch(() => ({ summary: undefined, until: 0 })) : { summary: undefined as string | undefined, until: 0 };
+  // 裁剪：摘要覆盖 [0,until) → 只送 until 之后的消息；无压缩则取最近 MAX_TURNS 条
+  const msgs = (comp.until > 0 && comp.until < all.length ? all.slice(comp.until) : all.slice(-MAX_TURNS)).slice(-HARD_CAP);
+  if (!msgs.length || msgs[msgs.length - 1].role !== "user") {
+    return NextResponse.json({ error: "缺少用户消息" }, { status: 400 });
+  }
+  const compressed = comp.summary;
+  // 答完后台检查是否需要压缩；waitUntil 托管防 serverless 冻结（本地 dev 无请求上下文则直接后台跑）
+  const afterAnswer = () => {
+    if (!uid || !sessionId) return;
+    const p = maybeCompress(uid, sessionId);
+    try { waitUntil(p); } catch {}
+  };
 
   // 一次性 JSON 模式（脚本验证/调试）
   if (body.stream === false) {

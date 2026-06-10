@@ -14,11 +14,12 @@ const COMPRESS_MODEL = process.env.MINIMAX_COMPRESS_MODEL || "MiniMax-Text-01"; 
 // 防同一会话并发重复压缩（serverless 单实例内有效，多实例最坏重复压一次，幂等无害）
 const inflight = new Set<string>();
 
-export function maybeCompress(uid: string, sessionId: string): void {
+export function maybeCompress(uid: string, sessionId: string): Promise<void> {
   const key = `${uid}/${sessionId}`;
-  if (inflight.has(key)) return;
+  if (inflight.has(key)) return Promise.resolve();
   inflight.add(key);
-  compress(uid, sessionId)
+  // 返回 Promise 供 waitUntil 托管：serverless 响应关闭后实例会被冻结，fire-and-forget 永远跑不完
+  return compress(uid, sessionId)
     .catch((e) => console.error("[compress]", e))
     .finally(() => inflight.delete(key));
 }
@@ -66,14 +67,15 @@ async function compress(uid: string, sessionId: string) {
     .eq("id", sessionId);
 }
 
-// 读取某会话的压缩摘要（注入 System 变量⑥）
-export async function getCompressed(uid: string, sessionId: string): Promise<string | undefined> {
+// 读取某会话的压缩信息（摘要注入 System 变量⑥；until 用于裁剪请求消息——
+// 摘要覆盖 [0,until)，请求只需带 until 之后的消息，否则会出现"既不在摘要也不在请求里"的上下文黑洞）
+export async function getCompressed(uid: string, sessionId: string): Promise<{ summary?: string; until: number }> {
   const { data } = await admin
     .from("chat_sessions")
-    .select("compressed_history")
+    .select("compressed_history, compressed_until")
     .eq("user_id", uid)
     .eq("id", sessionId)
     .maybeSingle();
   const s = (data?.compressed_history ?? "").trim();
-  return s || undefined;
+  return { summary: s || undefined, until: data?.compressed_until ?? 0 };
 }

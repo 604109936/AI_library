@@ -79,7 +79,8 @@ export async function* streamChat(
       temperature: opts?.temperature ?? 0.8,
       ...(opts?.tools?.length ? { tools: opts.tools } : {}),
     }),
-    signal: opts?.signal ?? AbortSignal.timeout(120000),
+    // 客户端断开与 120s 超时двойная保护：只传 req.signal 会丢超时，上游挂起时用户会白等到平台杀进程
+    signal: opts?.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(120000)]) : AbortSignal.timeout(120000),
   });
   if (!r.ok || !r.body) {
     const t = await r.text().catch(() => "");
