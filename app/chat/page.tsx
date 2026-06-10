@@ -32,16 +32,31 @@ async function buildCitations(items: { b: string; c: number }[]): Promise<Citati
   return out;
 }
 import { sampleSessions } from "@/lib/mock/data";
-import { useChat, useUI } from "@/lib/store";
+import { useAuth, useChat, useUI } from "@/lib/store";
 import type { Book, Citation, ChatMessage as TMsg } from "@/lib/types";
 
 type Locate = { type: "end" } | { type: "q"; q: string } | { type: "id"; id: string };
+
+// 模块级缓存：切 Tab（去泡馆/乱翻再回来）保持当前会话，不再每次都开新会话；按账号隔离防串号
+let chatLive: { id: string; messages: TMsg[]; uid: string } | null = null;
+const chatLiveUid = () => useAuth.getState().user?.id ?? "guest";
+function takeChatLive() {
+  if (chatLive && chatLive.uid !== "guest" && chatLive.uid !== chatLiveUid()) chatLive = null; // 换账号作废；游客→登录延续
+  // 中途离开时可能残留流式中间态：还原为完成态，避免回来后一直"思考中"
+  if (chatLive?.messages.some((m) => m.streaming)) {
+    chatLive = {
+      ...chatLive,
+      messages: chatLive.messages.map((m) => (m.streaming ? { ...m, streaming: false, toolNote: undefined, content: m.content || "（已中断，可点重新生成）" } : m)),
+    };
+  }
+  return chatLive;
+}
 
 function ChatInner() {
   const sp = useSearchParams();
   const sessions = useChat((s) => s.sessions);
   const toast = useUI((s) => s.toast);
-  const [messages, setMessages] = useState<TMsg[]>([]);
+  const [messages, setMessages] = useState<TMsg[]>(() => takeChatLive()?.messages ?? []);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -61,7 +76,12 @@ function ChatInner() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const upsertSession = useChat((s) => s.upsertSession);
-  const sessionId = useRef<string>("sess-" + Date.now());
+  const sessionId = useRef<string>(takeChatLive()?.id ?? "sess-" + Date.now());
+
+  // 会话续存：消息变化即回写模块缓存（流式中间态也存，回来还能看到完整画面）
+  useEffect(() => {
+    if (messages.length) chatLive = { id: sessionId.current, messages, uid: chatLiveUid() };
+  }, [messages]);
 
   useEffect(() => () => {
     if (timer.current) clearInterval(timer.current);
@@ -281,6 +301,7 @@ function ChatInner() {
     if (busy) return;
     setMessages([]);
     sessionId.current = "sess-" + Date.now();
+    chatLive = null; // 主动开新会话才清掉续存
   }
 
   // 语音输入：长按输入框触发（无单独图标）。识别能力在接入后端 minimax ASR 后启用

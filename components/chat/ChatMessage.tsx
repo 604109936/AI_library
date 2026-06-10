@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -11,6 +11,18 @@ import type { ChatMessage as TMsg } from "@/lib/types";
 
 // 反馈标签（对齐补充文档：推荐偏差 / 答疑有误 / 解读没用 / 其它，「其它」可个性化输入）
 const FEEDBACK = ["推荐偏差", "答疑有误", "解读没用", "其它"];
+
+// 等待文案轮换：M3 思考期约 5~8 秒，固定"思考中"显得卡死；换着说话让等待有进度感
+const THINKING = ["思考中", "翻了翻你的书架", "正在组织语言", "快好了"];
+function ThinkingNote({ override }: { override?: string }) {
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    if (override) return; // 工具调用文案优先，不轮换
+    const t = setInterval(() => setI((x) => Math.min(x + 1, THINKING.length - 1)), 2600);
+    return () => clearInterval(t);
+  }, [override]);
+  return <>{override || THINKING[i]}</>;
+}
 
 export function ChatMessage({
   msg,
@@ -57,9 +69,9 @@ export function ChatMessage({
       <Mascot size={32} className="mt-0.5 shrink-0" />
       <div className="min-w-0 flex-1">
         {thinking ? (
-          // 思考中 / 工具调用文案：不套整块气泡，只显示文字 + 动效
+          // 思考中 / 工具调用文案：不套整块气泡，只显示文字 + 动效（等待文案随时间轮换）
           <div className="flex items-center gap-1.5 py-1.5 text-sm text-ink-400 dark:text-dark-text/50">
-            {msg.toolNote || "思考中"}
+            <ThinkingNote override={msg.toolNote} />
             <span className="flex gap-0.5">
               <span className="h-1 w-1 animate-bounce rounded-full bg-celadon [animation-delay:-0.2s]" />
               <span className="h-1 w-1 animate-bounce rounded-full bg-celadon [animation-delay:-0.1s]" />
