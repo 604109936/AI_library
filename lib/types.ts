@@ -109,6 +109,7 @@ export interface ChatMessage {
 export interface ChatSession {
   id: string;
   title: string;
+  ownerUid?: string; // 本地归属标记（uid 或 "guest"），换账号防串档；不入库
   updatedAt: string;
   messages: ChatMessage[];
 }

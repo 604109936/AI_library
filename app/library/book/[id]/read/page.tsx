@@ -97,13 +97,16 @@ function ReaderInner({ id }: { id: string }) {
     applyHighlights(root, ns, setActiveNote);
   }, [cur?.id, cur?.content, notes, realId]);
 
+  // 续读必须等 useLibrary.load() 完成（hydrated）：否则读到空 progress 落回第 1 章，
+  // 随之而来的上报还会把云端续读位置覆盖掉（Review P0；写穿透侧另有 hydrated 门禁双保险）
+  const libHydrated = useLibrary((s) => s.hydrated);
   useEffect(() => {
-    if (resumed.current || !chapters.length) return;
+    if (resumed.current || !chapters.length || !libHydrated) return;
     resumed.current = true;
     if (curId || sp.get("ch")) return;
     const saved = useLibrary.getState().progress[id.split("__")[0]]?.chapterId;
     if (saved && chapters.some((c) => c.id === saved)) setCurId(saved);
-  }, [chapters, curId, sp, id]);
+  }, [chapters, curId, sp, id, libHydrated]);
 
   useEffect(() => {
     if (!bookQ.data || !cur) return;

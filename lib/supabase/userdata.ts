@@ -208,5 +208,7 @@ export const db = {
       { user_id: uid, book_id: bookId, position, played },
       { onConflict: "user_id,book_id" }
     ),
-  setReadSeconds: (uid: string, seconds: number) => supabase.from("profiles").update({ read_seconds: seconds }).eq("id", uid),
+  // 时长走服务端增量累加 RPC（add_read_seconds，见 docs/后端_Review修复SQL.md）：
+  // 绝对值覆盖在多设备并行阅读时会互相吃掉增量（lost update），增量累加天然无冲突
+  addReadSeconds: (delta: number) => supabase.rpc("add_read_seconds", { p_delta: delta }),
 };

@@ -54,6 +54,7 @@ export const useAuth = create<AuthState>()((set, get) => ({
       } catch {}
     } else {
       useLibrary.getState().setHydrated();
+      useChat.getState().purgeForeign(); // 会话失效（token 过期等）：清掉上一账号残留对话，仅保留真·游客会话，防换号串档
     }
     set({ hydrated: true });
     if (!authSubscribed) {
@@ -64,7 +65,17 @@ export const useAuth = create<AuthState>()((set, get) => ({
           useLibrary.getState().reset();
           useChat.getState().resetLocal();
         } else if (sess?.user && (event === "SIGNED_IN" || event === "USER_UPDATED" || event === "TOKEN_REFRESHED")) {
-          loadProfile(sess.user).then((p) => set({ user: p })).catch(() => {});
+          const firstSignIn = !get().user; // 该标签页此前未登录（跨标签登录/延迟恢复会话）
+          loadProfile(sess.user)
+            .then(async (p) => {
+              set({ user: p });
+              // 必须补 load：否则 user 已置位但本地数据全空，useReadingClock 等会以空基线写穿透洗掉云端（Review P1）
+              if (firstSignIn) {
+                await useLibrary.getState().load(p);
+                await useChat.getState().loadCloud(p.id);
+              }
+            })
+            .catch(() => {});
         }
       });
     }
@@ -239,17 +250,20 @@ export const useLibrary = create<LibState>()((set, get) => {
       .then((res: any) => { if (res?.error) { console.error(`[同步失败:${label}]`, res.error); fail(label); } })
       .catch((e: any) => { console.error(`[同步异常:${label}]`, e); fail(label); });
   };
+  // 【hydrated 门禁】未完成 load() 前严禁写穿透：此时本地是空基线，绝对值覆盖会把云端进度/已读章/时长洗掉
+  // （登录态下刷新阅读器/乱翻页是最常见触发路径——Review P0）
+  const canSync = () => !!uid() && get().hydrated;
   // 文字进度/媒体进度：写库时取当前完整一行（避免分列覆盖）
   const syncText = (bookId: string) => {
-    const u = uid();
-    if (u) sync(db.setTextProgress(u, bookId, get().progress[bookId], get().readChapters[bookId] ?? []), "进度");
+    if (!canSync()) return;
+    sync(db.setTextProgress(uid()!, bookId, get().progress[bookId], get().readChapters[bookId] ?? []), "进度");
   };
   // 媒体进度同步：5 秒节流（首调即写、其后合并为每 5 秒一次尾写），避免播放时每帧 onTimeUpdate 触发数次/秒的 DB upsert
   const mediaSyncTimer: Record<string, ReturnType<typeof setTimeout>> = {};
   const mediaSyncAt: Record<string, number> = {};
   const syncMedia = (bookId: string) => {
     const u = uid();
-    if (!u) return;
+    if (!u || !get().hydrated) return;
     const flushNow = () => { mediaSyncAt[bookId] = Date.now(); sync(db.setMediaProgress(u, bookId, get().mediaProgress[bookId] ?? 0, get().mediaPlayed[bookId] ?? 0), "进度"); };
     const since = Date.now() - (mediaSyncAt[bookId] ?? 0);
     if (since >= 5000) { if (mediaSyncTimer[bookId]) { clearTimeout(mediaSyncTimer[bookId]); delete mediaSyncTimer[bookId]; } flushNow(); }
@@ -262,12 +276,19 @@ export const useLibrary = create<LibState>()((set, get) => {
     load: async (user) => {
       try {
         const d = await loadUserData(user);
+        // 世代校验：加载期间已退出/换号 → 晚到的数据不回写（防串号）
+        if (useAuth.getState().user?.id !== user.id) return;
         set({ ...d, hydrated: true });
       } catch {
         set({ hydrated: true });
       }
     },
-    reset: () => set({ ...EMPTY, hydrated: true }),
+    reset: () => {
+      // 清掉在途的媒体节流定时器：否则退出后旧闭包还会发一次"空数据写库"（被 RLS 拒→莫名报错 toast）
+      for (const k of Object.keys(mediaSyncTimer)) { clearTimeout(mediaSyncTimer[k]); delete mediaSyncTimer[k]; }
+      for (const k of Object.keys(mediaSyncAt)) delete mediaSyncAt[k];
+      set({ ...EMPTY, hydrated: true });
+    },
     isFav: (id) => get().favorites.includes(real(id)),
     toggleFav: (id) => {
       const r = real(id);
@@ -373,9 +394,11 @@ export const useLibrary = create<LibState>()((set, get) => {
       syncText(r);
     },
     addReadSeconds: (sec) => {
-      set({ readSeconds: get().readSeconds + Math.max(0, Math.round(sec)) });
-      const u = uid();
-      if (u) sync(db.setReadSeconds(u, get().readSeconds), "时长");
+      const delta = Math.max(0, Math.round(sec));
+      if (!delta) return;
+      set({ readSeconds: get().readSeconds + delta });
+      // 云端走增量 RPC（多设备并行阅读不再互相覆盖丢时长）；未 hydrated 时跳过（防空基线期写入）
+      if (canSync()) sync(db.addReadSeconds(delta), "时长");
     },
   };
 });
@@ -427,6 +450,7 @@ interface ChatState {
   hideAllSamples: (ids: string[]) => void;
   loadCloud: (uid: string) => Promise<void>;
   resetLocal: () => void; // 退出登录：仅清本地，不动云端
+  purgeForeign: () => void; // 清掉非游客残留会话（token 失效路径防串号）
 }
 const chatUid = () => useAuth.getState().user?.id;
 const chatSync = (q: PromiseLike<{ error: unknown }>) => {
@@ -441,13 +465,14 @@ export const useChat = create<ChatState>()(
       sessions: [],
       hiddenSamples: [],
       upsertSession: (s) => {
+        const stamped = { ...s, ownerUid: chatUid() ?? "guest" }; // 标记归属，换号时据此辨别"谁的会话"
         set({
-          sessions: [s, ...get().sessions.filter((x) => x.id !== s.id)].sort(
+          sessions: [stamped, ...get().sessions.filter((x) => x.id !== s.id)].sort(
             (a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt)
           ),
         });
         const u = chatUid();
-        if (u) chatSync(chatDb.upsert(u, s));
+        if (u) chatSync(chatDb.upsert(u, stamped));
       },
       removeSession: (id) => {
         set({ sessions: get().sessions.filter((x) => x.id !== id) });
@@ -463,15 +488,24 @@ export const useChat = create<ChatState>()(
       hideAllSamples: (ids) => set({ hiddenSamples: Array.from(new Set([...get().hiddenSamples, ...ids])) }),
       loadCloud: async (uid) => {
         try {
-          const cloud = await loadChatSessions(uid);
+          const cloud = (await loadChatSessions(uid)).map((s) => ({ ...s, ownerUid: uid }));
+          // 世代校验：加载期间已退出/换号 → 晚到数据不回写、不上传（防把 A 的会话灌进 B 的账号）
+          if (useAuth.getState().user?.id !== uid) return;
           const cloudIds = new Set(cloud.map((s) => s.id));
-          // 游客期间产生、还没上云的会话：合并展示并补传云端
-          const localOnly = get().sessions.filter((s) => !cloudIds.has(s.id));
+          // 仅"真·游客会话或本人会话"合并上传；其它账号残留一律丢弃
+          const localOnly = get().sessions.filter(
+            (s) => !cloudIds.has(s.id) && (!s.ownerUid || s.ownerUid === "guest" || s.ownerUid === uid)
+          );
           for (const s of localOnly) chatSync(chatDb.upsert(uid, s));
-          set({ sessions: [...cloud, ...localOnly].sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt)) });
+          set({
+            sessions: [...cloud, ...localOnly.map((s) => ({ ...s, ownerUid: uid }))].sort(
+              (a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt)
+            ),
+          });
         } catch {}
       },
       resetLocal: () => set({ sessions: [] }),
+      purgeForeign: () => set({ sessions: get().sessions.filter((s) => !s.ownerUid || s.ownerUid === "guest") }),
     }),
     { name: "ail-chat" }
   )

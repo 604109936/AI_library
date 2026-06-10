@@ -153,7 +153,8 @@ export async function getChapters(bookId: string): Promise<Chapter[]> {
 }
 
 export async function getChapter(bookId: string, chapterId: string): Promise<Chapter | null> {
-  const { data, error } = await supabase.from("chapters").select("*").eq("id", chapterId).maybeSingle();
+  // 必须校验章节确属此书：否则拼错的深链会静默取到别本书的正文，进而把进度/笔记写错书
+  const { data, error } = await supabase.from("chapters").select("*").eq("id", chapterId).eq("book_id", bookId.split("__")[0]).maybeSingle();
   if (error) throw error;
   return data ? toChapter(data) : null;
 }
