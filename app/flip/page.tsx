@@ -9,6 +9,7 @@ import { EmptyState, ErrorState } from "@/components/ui/States";
 import { getFlip } from "@/lib/api";
 import { useAuth, useLibrary, useUI, requireLogin } from "@/lib/store";
 import { useReadCountBump, useReadingClock } from "@/lib/useReadingClock";
+import { formatTime } from "@/lib/utils";
 import type { Book } from "@/lib/types";
 
 // 模块级缓存：离开乱翻（如去写书评）再返回时，保持同一视频流与所在位置。
@@ -64,7 +65,15 @@ export default function FlipPage() {
   useReadCountBump(books[activeIdx]?.id.split("__")[0], playing && !vErr); // 「一次阅读」计数（真实播放满30秒记一次）
 
   const setUserPaused = useCallback((v: boolean) => { userPausedRef.current = v; setUserPausedState(v); }, []);
-  const activeVideo = () => videoRefs.current[slotOf(activeIdxRef.current)] ?? null;
+  const activeVideo = useCallback(() => videoRefs.current[slotOf(activeIdxRef.current)] ?? null, []);
+
+  // 进度条拖动定位后：重置真实播放基准（防把跳变计入），并立即落一次续播位置（暂停态拖动也同步）
+  const onSeeked = useCallback(() => {
+    lastT.current = null;
+    const v = videoRefs.current[slotOf(activeIdxRef.current)];
+    const b = booksRef.current[activeIdxRef.current];
+    if (v && v.duration && b) setMediaProgress(b.id.split("__")[0], v.currentTime / v.duration);
+  }, [setMediaProgress]);
 
   // 写阅读历史（不依赖视频元素：卸载时 ref 已被 React 置空也要能落账）；played>0 已保证"真实播过才记"
   const writeMedia = useCallback((force = false) => {
@@ -325,6 +334,9 @@ export default function FlipPage() {
               </div>
             )}
 
+            {/* 底部播放进度条（抖音式：细线 + 可拖动定位，拖动时显时间） */}
+            {!vErr && <FlipProgress getVideo={activeVideo} onSeeked={onSeeked} />}
+
             <div className="pointer-events-none absolute left-1/2 z-20 h-px w-16 -translate-x-1/2 bg-gradient-to-r from-transparent via-brass/70 to-transparent" style={{ top: "calc(env(safe-area-inset-top) + 10px)" }} />
             <button
               onClick={toggleSound}
@@ -404,7 +416,7 @@ function FlipOverlay({ book, onTogglePlay }: { book: Book; onTogglePlay: () => v
         <Action icon={<MessageSquare size={28} className="text-dark-text" />} ariaLabel={myReviews.some((r) => r.bookId === realId) ? "编辑书评" : "写书评"} onClick={openReview} />
       </div>
 
-      <div className="absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-3 px-4" style={{ paddingBottom: "16px" }}>
+      <div className="absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-3 px-4" style={{ paddingBottom: "24px" }}>
         <div className="min-w-0 flex-1">
           <h2 className="font-serif text-[19px] leading-snug tracking-wide text-dark-text drop-shadow-[0_2px_8px_rgba(0,0,0,0.65)]">{book.title}</h2>
           <div className="mt-2 flex flex-wrap gap-1.5">
@@ -417,6 +429,92 @@ function FlipOverlay({ book, onTogglePlay }: { book: Book; onTogglePlay: () => v
         <button onClick={() => router.push(`/library/book/${realId}`)} className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-celadon/80 px-4 py-2 text-[13px] font-medium text-white ring-1 ring-white/25 backdrop-blur-md transition active:scale-95">
           读这本书 <ArrowRight size={15} />
         </button>
+      </div>
+    </div>
+  );
+}
+
+// 底部播放进度条：常态 2.5px 细线随播放推进（rAF 直写 DOM，不触发 React 重渲染）；
+// 按下变粗可拖动定位，拖动中显示「当前 / 总时长」气泡；松手 seek 目标视频（按下时锁定，滑屏不串台）
+function FlipProgress({ getVideo, onSeeked }: { getVideo: () => HTMLVideoElement | null; onSeeked: () => void }) {
+  const barRef = useRef<HTMLDivElement>(null);
+  const fillRef = useRef<HTMLDivElement>(null);
+  const [drag, setDrag] = useState<{ pct: number; cur: number; dur: number } | null>(null);
+  const dragRef = useRef<typeof drag>(null);
+  const targetRef = useRef<HTMLVideoElement | null>(null); // 按下瞬间锁定的视频（防拖动中滑到别条）
+  useEffect(() => { dragRef.current = drag; }, [drag]);
+
+  // 跟随播放：rAF 只改 DOM 宽度，零 React 开销；拖动中不跟随
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => {
+      raf = requestAnimationFrame(tick);
+      if (dragRef.current || !fillRef.current) return;
+      const v = getVideo();
+      const pct = v && v.duration ? Math.min(1, v.currentTime / v.duration) : 0;
+      fillRef.current.style.width = `${pct * 100}%`;
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [getVideo]);
+
+  const pctAt = (clientX: number) => {
+    const el = barRef.current;
+    if (!el) return 0;
+    const r = el.getBoundingClientRect();
+    return Math.min(1, Math.max(0, (clientX - r.left) / (r.width || 1)));
+  };
+  const apply = (p: number, v: HTMLVideoElement) => {
+    if (fillRef.current) fillRef.current.style.width = `${p * 100}%`;
+    setDrag({ pct: p, cur: p * (v.duration || 0), dur: v.duration || 0 });
+  };
+  const onDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    const v = getVideo();
+    if (!v || !v.duration) return;
+    targetRef.current = v;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    apply(pctAt(e.clientX), v);
+  };
+  const onMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const v = targetRef.current;
+    if (!dragRef.current || !v) return;
+    apply(pctAt(e.clientX), v);
+  };
+  const finish = (commit: boolean) => {
+    const d = dragRef.current;
+    const v = targetRef.current;
+    if (commit && d && v && v.duration) {
+      try { v.currentTime = d.pct * v.duration; } catch {}
+      onSeeked();
+    }
+    setDrag(null);
+    targetRef.current = null;
+  };
+
+  return (
+    <div
+      className="absolute inset-x-0 bottom-0 z-30"
+      style={{ height: 20, touchAction: "none" }} // 20px 命中区：好按，又不压到上方「读这本书」按钮（其底距 24px）
+      onPointerDown={onDown}
+      onPointerMove={onMove}
+      onPointerUp={() => finish(true)}
+      onPointerCancel={() => finish(false)}
+    >
+      {drag && (
+        <div className="pointer-events-none absolute bottom-8 left-1/2 -translate-x-1/2 rounded-full bg-black/55 px-3.5 py-1.5 text-[13px] tabular-nums text-white backdrop-blur-md">
+          {formatTime(drag.cur)} <span className="text-white/50">/ {formatTime(drag.dur)}</span>
+        </div>
+      )}
+      <div ref={barRef} className="absolute inset-x-3 bottom-[5px]">
+        <div className={"relative w-full overflow-hidden rounded-full transition-[height] duration-150 " + (drag ? "h-[5px] bg-white/25" : "h-[2.5px] bg-white/15")}>
+          <div ref={fillRef} className="h-full rounded-full bg-celadon" style={{ width: "0%" }} />
+        </div>
+        {drag && (
+          <span
+            className="pointer-events-none absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-snow shadow ring-2 ring-celadon/60"
+            style={{ left: `${drag.pct * 100}%` }}
+          />
+        )}
       </div>
     </div>
   );
