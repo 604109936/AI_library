@@ -132,6 +132,15 @@ export async function loadUserData(user: { id: string; nickname: string; avatarS
 
 const catOf = (m: ReadingMode) => (m === "text" ? "text" : "av");
 
+// T1.5「一次阅读」上报：books.read_count +1（不去重，游客也计入）。
+// fire-and-forget：RPC 为 SECURITY DEFINER，失败静默（计数列不展示，不值得打扰用户）
+export function bumpReadCount(bookId: string) {
+  supabase.rpc("increment_read_count", { p_book_id: bookId }).then(
+    () => {},
+    () => {}
+  );
+}
+
 // 写穿透：均返回 Supabase 查询（store 侧 .then 处理出错提示）
 export const db = {
   addFav: (uid: string, bookId: string) => supabase.from("favorites").insert({ user_id: uid, book_id: bookId }),

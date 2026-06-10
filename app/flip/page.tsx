@@ -8,7 +8,7 @@ import { Motif } from "@/components/ui/Motif";
 import { EmptyState, ErrorState } from "@/components/ui/States";
 import { getFlip } from "@/lib/api";
 import { useLibrary, useUI, requireLogin } from "@/lib/store";
-import { useReadingClock } from "@/lib/useReadingClock";
+import { useReadCountBump, useReadingClock } from "@/lib/useReadingClock";
 import type { Book } from "@/lib/types";
 
 // 模块级缓存：离开乱翻（如去写书评）再返回时，保持同一视频流与所在位置
@@ -54,6 +54,7 @@ export default function FlipPage() {
   useEffect(() => { soundOnRef.current = soundOn; }, [soundOn]);
   useEffect(() => { mutedNowRef.current = mutedNow; }, [mutedNow]);
   useReadingClock(playing && !vErr);
+  useReadCountBump(books[activeIdx]?.id.split("__")[0], playing && !vErr); // 「一次阅读」计数（真实播放满30秒记一次）
 
   const setUserPaused = useCallback((v: boolean) => { userPausedRef.current = v; setUserPausedState(v); }, []);
   const activeVideo = () => videoRefs.current[slotOf(activeIdxRef.current)] ?? null;

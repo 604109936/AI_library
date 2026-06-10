@@ -4,7 +4,7 @@ import { Play, Pause, Maximize2, Minimize2, Volume2, VolumeX, Video, Headphones 
 import { BookCover } from "@/components/ui/BookCover";
 import { formatTime } from "@/lib/utils";
 import { useLibrary } from "@/lib/store";
-import { useReadingClock } from "@/lib/useReadingClock";
+import { useReadCountBump, useReadingClock } from "@/lib/useReadingClock";
 import type { Book } from "@/lib/types";
 
 const SPEEDS = [0.75, 1, 1.25, 1.5, 2];
@@ -114,6 +114,7 @@ function VideoStage({ book }: { book: Book }) {
   const resumed = useRef(false);
   const { report, flush, trackPlayed, primePlayed, seekReset } = useHistoryReporter(book, "video");
   useReadingClock(playing); // 观看时长计入「我的-总时长」
+  useReadCountBump(book.id.split("__")[0], playing); // 「一次阅读」计数（真实播放满30秒记一次）
 
   useEffect(() => { if (ref.current) ref.current.playbackRate = speed; }, [speed]);
   useEffect(() => {
@@ -241,6 +242,7 @@ function AudioStage({ book }: { book: Book }) {
   const resumed = useRef(false);
   const { report, flush, trackPlayed, primePlayed, seekReset } = useHistoryReporter(book, "audio");
   useReadingClock(playing); // 收听时长计入「我的-总时长」
+  useReadCountBump(book.id.split("__")[0], playing); // 「一次阅读」计数（真实播放满30秒记一次）
 
   useEffect(() => { if (ref.current) ref.current.playbackRate = speed; }, [speed]);
 

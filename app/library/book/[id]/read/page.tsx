@@ -12,7 +12,7 @@ import { getBook, getChapters } from "@/lib/api";
 import { Skeleton, ErrorState } from "@/components/ui/States";
 import { Motif } from "@/components/ui/Motif";
 import { useLibrary, useReader, useUI, requireLogin, type ReaderBg } from "@/lib/store";
-import { useReadingClock } from "@/lib/useReadingClock";
+import { useReadCountBump, useReadingClock } from "@/lib/useReadingClock";
 import { uid, chapterLabel } from "@/lib/utils";
 import type { Chapter, NoteItem } from "@/lib/types";
 
@@ -80,6 +80,7 @@ function ReaderInner({ id }: { id: string }) {
 
   const bgCls = BG_OPTIONS.find((b) => b.key === reader.bg)?.cls ?? "reader-bg-moon";
   const realId = id.split("__")[0];
+  useReadCountBump(realId, !!cur); // 「一次阅读」计数（正文阅读满30秒记一次，存但不展示）
   const readCh = readChapters[realId] ?? [];
   const chapterNotes = cur ? notes.filter((n) => n.bookId === realId && n.chapterId === cur.id) : [];
 
@@ -114,10 +115,13 @@ function ReaderInner({ id }: { id: string }) {
     const report = (allowMark: boolean) => {
       const rid = b.id.split("__")[0];
       const el = scrollRef.current;
-      const max = el ? el.scrollHeight - el.clientHeight : 0;
-      // 本章读毕：滚到底(≥95%) 或 内容不足一屏（无需滚动）。仅在渲染稳定后(非进入瞬间)判定，
-      // 避免进入时布局未稳(max≈0)把长章节误判为读毕（提前打√）。
-      if (allowMark && (pctRef.current >= 95 || max <= 4)) markChapterRead(rid, cur.id);
+      // 本章读毕：滚到底(≥95%) 或 内容不足一屏（无需滚动）。只在「容器活着」时判定：
+      // 卸载时 el 已为 null（max 会算成 0）、切章 cleanup 时 DOM 已换成新章内容（max 不可信），
+      // 二者都曾导致"没读完退出也被打√"，故 cleanup 一律不判读毕（只落进度），见下方 report(false)。
+      if (allowMark && el) {
+        const max = el.scrollHeight - el.clientHeight;
+        if (pctRef.current >= 95 || max <= 4) markChapterRead(rid, cur.id);
+      }
       const readNow = useLibrary.getState().readChapters[rid] ?? [];
       const N = chapters.length || 1;
       // 进度 =（已读完章节数 + 当前章滚动比例）/ 总章数：章内滚动也前进，全部读完才 100
@@ -129,8 +133,8 @@ function ReaderInner({ id }: { id: string }) {
       setProgress({ bookId: rid, chapterId: cur.id, chapterNo: cur.no, pct: prog, mode: "text" });
     };
     report(false); // 进入：只记进度，不判读毕
-    const t = setInterval(() => report(true), 5000);
-    return () => { report(true); clearInterval(t); };
+    const t = setInterval(() => report(true), 5000); // 读毕只由「活着的」路径判定：此定时器 + onScroll
+    return () => { report(false); clearInterval(t); }; // 退出/切章：只落进度，不判读毕（防误打√）
     // eslint-disable-next-line
   }, [cur?.id, bookQ.data?.id]);
 
