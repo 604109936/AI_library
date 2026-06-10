@@ -7,6 +7,7 @@ import { ChevronLeft, List, Check, Trash2, Settings2, StickyNote, PenLine, Copy 
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkCjkFriendly from "remark-cjk-friendly"; // 让 **加粗**/*斜体* 紧贴中文标点也能正确解析（CommonMark 默认对 CJK 不友好）
 import { getBook, getChapters } from "@/lib/api";
 import { Skeleton, ErrorState } from "@/components/ui/States";
 import { Motif } from "@/components/ui/Motif";
@@ -84,7 +85,7 @@ function ReaderInner({ id }: { id: string }) {
 
   // Markdown 渲染：按「章节内容」memo，使笔记/其它状态变化时不重渲染正文 DOM（我们对其做命令式高亮，才不会被 React 协调冲掉）
   const md = useMemo(
-    () => <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{cur?.content ?? ""}</ReactMarkdown>,
+    () => <ReactMarkdown remarkPlugins={[remarkGfm, remarkCjkFriendly]} components={mdComponents}>{cur?.content ?? ""}</ReactMarkdown>,
     [cur?.content]
   );
   // 渲染（含切章）后给正文打高亮；笔记增删时重标

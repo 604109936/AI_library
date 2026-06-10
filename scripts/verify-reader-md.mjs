@@ -13,7 +13,8 @@ if (!up) { console.log("❌ server not up"); process.exit(1); }
 await page.waitForFunction(() => { const el = document.querySelector(".break-words"); return el && (el.textContent || "").length > 50; }, { timeout: 20000 }).catch(() => {});
 await page.waitForTimeout(800);
 // 翻到正式章节（前言常为纯散文，看不到 markdown 结构）
-for (let k = 0; k < 2; k++) { await page.getByRole("button", { name: "下一章" }).click().catch(() => {}); await page.waitForTimeout(700); }
+const ADV = +(process.env.ADV || 2);
+for (let k = 0; k < ADV; k++) { await page.getByRole("button", { name: "下一章" }).click().catch(() => {}); await page.waitForTimeout(700); }
 
 const md = await page.evaluate(() => {
   const el = document.querySelector(".break-words");
