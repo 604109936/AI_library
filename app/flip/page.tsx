@@ -7,12 +7,18 @@ import { BottomNav } from "@/components/shell/BottomNav";
 import { Motif } from "@/components/ui/Motif";
 import { EmptyState, ErrorState } from "@/components/ui/States";
 import { getFlip } from "@/lib/api";
-import { useLibrary, useUI, requireLogin } from "@/lib/store";
+import { useAuth, useLibrary, useUI, requireLogin } from "@/lib/store";
 import { useReadCountBump, useReadingClock } from "@/lib/useReadingClock";
 import type { Book } from "@/lib/types";
 
-// 模块级缓存：离开乱翻（如去写书评）再返回时，保持同一视频流与所在位置
-let flipCache: { books: Book[]; idx: number } | null = null;
+// 模块级缓存：离开乱翻（如去写书评）再返回时，保持同一视频流与所在位置。
+// 按账号隔离：换账号/退出后缓存作废（T3 接 flip_feed 个性化书单后尤其重要）
+let flipCache: { books: Book[]; idx: number; uid: string } | null = null;
+const cacheUid = () => useAuth.getState().user?.id ?? "guest";
+function validCache() {
+  if (flipCache && flipCache.uid !== cacheUid()) flipCache = null;
+  return flipCache;
+}
 
 const SLOTS = 3; // 视频池大小：当前条 ±1，复用 3 个 <video> 元素，永不新建/卸载 → 永远只 3 个解码器
 const slotOf = (i: number) => ((i % SLOTS) + SLOTS) % SLOTS;
@@ -24,12 +30,12 @@ function slotIdx(s: number, a: number, n: number) {
 
 export default function FlipPage() {
   const router = useRouter();
-  const [books, setBooks] = useState<Book[]>(flipCache?.books ?? []);
-  const [loading, setLoading] = useState(!flipCache);
+  const [books, setBooks] = useState<Book[]>(() => validCache()?.books ?? []);
+  const [loading, setLoading] = useState(() => !validCache());
   const [error, setError] = useState(false);
   const [soundOn, setSoundOn] = useState(true);
   const [mutedNow, setMutedNow] = useState(false);
-  const [activeIdx, setActiveIdx] = useState(flipCache?.idx ?? 0);
+  const [activeIdx, setActiveIdx] = useState(() => validCache()?.idx ?? 0);
   const [loaded, setLoaded] = useState(false); // 当前视频可播
   const [playing, setPlaying] = useState(false); // 当前视频在播
   const [userPaused, setUserPausedState] = useState(false); // 用户主动暂停（只此态显示播放按钮）
@@ -48,6 +54,7 @@ export default function FlipPage() {
   const lastReport = useRef(0);
 
   const setMediaPlayed = useLibrary((s) => s.setMediaPlayed);
+  const setMediaProgress = useLibrary((s) => s.setMediaProgress);
   const pushHistory = useLibrary((s) => s.pushHistory);
 
   useEffect(() => { booksRef.current = books; }, [books]);
@@ -59,10 +66,10 @@ export default function FlipPage() {
   const setUserPaused = useCallback((v: boolean) => { userPausedRef.current = v; setUserPausedState(v); }, []);
   const activeVideo = () => videoRefs.current[slotOf(activeIdxRef.current)] ?? null;
 
+  // 写阅读历史（不依赖视频元素：卸载时 ref 已被 React 置空也要能落账）；played>0 已保证"真实播过才记"
   const writeMedia = useCallback((force = false) => {
-    const v = activeVideo();
     const b = booksRef.current[activeIdxRef.current];
-    if (!v || !v.duration || !b) return;
+    if (!b) return;
     const rid = b.id.split("__")[0];
     const played = useLibrary.getState().mediaPlayed[rid] ?? 0;
     if (played <= 0) return;
@@ -72,6 +79,24 @@ export default function FlipPage() {
     const prog = played >= 0.9 ? 100 : Math.round(played * 100);
     pushHistory({ bookId: rid, bookTitle: b.title, author: b.author, coverSeed: b.coverSeed, cover: b.cover, mode: "video", progress: prog, lastAt: new Date().toISOString() });
   }, [pushHistory]);
+
+  // 还原当前书的「真实播放基线 + 续播位置」。仅在 metadata 就绪时生效；
+  // 在「切条 effect」与「onLoadedMetadata」两处调用，覆盖两种时序：
+  //   ① 相邻槽位预加载完→滑过去（metadata 早就绪，不会再触发 loadedmetadata）
+  //   ② 快滑两屏新分配 src（active 在先，metadata 后到）
+  // 否则会拿上一本书的 playedSec 给新书累计——mediaPlayed 只增不可逆，会永久虚高、误判已读。
+  const primeActive = useCallback(() => {
+    const v = activeVideo();
+    const b = booksRef.current[activeIdxRef.current];
+    if (!v || !b || !v.duration) return;
+    const rid = b.id.split("__")[0];
+    const st = useLibrary.getState();
+    playedSec.current = (st.mediaPlayed[rid] ?? 0) * v.duration;
+    lastT.current = null; // seek 跳变不计入真实播放
+    // 续播位置与详情页共享（双向同步）：详情页看到哪，乱翻滑到这本就从哪播；反之亦然
+    const p = st.mediaProgress[rid] ?? 0;
+    if (p > 0 && p < 0.99) { try { v.currentTime = p * v.duration; } catch {} }
+  }, []);
 
   // 播当前槽位视频、暂停其余；带声被拦则静音兜底（绝不暂停）
   const playActive = useCallback(() => {
@@ -84,7 +109,7 @@ export default function FlipPage() {
     v.play().then(() => setMutedNow(v.muted)).catch(() => {
       v.muted = true;
       setMutedNow(true);
-      v.play().catch(() => {});
+      v.play().catch(() => { if (v.error) setVErr(true); }); // 静音兜底也播不动且源已坏 → 走错误兜底而非一直转圈
     });
   }, []);
 
@@ -92,13 +117,14 @@ export default function FlipPage() {
     setLoading(true);
     setError(false);
     getFlip([])
-      .then((b) => { setBooks(b); setLoading(false); flipCache = { books: b, idx: 0 }; })
+      .then((b) => { setBooks(b); setLoading(false); flipCache = { books: b, idx: 0, uid: cacheUid() }; })
       .catch(() => { setError(true); setLoading(false); });
   }, []);
 
   useEffect(() => {
-    if (flipCache && flipCache.books.length) {
-      const idx = flipCache.idx;
+    const cache = validCache();
+    if (cache && cache.books.length) {
+      const idx = cache.idx;
       requestAnimationFrame(() => { const el = scrollerRef.current; if (el) el.scrollTop = idx * el.clientHeight; });
       return;
     }
@@ -117,20 +143,35 @@ export default function FlipPage() {
     if (!loading && books.length && activeIdx >= books.length - 2) loadMore();
   }, [activeIdx, books.length, loading, loadMore]);
 
-  // 切到新条：落上一条进度 → 重置基准 → 播当前槽位
+  // 切到新条：落上一条进度 → 清零计数基准（防旧书秒数污染新书，mediaPlayed 只增不可逆）→ 还原新书基线/续播 → 播
   useEffect(() => {
-    writeMedia(true);
+    writeMedia(true); // 此时 activeIdxRef 仍是旧条 → 收尾旧条
     activeIdxRef.current = activeIdx;
     if (flipCache) flipCache.idx = activeIdx;
     if (loading || !books.length) return;
+    playedSec.current = 0;
     lastT.current = null;
     setUserPaused(false);
     setVErr(false);
     const v = activeVideo();
     setLoaded(v ? v.readyState >= 3 : false);
     setPlaying(v ? !v.paused : false);
+    primeActive(); // metadata 已就绪（预加载槽位）则立即还原；未就绪则等 onLoadedMetadata 再还原
     playActive();
-  }, [activeIdx, books.length, loading, writeMedia, setUserPaused, playActive]);
+  }, [activeIdx, books.length, loading, writeMedia, setUserPaused, primeActive, playActive]);
+
+  // 卸载（去详情页/写书评/切 Tab）：把最后一段观看落进历史（不依赖视频元素，ref 置空也能写）
+  useEffect(() => () => writeMedia(true), [writeMedia]);
+
+  // 切后台：落账；回前台：续播（不打破用户主动暂停）
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible") { if (!userPausedRef.current) playActive(); }
+      else writeMedia(true);
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [playActive, writeMedia]);
 
   const onActive = useCallback((i: number) => { setActiveIdx(i); }, []);
 
@@ -170,12 +211,13 @@ export default function FlipPage() {
     return () => document.removeEventListener("WeixinJSBridgeReady", kick);
   }, [loading, books.length, playActive]);
 
+  // 静音钮只管声音，不打破「用户主动暂停」：开声时仅当视频本应在播却没播才补 play
   const toggleSound = useCallback(() => {
     const turnOn = mutedNowRef.current;
     setSoundOn(turnOn);
     const v = activeVideo();
-    if (v) { v.muted = !turnOn; setMutedNow(!turnOn); if (turnOn) { setUserPaused(false); v.play().catch(() => {}); } }
-  }, [setUserPaused]);
+    if (v) { v.muted = !turnOn; setMutedNow(!turnOn); if (turnOn && !userPausedRef.current && v.paused) v.play().catch(() => {}); }
+  }, []);
 
   const togglePlay = useCallback(() => {
     const v = activeVideo();
@@ -196,12 +238,12 @@ export default function FlipPage() {
     const rid = b.id.split("__")[0];
     if (lastT.current !== null) { const d = cur - lastT.current; if (d > 0 && d < 1.5) { playedSec.current += d; setMediaPlayed(rid, playedSec.current / dur); } }
     lastT.current = cur;
+    setMediaProgress(rid, cur / dur); // 续播位置与详情页双向同步（循环回卷时如实记当前位置）
     writeMedia();
   };
-  const onSlotMeta = (s: number, e: React.SyntheticEvent<HTMLVideoElement>) => {
+  const onSlotMeta = (s: number) => {
     if (!isActive(s)) return;
-    const v = e.currentTarget; const b = booksRef.current[activeIdxRef.current];
-    if (b && v.duration) { const rid = b.id.split("__")[0]; playedSec.current = (useLibrary.getState().mediaPlayed[rid] ?? 0) * v.duration; }
+    primeActive(); // 时序②：active 在先、metadata 后到 → 此刻还原基线/续播
   };
 
   return (
@@ -241,8 +283,8 @@ export default function FlipPage() {
                     onPlay={() => { if (isActive(s)) setPlaying(true); }}
                     onPlaying={() => { if (isActive(s)) { setLoaded(true); setPlaying(true); } }}
                     onWaiting={() => { if (isActive(s)) setLoaded(false); }}
-                    onPause={() => { if (isActive(s)) { setPlaying(false); lastT.current = null; writeMedia(true); if (!userPausedRef.current) videoRefs.current[s]?.play().catch(() => {}); } }}
-                    onLoadedMetadata={(e) => onSlotMeta(s, e)}
+                    onPause={() => { if (isActive(s)) { setPlaying(false); lastT.current = null; writeMedia(true); if (!userPausedRef.current && document.visibilityState === "visible") videoRefs.current[s]?.play().catch(() => {}); } }}
+                    onLoadedMetadata={() => onSlotMeta(s)}
                     onError={() => { if (isActive(s) && videoRefs.current[s]?.getAttribute("src")) setVErr(true); }}
                   />
                 );
