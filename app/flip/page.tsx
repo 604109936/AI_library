@@ -323,7 +323,7 @@ function FlipSlide({ book, index, active, near, registerVideo, userPausedRef }: 
             const v = e.currentTarget;
             if (v.duration) playedSec.current = (useLibrary.getState().mediaPlayed[realId] ?? 0) * v.duration;
           }}
-          onError={() => setErr(true)}
+          onError={() => { if (videoRef.current?.getAttribute("src")) setErr(true); }} // 仅真实加载失败(有 src)才判错；排除卸载释放(移除 src)的误报
         />
       ) : err ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 text-center text-dark-text/70">
