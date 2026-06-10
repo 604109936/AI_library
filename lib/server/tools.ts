@@ -4,11 +4,12 @@ import "server-only";
 import { admin } from "@/lib/server/agent";
 import type { MMTool } from "@/lib/server/minimax";
 
+// 工具执行中的等待文案：要有"它真的在替我翻书"的画面感（UI Review C16）
 export const TOOL_STATUS: Record<string, string> = {
-  recommend_books: "查找书籍…",
-  read_book_toc: "翻阅图书…",
-  read_chapter: "章节浏览…",
-  cite_chapters: "章节浏览…",
+  recommend_books: "在书架间找书…",
+  read_book_toc: "翻开这本书…",
+  read_chapter: "细读章节…",
+  cite_chapters: "整理出处…",
 };
 
 export const AGENT_TOOLS: MMTool[] = [

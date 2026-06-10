@@ -66,9 +66,7 @@ const browser = await chromium.launch();
   await page.waitForTimeout(1200);
   await page.getByText("登录 / 注册").first().click();
   await page.waitForTimeout(600);
-  await page.getByText("体验账号（点此一键填入", { exact: false }).click();
-  await page.waitForTimeout(300);
-  await page.locator('button[type="submit"]').click();
+  await page.getByText("试试体验账号", { exact: false }).click(); // C1 后一键直接登录（自动提交）
   await page.waitForFunction(() => (document.body.textContent || "").includes("编辑资料"), { timeout: 25000 });
 
   const { data: users } = await admin.auth.admin.listUsers();

@@ -9,6 +9,7 @@ import { BookCover } from "@/components/ui/BookCover";
 import { Stars } from "@/components/ui/Stars";
 import { EmptyState } from "@/components/ui/States";
 import { useLibrary, useUI } from "@/lib/store";
+import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { formatDate } from "@/lib/utils";
 
 export default function MyReviewsPage() {
@@ -17,6 +18,7 @@ export default function MyReviewsPage() {
   const removeReview = useLibrary((s) => s.removeReview);
   const toast = useUI((s) => s.toast);
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  useLockBodyScroll(confirmId !== null); // 确认弹层打开时锁定背景滚动
   const list = [...myReviews].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
 
   function doRemove() {
@@ -56,10 +58,10 @@ export default function MyReviewsPage() {
                   <div className="mt-2 flex items-center justify-between border-t border-line pt-2 text-[11px] text-ink-300 dark:border-white/5">
                     <span>{formatDate(r.createdAt)}</span>
                     <div className="flex items-center gap-4">
-                      <button onClick={() => router.push(`/library/book/${r.bookId}/review/new`)} className="flex items-center gap-1 text-celadon-700 active:scale-95 dark:text-celadon-300">
+                      <button onClick={() => router.push(`/library/book/${r.bookId}/review/new`)} className="-mx-2 -my-3.5 flex items-center gap-1 px-2 py-3.5 text-celadon-700 active:scale-95 dark:text-celadon-300">
                         <Pencil size={13} /> 编辑
                       </button>
-                      <button aria-label="删除书评" onClick={() => setConfirmId(r.id)} className="flex items-center gap-1 active:text-rouge">
+                      <button aria-label="删除书评" onClick={() => setConfirmId(r.id)} className="-mx-2 -my-3.5 flex items-center gap-1 px-2 py-3.5 active:text-rouge">
                         <Trash2 size={13} /> 删除
                       </button>
                     </div>
@@ -76,7 +78,7 @@ export default function MyReviewsPage() {
         {confirmId && (
           <motion.div className="fixed inset-0 z-50 flex items-end justify-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <div className="absolute inset-0 bg-ink/30" onClick={() => setConfirmId(null)} />
-            <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", stiffness: 320, damping: 32 }} className="app-width relative rounded-t-[24px] bg-snow p-5 pb-safe dark:bg-dark-card">
+            <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", stiffness: 320, damping: 32 }} className="app-width relative rounded-t-[24px] bg-snow p-5 pb-[calc(env(safe-area-inset-bottom)+20px)] dark:bg-dark-card">
               <p className="text-center text-sm text-ink dark:text-dark-text">确认删除这条书评？</p>
               <p className="mt-1 text-center text-xs text-ink-300">删除后不可恢复</p>
               <div className="mt-4 flex gap-3">

@@ -137,6 +137,7 @@ export interface Toast {
   id: number;
   type: "success" | "error" | "info";
   msg: string;
+  action?: { label: string; onClick: () => void }; // 可选动作钮（如「撤销」），点击后该 toast 立即消失
 }
 interface UIState {
   hydrated: boolean;
@@ -148,7 +149,7 @@ interface UIState {
   removeRecent: (q: string) => void;
   clearRecent: () => void;
   toasts: Toast[];
-  toast: (msg: string, type?: Toast["type"]) => void;
+  toast: (msg: string, type?: Toast["type"], action?: Toast["action"]) => void;
   dismiss: (id: number) => void;
   loginOpen: boolean;
   pending: (() => void) | null;
@@ -156,6 +157,8 @@ interface UIState {
   closeLogin: () => void;
 }
 let toastId = 1;
+// 各 toast 的自动消失定时器：同文案重复触发时仅重置计时（B11）
+const toastTimers: Record<number, ReturnType<typeof setTimeout>> = {};
 export const useUI = create<UIState>()(
   persist(
     (set, get) => ({
@@ -173,10 +176,19 @@ export const useUI = create<UIState>()(
       removeRecent: (q) => set({ recentSearches: get().recentSearches.filter((x) => x !== q) }),
       clearRecent: () => set({ recentSearches: [] }),
       toasts: [],
-      toast: (msg, type = "success") => {
+      toast: (msg, type = "success", action) => {
+        const cur = get().toasts;
+        const last = cur[cur.length - 1];
+        // 队尾同文案去重：不再新增，只重置自动消失计时
+        if (last && last.msg === msg && last.type === type) {
+          clearTimeout(toastTimers[last.id]);
+          toastTimers[last.id] = setTimeout(() => get().dismiss(last.id), 2800);
+          return;
+        }
         const id = toastId++;
-        set({ toasts: [...get().toasts, { id, msg, type }] });
-        setTimeout(() => get().dismiss(id), 2800);
+        set({ toasts: [...cur, { id, msg, type, action }].slice(-3) }); // 最多同时 3 条
+        // 带动作的 toast 多留一会儿（撤销窗口 4s）
+        toastTimers[id] = setTimeout(() => get().dismiss(id), action ? 4000 : 2800);
       },
       dismiss: (id) => set({ toasts: get().toasts.filter((t) => t.id !== id) }),
       loginOpen: false,
@@ -219,7 +231,7 @@ interface LibState {
   setProgress: (p: Progress) => void;
   pushHistory: (h: HistoryItem) => void;
   clearHistory: () => void;
-  removeHistory: (bookId: string) => void;
+  removeHistory: (bookId: string, mode: ReadingMode) => void;
   toggleLike: (id: string) => void;
   addReview: (r: Review) => void;
   removeReview: (id: string) => void;
@@ -232,6 +244,8 @@ interface LibState {
   addReadSeconds: (sec: number) => void;
 }
 const real = (id: string) => id.split("__")[0];
+// 历史大类：音视频(video/audio)同属 av，与文字稿 text 分开（与 reading_history.mode_category 同口径）
+const histCat = (m: ReadingMode) => (m === "text" ? "text" : "av");
 const EMPTY = {
   favorites: [] as string[],
   notes: [] as NoteItem[],
@@ -325,10 +339,9 @@ export const useLibrary = create<LibState>()((set, get) => {
     pushHistory: (h) => {
       // 音视频本质同一内容，按「书+大类(av/text)」去重 → 音视频共用一条，与文字稿分开
       const id = real(h.bookId);
-      const cat = (m: ReadingMode) => (m === "text" ? "text" : "av");
       const top = get().history[0];
-      if (top && top.bookId === id && cat(top.mode) === cat(h.mode) && top.progress === h.progress) return; // 已在最前且进度未变 → 不重复 set/写库
-      set({ history: [{ ...h, bookId: id }, ...get().history.filter((x) => !(x.bookId === id && cat(x.mode) === cat(h.mode)))].slice(0, 50) });
+      if (top && top.bookId === id && histCat(top.mode) === histCat(h.mode) && top.progress === h.progress) return; // 已在最前且进度未变 → 不重复 set/写库
+      set({ history: [{ ...h, bookId: id }, ...get().history.filter((x) => !(x.bookId === id && histCat(x.mode) === histCat(h.mode)))].slice(0, 50) });
       const u = uid();
       if (u) sync(db.pushHistory(u, id, h.mode, h.progress, h.lastAt), "历史");
     },
@@ -337,11 +350,12 @@ export const useLibrary = create<LibState>()((set, get) => {
       const u = uid();
       if (u) sync(db.clearHistory(u), "历史");
     },
-    removeHistory: (bookId) => {
+    removeHistory: (bookId, mode) => {
+      // 只删同大类（av/text）：避免删音视频记录把同书的文字稿记录一并误删
       const id = real(bookId);
-      set({ history: get().history.filter((x) => x.bookId !== id) });
+      set({ history: get().history.filter((x) => !(x.bookId === id && histCat(x.mode) === histCat(mode))) });
       const u = uid();
-      if (u) sync(db.removeHistory(u, id), "历史");
+      if (u) sync(db.removeHistory(u, id, mode), "历史");
     },
     // 书评点赞：写穿透 review_likes（本版 UI 不展示，数据先闭环——原实现纯本地，刷新即丢，与登录加载的云端数据形成鬼影）
     toggleLike: (id) => {

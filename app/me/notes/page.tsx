@@ -103,10 +103,10 @@ export default function NotesPage() {
                                     <span className="truncate text-celadon-700 dark:text-celadon-300">{n.chapterTitle} ›</span>
                                     <div className="flex shrink-0 items-center gap-3">
                                       <span>{formatDate(n.createdAt)}</span>
-                                      <button aria-label="编辑笔记" onClick={(e) => { e.stopPropagation(); startEdit(n); }} className="p-1 active:text-celadon-700">
+                                      <button aria-label="编辑笔记" onClick={(e) => { e.stopPropagation(); startEdit(n); }} className="-m-2.5 p-3.5 active:text-celadon-700">
                                         <Pencil size={13} />
                                       </button>
-                                      <button aria-label="删除笔记" onClick={(e) => { e.stopPropagation(); removeNote(n.id); toast("已删除"); }} className="p-1 active:text-rouge">
+                                      <button aria-label="删除笔记" onClick={(e) => { e.stopPropagation(); removeNote(n.id); toast("已删除"); }} className="-m-2.5 p-3.5 active:text-rouge">
                                         <Trash2 size={13} />
                                       </button>
                                     </div>

@@ -196,7 +196,8 @@ export const db = {
       { onConflict: "user_id,book_id,mode_category" }
     ),
   clearHistory: (uid: string) => supabase.from("reading_history").delete().eq("user_id", uid),
-  removeHistory: (uid: string, bookId: string) => supabase.from("reading_history").delete().eq("user_id", uid).eq("book_id", bookId),
+  removeHistory: (uid: string, bookId: string, mode: ReadingMode) =>
+    supabase.from("reading_history").delete().eq("user_id", uid).eq("book_id", bookId).eq("mode_category", catOf(mode)),
 
   setTextProgress: (uid: string, bookId: string, p: Progress | undefined, readIds: string[]) =>
     supabase.from("text_progress").upsert(

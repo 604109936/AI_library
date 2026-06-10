@@ -104,6 +104,8 @@ export interface ChatMessage {
   feedbackText?: string; // 「其它」自定义反馈文本
   streaming?: boolean;
   toolNote?: string; // 工具调用中文案（查找书籍…/翻阅图书…/章节浏览…），仅流式期间展示
+  error?: boolean; // 错误/中断占位消息：组装上下文时剔除（防模型把报错文案当成自己说过的话）
+  recsPending?: boolean; // 流式中推荐卡数据已就绪（先渲染骨架卡占位，收尾时换真卡）
 }
 
 export interface ChatSession {

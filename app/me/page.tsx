@@ -17,7 +17,7 @@ function LampPull() {
   function toggle() {
     const next = on ? "dark" : "light";
     setTheme(next);
-    toast(next === "light" ? "灯亮了，开启今天的阅读时光 ☀" : "灯熄了，今天辛苦啦，明天继续 🌙", "info");
+    toast(next === "light" ? "灯亮了，宜读书" : "灯熄了，早些歇息", "info");
   }
   return (
     <div className="absolute right-5 top-0 z-20 flex flex-col items-center">
@@ -56,7 +56,7 @@ export default function MePage() {
   const favorites = useLibrary((s) => s.favorites);
 
   const readSeconds = useLibrary((s) => s.readSeconds);
-  // 总时长=真实累计阅读/收听时长（音视频+文字之和）
+  // 阅读时长=真实累计阅读/收听时长（音视频+文字之和）
   const durLabel = readSeconds >= 3600 ? `${(readSeconds / 3600).toFixed(1)}h` : `${Math.floor(readSeconds / 60)}分`;
   // 已读/进行中均按「书」统计数量，同一本书音视频+文字稿不重复计数
   const doneBooks = new Set(history.filter((h) => h.progress >= 100).map((h) => h.bookId));
@@ -72,7 +72,7 @@ export default function MePage() {
     return hasAv ? "av" : rows.some((h) => h.mode === "text") ? "text" : "av";
   };
   const stats = [
-    { label: "总时长", value: user ? durLabel : "—", icon: Clock, href: undefined as string | undefined },
+    { label: "阅读时长", value: user ? durLabel : "—", icon: Clock, href: undefined as string | undefined },
     { label: "已读", value: user ? String(readCount) : "—", icon: BookCheck, href: `/me/history?status=read&mode=${modeFor(true)}` },
     { label: "进行中", value: user ? String(ongoing) : "—", icon: BookOpen, href: `/me/history?status=reading&mode=${modeFor(false)}` },
     { label: "收藏", value: user ? String(favorites.length) : "—", icon: Heart, href: "/me/favorites" },
@@ -111,7 +111,7 @@ export default function MePage() {
           </button>
         )}
 
-        {/* 数据卡：总时长 / 已读 / 进行中 / 收藏 */}
+        {/* 数据卡：阅读时长 / 已读 / 进行中 / 收藏 */}
         <div className="relative mt-5 grid grid-cols-4 gap-2">
           {stats.map((st) => {
             const Icon = st.icon;
@@ -124,8 +124,10 @@ export default function MePage() {
               </>
             );
             if (!st.href) return <div key={st.label} className={cls}>{inner}</div>;
+            const href = st.href;
             return (
-              <Link key={st.label} href={user ? st.href : "#"} onClick={(e) => { if (!user) { e.preventDefault(); openLogin(); } }} className={cls}>
+              // 未登录点击：挂起目标路由，登录成功后自动跳过去（不再停在原地要用户再点一次）
+              <Link key={st.label} href={user ? href : "#"} onClick={(e) => { if (!user) { e.preventDefault(); openLogin(() => router.push(href)); } }} className={cls}>
                 {inner}
               </Link>
             );
@@ -139,7 +141,7 @@ export default function MePage() {
           <Link
             key={label}
             href={!auth || user ? href : "#"}
-            onClick={(e) => { if (auth && !user) { e.preventDefault(); openLogin(); } }}
+            onClick={(e) => { if (auth && !user) { e.preventDefault(); openLogin(() => router.push(href)); } }}
             className={"flex items-center gap-3 px-4 py-3.5 active:bg-moon/60 dark:active:bg-dark-bg " + (i ? "border-t border-line dark:border-white/5" : "")}
           >
             <Icon size={18} className="text-celadon-700 dark:text-celadon-300" />

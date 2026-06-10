@@ -131,6 +131,7 @@ body {
 /* prose 简易（智学/书评 markdown） */
 .prose-cn {
   @apply text-[15px] leading-7 text-ink-700;
+  overflow-wrap: break-word; /* 长 URL/英文串不撑破气泡 */
 }
 .prose-cn h1,
 .prose-cn h2,
@@ -151,6 +152,12 @@ body {
 }
 .prose-cn code {
   @apply bg-line/60 px-1 py-0.5 rounded text-[13px];
+}
+.prose-cn pre {
+  @apply my-2 overflow-x-auto rounded-lg bg-ink/90 p-3 text-[12.5px] leading-6 text-snow;
+}
+.prose-cn pre code {
+  @apply bg-transparent p-0 text-snow;
 }
 
 /* prose 暗色适配（修复深色卡片上正文不可见） */

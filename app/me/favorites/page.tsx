@@ -1,6 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { AnimatePresence, motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { Header } from "@/components/shell/Header";
 import { RequireAuth } from "@/components/shell/RequireAuth";
@@ -47,13 +48,14 @@ export default function FavoritesPage() {
         title="我的收藏"
         right={
           <div className="relative">
-            <button onClick={() => setOpen((v) => !v)} className="flex items-center gap-1 text-xs text-ink-500 dark:text-dark-text/60">
+            <button onClick={() => setOpen((v) => !v)} className="-m-3.5 flex items-center gap-1 p-3.5 text-xs text-ink-500 dark:text-dark-text/60">
               {LABEL[sort]} <ChevronDown size={13} />
             </button>
             {open && (
               <>
-                <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
-                <div className="absolute right-0 top-8 z-30 w-32 overflow-hidden rounded-xl border border-line bg-snow shadow-lg dark:border-white/10 dark:bg-dark-card">
+                {/* 遮罩须压过 sticky 顶栏(z-30)，菜单再压过遮罩，否则点顶栏区域关不掉菜单 */}
+                <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+                <div className="absolute right-0 top-8 z-50 w-32 overflow-hidden rounded-xl border border-line bg-snow shadow-lg dark:border-white/10 dark:bg-dark-card">
                   {(Object.keys(LABEL) as Sort[]).map((s) => (
                     <button key={s} onClick={() => { setSort(s); setOpen(false); }} className={"flex w-full items-center justify-between px-3 py-2 text-left text-xs " + (sort === s ? "text-celadon" : "text-ink-700 dark:text-dark-text/80")}>
                       {LABEL[s]}{sort === s && <Check size={12} />}
@@ -77,22 +79,28 @@ export default function FavoritesPage() {
           <EmptyState icon="book" title="还没有收藏任何书" subtitle="去泡馆发现好书吧" actionText="去泡馆逛逛" actionHref="/library" />
         ) : (
           <div className="grid grid-cols-2 gap-4 p-4">
-            {list.map((b) => (
-              <div key={b.id} className="relative">
-                <Link href={`/library/book/${b.id}`} className="block transition active:scale-[0.98]">
-                  <BookCover title={b.title} author={b.author} seed={b.coverSeed} src={b.cover} className="w-full" />
-                  <h3 className="mt-2 truncate font-serif text-sm text-ink dark:text-dark-text">{b.title}</h3>
-                  <p className="truncate text-xs text-ink-300">{b.author}</p>
-                </Link>
-                <button
-                  aria-label="取消收藏"
-                  onClick={() => { toggleFav(b.id); toast("已取消收藏"); }}
-                  className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-black/30 backdrop-blur active:scale-90"
-                >
-                  <Heart size={15} className="fill-rouge text-rouge" />
-                </button>
-              </div>
-            ))}
+            {/* 取消收藏的卡片做轻量退场（opacity/scale 0.18s），不再瞬移消失 */}
+            <AnimatePresence initial={false}>
+              {list.map((b) => (
+                <motion.div key={b.id} exit={{ opacity: 0, scale: 0.92 }} transition={{ duration: 0.18 }} className="relative">
+                  <Link href={`/library/book/${b.id}`} className="block transition active:scale-[0.98]">
+                    <BookCover title={b.title} author={b.author} seed={b.coverSeed} src={b.cover} className="w-full" />
+                    <h3 className="mt-2 truncate font-serif text-sm text-ink dark:text-dark-text">{b.title}</h3>
+                    <p className="truncate text-xs text-ink-300">{b.author}</p>
+                  </Link>
+                  {/* 触区 44px，视觉圆钮 28px 居中不变 */}
+                  <button
+                    aria-label="取消收藏"
+                    onClick={() => { toggleFav(b.id); toast("已取消收藏", "info", { label: "撤销", onClick: () => toggleFav(b.id) }); }}
+                    className="absolute -right-0.5 -top-0.5 flex h-11 w-11 items-center justify-center active:scale-90"
+                  >
+                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-black/30 backdrop-blur">
+                      <Heart size={15} className="fill-rouge text-rouge" />
+                    </span>
+                  </button>
+                </motion.div>
+              ))}
+            </AnimatePresence>
           </div>
         )}
       </RequireAuth>

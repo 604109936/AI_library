@@ -1,6 +1,5 @@
 "use client";
 import Link from "next/link";
-import { motion } from "framer-motion";
 import { MessagesSquare, BookMarked, Clapperboard, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -37,15 +36,10 @@ export function BottomNav({ active, variant = "light" }: { active: TabKey; varia
               href={href}
               aria-current={on ? "page" : undefined}
               aria-label={label}
-              className="relative flex flex-col items-center gap-1 py-2.5"
+              className="relative flex flex-col items-center gap-1 py-2.5 transition-transform active:scale-90"
             >
-              {on && (
-                <motion.span
-                  layoutId={`tab-indicator-${variant}`}
-                  transition={{ type: "spring", stiffness: 500, damping: 32 }}
-                  className="absolute top-0 h-0.5 w-7 rounded-full bg-celadon"
-                />
-              )}
+              {/* 选中条：切页是整页跳转，layoutId 跨页动画无效，改为本地浮现动画 */}
+              {on && <span className="absolute top-0 h-0.5 w-7 animate-scale-in rounded-full bg-celadon" />}
               <Icon
                 size={22}
                 strokeWidth={on ? 2.4 : 1.8}

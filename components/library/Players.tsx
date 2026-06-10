@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { Play, Pause, Maximize2, Minimize2, Volume2, VolumeX, Video, Headphones } from "lucide-react";
+import { Play, Pause, Maximize2, Minimize2, Volume2, VolumeX, Video, Headphones, RotateCcw, RotateCw } from "lucide-react";
 import { BookCover } from "@/components/ui/BookCover";
 import { formatTime } from "@/lib/utils";
 import { useLibrary } from "@/lib/store";
@@ -117,11 +117,22 @@ function VideoStage({ book }: { book: Book }) {
   useReadCountBump(book.id.split("__")[0], playing); // 「一次阅读」计数（真实播放满30秒记一次）
 
   useEffect(() => { if (ref.current) ref.current.playbackRate = speed; }, [speed]);
+  // 自绘全屏：锁滚动 + 接管系统返回（压入一条历史，返回手势只退全屏不退页面）
+  const fsPushed = useRef(false);
   useEffect(() => {
     if (!fs) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = prev; };
+    window.history.pushState({ fs: 1 }, "");
+    fsPushed.current = true;
+    const onPop = () => { fsPushed.current = false; setFs(false); }; // 系统返回 → 仅退出全屏
+    window.addEventListener("popstate", onPop);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("popstate", onPop);
+      // 点退出按钮 / 组件卸载（非 popstate 路径）：back 一步消费掉自压入的历史，不影响后续正常返回
+      if (fsPushed.current) { fsPushed.current = false; window.history.back(); }
+    };
   }, [fs]);
 
   // 未播放时一直显示书封（不跳到视频帧）；首次点播放才跳到上次进度
@@ -216,7 +227,8 @@ function VideoStage({ book }: { book: Book }) {
 
       {started && (
         <div className={"absolute inset-x-0 bottom-0 flex items-center gap-2 bg-gradient-to-t from-black/75 to-transparent px-3 text-white " + (fs ? "pb-[calc(env(safe-area-inset-bottom)+18px)] pt-12" : "pb-2 pt-6")}>
-          <button onClick={toggle} aria-label={playing ? "暂停" : "播放"}>
+          {/* -m-3 p-3 扩触区到 ≥40px，占位与视觉不变 */}
+          <button onClick={toggle} aria-label={playing ? "暂停" : "播放"} className="-m-3 shrink-0 p-3">
             {playing ? <Pause size={fs ? 20 : 16} /> : <Play size={fs ? 20 : 16} />}
           </button>
           <span className={"shrink-0 tabular-nums " + (fs ? "w-10 text-xs" : "w-8 text-[10px]")}>{formatTime(cur)}</span>
@@ -260,6 +272,16 @@ function AudioStage({ book }: { book: Book }) {
     seekReset(); // 重置基准，避免把拖动跳变算成真实播放
     seek(t);
     setScrub(null);
+  }
+  // ±15 秒快进/快退：复用 commitSeek（含 seekReset 基线重置，防把跳变计入真实播放）
+  function skipBy(delta: number) {
+    const a = ref.current;
+    if (!a) return;
+    const d = a.duration || dur;
+    let t = a.currentTime + delta;
+    if (t < 0) t = 0;
+    if (d > 0 && t > d) t = d;
+    commitSeek(t);
   }
   function onMeta(e: React.SyntheticEvent<HTMLAudioElement>) {
     const d = e.currentTarget.duration || 0;
@@ -352,8 +374,16 @@ function AudioStage({ book }: { book: Book }) {
         ))}
       </div>
 
-      {/* 播放 / 暂停（环形进度） */}
-      <div className="mt-6 flex items-center justify-center">
+      {/* 后退 15 秒 · 播放/暂停（环形进度） · 快进 15 秒 */}
+      <div className="mt-6 flex items-center justify-center gap-7">
+        <button
+          onClick={() => skipBy(-15)}
+          aria-label="后退 15 秒"
+          className="relative flex h-10 w-10 items-center justify-center rounded-full bg-snow text-ink-700 shadow-sm ring-1 ring-line active:scale-90 dark:bg-dark-card dark:text-dark-text/80 dark:ring-white/10"
+        >
+          <RotateCcw size={22} strokeWidth={1.8} />
+          <span className="pointer-events-none absolute inset-0 flex items-center justify-center pt-px text-[7px] font-semibold leading-none">15</span>
+        </button>
         <button onClick={toggle} aria-label={playing ? "暂停" : "播放"} className="relative flex h-20 w-20 items-center justify-center">
           <svg className="absolute inset-0 -rotate-90" viewBox="0 0 80 80">
             <circle cx="40" cy="40" r={R} fill="none" stroke="currentColor" strokeWidth="3" className="text-line dark:text-white/10" />
@@ -362,6 +392,14 @@ function AudioStage({ book }: { book: Book }) {
           <span className="flex h-14 w-14 items-center justify-center rounded-full bg-celadon text-snow shadow-celadon active:scale-95">
             {playing ? <Pause size={24} /> : <Play size={24} className="ml-0.5" />}
           </span>
+        </button>
+        <button
+          onClick={() => skipBy(15)}
+          aria-label="快进 15 秒"
+          className="relative flex h-10 w-10 items-center justify-center rounded-full bg-snow text-ink-700 shadow-sm ring-1 ring-line active:scale-90 dark:bg-dark-card dark:text-dark-text/80 dark:ring-white/10"
+        >
+          <RotateCw size={22} strokeWidth={1.8} />
+          <span className="pointer-events-none absolute inset-0 flex items-center justify-center pt-px text-[7px] font-semibold leading-none">15</span>
         </button>
       </div>
     </div>

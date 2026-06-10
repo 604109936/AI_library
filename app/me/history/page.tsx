@@ -52,7 +52,7 @@ function HistoryInner() {
         {list.length === 0 ? (
           <EmptyState
             icon="history"
-            title={status === "read" ? "还没有读完的书" : status === "reading" ? "没有进行中的书" : filter === "av" ? "还没有音视频记录" : "还没有文字稿记录"}
+            title={status === "read" ? "读完的第一本书，会在这里亮相" : status === "reading" ? "没有进行中的书" : filter === "av" ? "还没有音视频记录" : "还没有文字稿记录"}
             subtitle="去泡馆挑一本书读读吧"
             actionText="去泡馆逛逛"
             actionHref="/library"
@@ -76,7 +76,7 @@ function HistoryInner() {
                     <p className="mt-1 text-[11px] text-ink-300">{formatDate(h.lastAt)}</p>
                   </div>
                   <div className="flex flex-col items-center gap-2">
-                    <button aria-label="删除记录" onClick={() => { removeHistory(h.bookId); toast("已移除"); }} className="text-ink-300 active:text-rouge">
+                    <button aria-label="删除记录" onClick={() => { removeHistory(h.bookId, h.mode); toast("已移除"); }} className="-m-3.5 p-3.5 text-ink-300 active:text-rouge">
                       <X size={16} />
                     </button>
                     <button

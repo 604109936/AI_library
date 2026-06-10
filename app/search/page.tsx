@@ -24,10 +24,11 @@ export default function SearchPage() {
     return () => clearTimeout(t);
   }, [input]);
 
-  const { data, isLoading, isError, refetch } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["search", q],
     queryFn: () => search(q),
     enabled: q.length > 0,
+    placeholderData: (p) => p, // 换词时沿用旧结果渲染，不闪骨架
   });
   // 热门搜索：真实书目动态生成（点出去必有结果；T3.4 换 search_logs 聚合）
   const hotQ = useQuery({ queryKey: ["hotSearches"], queryFn: getHotSearches, staleTime: 10 * 60 * 1000 });
@@ -65,12 +66,15 @@ export default function SearchPage() {
           <SearchIcon size={16} className="text-ink-300" />
           <input
             autoFocus
+            type="search"
+            enterKeyHint="search"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="搜索书名 / 作者 / 标签"
-            className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-ink-300 dark:text-dark-text"
+            className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-ink-300 dark:text-dark-text [&::-webkit-search-cancel-button]:appearance-none"
           />
-          {input && <button type="button" aria-label="清除" onClick={() => setInput("")}><X size={16} className="text-ink-300" /></button>}
+          {q.length > 0 && isFetching && <span aria-hidden className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-line border-t-celadon dark:border-white/15 dark:border-t-celadon" />}
+          {input && <button type="button" aria-label="清除" onClick={() => setInput("")} className="-m-3.5 p-3.5"><X size={16} className="text-ink-300" /></button>}
         </form>
         <button onClick={goBack} className="px-2 text-sm text-ink-500 dark:text-dark-text/60">取消</button>
       </header>
@@ -88,7 +92,7 @@ export default function SearchPage() {
                   {recent.map((t) => (
                     <span key={t} className="flex items-center gap-1 rounded-full bg-snow px-3 py-1.5 text-xs text-ink-700 dark:bg-dark-card dark:text-dark-text">
                       <button onClick={() => submit(t)}>{t}</button>
-                      <button aria-label="移除" onClick={() => removeRecent(t)}>
+                      <button aria-label="移除" onClick={() => removeRecent(t)} className="-m-3.5 p-3.5">
                         <X size={12} className="text-ink-300" />
                       </button>
                     </span>
@@ -118,7 +122,8 @@ export default function SearchPage() {
         ) : !hasResult ? (
           <EmptyState icon="search" title="没有找到相关书籍" subtitle="换个书名 / 作者 / 标签试试" />
         ) : (
-          <section>
+          // 换词请求中：旧结果降透明度过渡，避免骨架闪烁
+          <section className={"transition-opacity duration-200 " + (isFetching ? "opacity-60" : "opacity-100")}>
             <h2 className="mb-2 text-sm text-ink dark:text-dark-text">书籍</h2>
             <div className="space-y-3">
               {data!.books.map((b) => <BookRow key={b.id} book={b} />)}

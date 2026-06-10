@@ -1,8 +1,8 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Search, Brain, TrendingUp, Feather, Landmark, Cpu, Sprout, Play } from "lucide-react";
+import { Search, Brain, TrendingUp, Feather, Landmark, Cpu, Sprout, BookOpen } from "lucide-react";
 import { getHome } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import { BottomNav } from "@/components/shell/BottomNav";
@@ -23,6 +23,32 @@ export default function LibraryHome() {
   const hydrated = useLibrary((s) => s.hydrated);
   const history = useLibrary((s) => s.history);
 
+  // Banner 指示点：监听横向滚动（rAF 节流）算当前张
+  const bannerRef = useRef<HTMLDivElement>(null);
+  const [bannerIdx, setBannerIdx] = useState(0);
+  useEffect(() => {
+    const el = bannerRef.current;
+    if (!el) return;
+    let raf = 0;
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        // 步长 = 相邻两卡 offsetLeft 差（卡宽 88% + gap，免去手算内边距），按步长取整得当前张
+        const kids = el.children;
+        if (kids.length < 2) return;
+        const step = (kids[1] as HTMLElement).offsetLeft - (kids[0] as HTMLElement).offsetLeft;
+        if (step <= 0) return;
+        setBannerIdx(Math.max(0, Math.min(kids.length - 1, Math.round(el.scrollLeft / step))));
+      });
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [data]);
+
   // 继续阅读：仅「文字稿」且未读完，按最近阅读在前，最多 5 本；无则整块不显示
   const continueList = hydrated ? history.filter((h) => h.mode === "text" && h.progress < 100).slice(0, 5) : [];
   // 热门好书：按「入库时间」由远到近（API 已排序），自动过滤掉已读完的，取 20 本
@@ -40,7 +66,8 @@ export default function LibraryHome() {
           </span>
           <span className="font-serif text-lg text-ink dark:text-dark-text">AI 图书馆</span>
         </div>
-        <Link href="/search" aria-label="搜索" className="flex h-9 w-9 items-center justify-center rounded-full active:bg-line/50">
+        {/* 触区 ≥40px（h-10 w-10），-mr-0.5 补偿使图标中心位置不变 */}
+        <Link href="/search" aria-label="搜索" className="-mr-0.5 flex h-10 w-10 items-center justify-center rounded-full active:bg-line/50">
           <Search size={20} className="text-ink-700 dark:text-dark-text" />
         </Link>
       </header>
@@ -50,11 +77,26 @@ export default function LibraryHome() {
 
       {data && (
         <div className="space-y-7 px-4 pt-3">
-          {/* Banner：每个分类最新入库一本（共 6 本） */}
-          <section className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 no-scrollbar">
-            {data.banners.map((b) => (
-              <HeroCard key={b.id} book={b} />
-            ))}
+          {/* Banner：每个分类最新入库一本（共 6 本）+ 下方指示点 */}
+          <section>
+            <div ref={bannerRef} className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 no-scrollbar">
+              {data.banners.map((b) => (
+                <HeroCard key={b.id} book={b} />
+              ))}
+            </div>
+            {data.banners.length > 1 && (
+              <div className="mt-2 flex justify-center gap-1.5">
+                {data.banners.map((b, i) => (
+                  <span
+                    key={b.id}
+                    className={
+                      "h-1.5 rounded-full transition-all duration-200 " +
+                      (i === bannerIdx ? "w-4 bg-celadon" : "w-1.5 bg-ink-300/40")
+                    }
+                  />
+                ))}
+              </div>
+            )}
           </section>
 
           {/* 继续阅读（仅文字稿未读完；游客本地历史也展示）· 等持久化水合后再渲染，避免首帧闪烁 */}
@@ -153,11 +195,11 @@ function HeroCard({ book }: { book: Book }) {
 
       <div className="relative flex h-full items-center gap-4 p-5">
         <div className="flex min-w-0 flex-1 flex-col">
-          <span className="text-[11px] tracking-wide text-white/80">{book.category} · 新书</span>
-          <h3 className="mt-1 font-serif text-2xl leading-tight text-white drop-shadow-sm">{book.title}</h3>
+          <span className="text-[11px] tracking-wide text-white/80">{book.category} · 新入馆</span>
+          <h3 className="mt-1 line-clamp-2 font-serif text-2xl leading-tight text-white drop-shadow-sm">{book.title}</h3>
           <p className="mt-1 line-clamp-1 text-sm text-white/85">{book.intro}</p>
           <span className="mt-4 inline-flex w-fit items-center gap-1 rounded-full bg-white px-4 py-1.5 text-xs font-medium text-celadon-700 shadow active:scale-95">
-            <Play size={12} className="fill-celadon-700" /> 立即阅读
+            <BookOpen size={12} /> 翻开此书
           </span>
         </div>
         <BookCover
@@ -175,10 +217,10 @@ function HeroCard({ book }: { book: Book }) {
 function HomeSkeleton() {
   return (
     <div className="space-y-7 px-4 pt-3">
-      <Skeleton className="h-[208px] w-full rounded-3xl" />
-      <div className="flex gap-3">
-        <Skeleton className="h-20 w-[248px] shrink-0 rounded-2xl" />
-        <Skeleton className="h-20 w-[120px] shrink-0 rounded-2xl" />
+      {/* 与真实 Banner 同构：88% 宽 + 右侧露边，避免加载完成后布局跳变；继续阅读为本地即时数据，不出骨架 */}
+      <div className="-mx-4 flex gap-3 overflow-hidden px-4 pb-1">
+        <Skeleton className="h-[208px] w-[88%] shrink-0 rounded-3xl" />
+        <Skeleton className="h-[208px] w-[88%] shrink-0 rounded-3xl" />
       </div>
       <div className="grid grid-cols-2 gap-3">
         {Array.from({ length: 6 }).map((_, i) => (

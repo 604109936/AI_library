@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
   // 限流（T5）：每人 10 次/分钟 且 80 次/小时（游客按 IP）。烧 LLM token 的口子必须有闸
   const lk = limiterKey(uid, req.headers.get("x-forwarded-for"));
   if (!rateLimit(`m:${lk}`, 10, 60_000) || !rateLimit(`h:${lk}`, 80, 3_600_000)) {
-    return NextResponse.json({ error: "提问太频繁了，请稍作休息再来" }, { status: 429 });
+    return NextResponse.json({ error: "你问得好快呀——歇口气，一分钟后我们接着聊" }, { status: 429 });
   }
   const sessionId = typeof body.sessionId === "string" && body.sessionId ? body.sessionId.slice(0, 64) : null;
   // 变量⑥：本会话更早对话的压缩摘要（T2.6；登录且会话存在才有）
@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ content, events });
     } catch (e) {
       console.error("[/api/chat]", e);
-      return NextResponse.json({ error: "小涤暂时联系不上，请稍后重试" }, { status: 502 });
+      return NextResponse.json({ error: "我这边信号不太好，稍等片刻再来找我吧" }, { status: 502 });
     }
   }
 
@@ -117,7 +117,7 @@ export async function POST(req: NextRequest) {
       } catch (e) {
         if (!(e instanceof Error && e.name === "AbortError")) {
           console.error("[/api/chat]", e);
-          emit({ t: "err", v: "小涤暂时联系不上，请稍后重试" });
+          emit({ t: "err", v: "我这边信号不太好，稍等片刻再来找我吧" });
         }
       } finally {
         try { controller.close(); } catch {}

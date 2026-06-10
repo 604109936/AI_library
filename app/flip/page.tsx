@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Heart, MessageSquare, ArrowRight, Play, Volume2, VolumeX } from "lucide-react";
@@ -16,6 +16,7 @@ import type { Book } from "@/lib/types";
 // 按账号隔离：换账号/退出后缓存作废（T3 接 flip_feed 个性化书单后尤其重要）
 let flipCache: { books: Book[]; idx: number; uid: string } | null = null;
 const cacheUid = () => useAuth.getState().user?.id ?? "guest";
+let mutedHintShown = false; // 静音兜底提示：module 级标记，每次会话仅提示一次
 function validCache() {
   if (flipCache && flipCache.uid !== cacheUid()) flipCache = null;
   return flipCache;
@@ -41,6 +42,7 @@ export default function FlipPage() {
   const [playing, setPlaying] = useState(false); // 当前视频在播
   const [userPaused, setUserPausedState] = useState(false); // 用户主动暂停（只此态显示播放按钮）
   const [vErr, setVErr] = useState(false);
+  const [mutedHint, setMutedHint] = useState(false); // 静音兜底提示 chip（4 秒自隐）
 
   const fetching = useRef(false);
   const booksRef = useRef<Book[]>(books);
@@ -118,6 +120,12 @@ export default function FlipPage() {
     v.play().then(() => setMutedNow(v.muted)).catch(() => {
       v.muted = true;
       setMutedNow(true);
+      // 静音兜底首次触发：提示「轻点开启声音」，4 秒自隐（每次会话仅一次）
+      if (!mutedHintShown) {
+        mutedHintShown = true;
+        setMutedHint(true);
+        setTimeout(() => setMutedHint(false), 4000);
+      }
       v.play().catch(() => { if (v.error) setVErr(true); }); // 静音兜底也播不动且源已坏 → 走错误兜底而非一直转圈
     });
   }, []);
@@ -225,6 +233,7 @@ export default function FlipPage() {
 
   // 静音钮只管声音，不打破「用户主动暂停」：开声时仅当视频本应在播却没播才补 play
   const toggleSound = useCallback(() => {
+    setMutedHint(false); // 点声音钮：兜底提示立即消失
     const turnOn = mutedNowRef.current;
     setSoundOn(turnOn);
     const v = activeVideo();
@@ -276,6 +285,19 @@ export default function FlipPage() {
             <div ref={scrollerRef} className="relative h-full snap-y snap-mandatory overflow-y-auto overscroll-contain no-scrollbar">
              {/* 滚动内容包裹层：高 = 书数×单屏；视频与卡片都在其内，随内容一起滚（绝对定位相对此层、不被钉在视口） */}
              <div className="relative w-full" style={{ height: `${books.length * 100}%` }}>
+              {/* 封面垫底：与视频同 z 且 DOM 在前 → 永远垫在视频之下，视频出帧自然盖住；用 <img> 不新增解码压力 */}
+              {books.map((b, i) =>
+                b.cover && Math.abs(i - activeIdx) <= 1 ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    key={`backdrop-${b.id}`}
+                    src={b.cover}
+                    alt=""
+                    className="absolute inset-x-0 z-0 w-full object-cover blur-sm brightness-50"
+                    style={{ top: `${(i / books.length) * 100}%`, height: `${100 / books.length}%` }}
+                  />
+                ) : null
+              )}
               {/* 视频池：3 个复用元素，定位在各自卡片偏移、随内容一起滚（跟手），仅占 3 个解码器 */}
               {Array.from({ length: SLOTS }, (_, s) => {
                 const i = slotIdx(s, activeIdx, books.length);
@@ -305,7 +327,7 @@ export default function FlipPage() {
               {/* 每条占位 div：撑起滚动高度 + snap；仅当前条 ±2 渲染 overlay 内容（虚拟化，支持 100+ 本） */}
               {books.map((b, i) => (
                 <div key={b.id} className="relative z-10 w-full snap-start snap-always" style={{ height: `${100 / books.length}%` }}>
-                  {Math.abs(i - activeIdx) <= 2 && <FlipOverlay book={b} onTogglePlay={togglePlay} />}
+                  {Math.abs(i - activeIdx) <= 2 && <FlipOverlay book={b} active={i === activeIdx} onTogglePlay={togglePlay} />}
                 </div>
               ))}
              </div>
@@ -316,7 +338,11 @@ export default function FlipPage() {
               <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 px-8 text-center text-dark-text/70">
                 <Motif name="cloud" className="relative w-24 text-celadon/20" />
                 <p className="relative">这本书的视频暂时无法播放</p>
-                <button onClick={() => { const b = books[activeIdx]; if (b) router.push(`/library/book/${b.id.split("__")[0]}`); }} className="pointer-events-auto relative rounded-full border border-celadon/50 bg-white/8 px-5 py-2 text-sm text-celadon-300 backdrop-blur-md active:scale-95">看图文详情</button>
+                <div className="relative flex items-center gap-3">
+                  {/* 重试：重置错误态 → 重新拉流 → 续播（幽灵样式，与详情入口并排） */}
+                  <button onClick={() => { setVErr(false); setLoaded(false); activeVideo()?.load(); playActive(); }} className="pointer-events-auto rounded-full border border-white/25 bg-white/8 px-5 py-2 text-sm text-dark-text/80 backdrop-blur-md active:scale-95">重试</button>
+                  <button onClick={() => { const b = books[activeIdx]; if (b) router.push(`/library/book/${b.id.split("__")[0]}`); }} className="pointer-events-auto rounded-full border border-celadon/50 bg-white/8 px-5 py-2 text-sm text-celadon-300 backdrop-blur-md active:scale-95">看图文详情</button>
+                </div>
               </div>
             )}
 
@@ -344,11 +370,17 @@ export default function FlipPage() {
             <button
               onClick={toggleSound}
               aria-label={mutedNow ? "开启声音" : "静音"}
-              className="absolute right-3 z-30 flex h-9 w-9 items-center justify-center rounded-full bg-black/30 text-dark-text/90 ring-1 ring-brass/30 backdrop-blur-md transition active:scale-90"
+              className="absolute right-3 z-30 flex h-11 w-11 items-center justify-center rounded-full bg-black/30 text-dark-text/90 ring-1 ring-brass/30 backdrop-blur-md transition active:scale-90"
               style={{ top: "calc(env(safe-area-inset-top) + 12px)" }}
             >
               {mutedNow ? <VolumeX size={18} /> : <Volume2 size={18} />}
             </button>
+            {/* 静音兜底提示：声音钮下方小 chip，4 秒自隐，点声音钮立即消失 */}
+            {mutedHint && (
+              <div className="pointer-events-none absolute right-3 z-30 animate-fade-up rounded-full bg-black/45 px-3 py-1.5 text-[11px] text-dark-text ring-1 ring-brass/30 backdrop-blur-md" style={{ top: "calc(env(safe-area-inset-top) + 64px)" }}>
+                轻点开启声音
+              </div>
+            )}
           </>
         )}
       </div>
@@ -377,11 +409,15 @@ function FlipSkeleton() {
 }
 
 // 每条叠加层（文字/收藏/书评/渐变/点击层），透明铺在视频上；视频由池统一承载
-function FlipOverlay({ book, onTogglePlay }: { book: Book; onTogglePlay: () => void }) {
+function FlipOverlay({ book, active, onTogglePlay }: { book: Book; active: boolean; onTogglePlay: () => void }) {
   const router = useRouter();
   const [burst, setBurst] = useState(0);
+  const [bounce, setBounce] = useState(0); // 收藏瞬间右侧心形按钮弹跳触发器
   const lastTap = useRef(0);
   const tapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 单击延时回调里读最新 active：280ms 内快滑切条后，迟到的单击不再误暂停新条（A2 竞态）
+  const activeRef = useRef(active);
+  activeRef.current = active;
   const favorites = useLibrary((s) => s.favorites);
   const toggleFav = useLibrary((s) => s.toggleFav);
   const myReviews = useLibrary((s) => s.myReviews);
@@ -389,12 +425,28 @@ function FlipOverlay({ book, onTogglePlay }: { book: Book; onTogglePlay: () => v
   const realId = book.id.split("__")[0];
   const fav = favorites.includes(realId);
 
+  // 卸载（滑出 ±2 渲染窗）时清掉在途单击延时器，防迟到回调落在已卸载组件
+  useEffect(() => () => { if (tapTimer.current) clearTimeout(tapTimer.current); }, []);
+
+  // 小心心散开参数：每次爆发重算（随机方向/大小，逐颗延迟 50ms）
+  const minis = useMemo(
+    () =>
+      Array.from({ length: 4 }, (_, k) => ({
+        size: 12 + Math.round(Math.random() * 8),
+        tx: (Math.random() - 0.5) * 150,
+        ty: -20 - Math.random() * 80,
+        delay: k * 50,
+      })),
+    [burst]
+  );
+
   function triggerBurst() { setBurst((n) => n + 1); setTimeout(() => setBurst((n) => Math.max(0, n - 1)), 800); }
-  function favOnly() { requireLogin(() => { if (!useLibrary.getState().isFav(realId)) { toggleFav(realId); toast("已收藏"); } triggerBurst(); }); }
+  // 双击收藏：爆发动画即是反馈，不再叠 toast（右侧按钮路径保留 toast）
+  function favOnly() { requireLogin(() => { if (!useLibrary.getState().isFav(realId)) { toggleFav(realId); setBounce((n) => n + 1); } triggerBurst(); }); }
   function onTap() {
     const now = Date.now();
     if (now - lastTap.current < 280) { if (tapTimer.current) clearTimeout(tapTimer.current); lastTap.current = 0; favOnly(); }
-    else { lastTap.current = now; tapTimer.current = setTimeout(() => { onTogglePlay(); lastTap.current = 0; }, 280); }
+    else { lastTap.current = now; tapTimer.current = setTimeout(() => { if (activeRef.current) onTogglePlay(); lastTap.current = 0; }, 280); }
   }
   function openReview() { requireLogin(() => router.push(`/library/book/${realId}/review/new`)); }
 
@@ -403,9 +455,18 @@ function FlipOverlay({ book, onTogglePlay }: { book: Book; onTogglePlay: () => v
       <button className="absolute inset-0 z-0" onClick={onTap} aria-label="播放 / 暂停" />
 
       {burst > 0 && (
-        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+        // key=burst：快速连续双击时强制重挂载，动画必定从头重播（A10）
+        <div key={burst} className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
           <span className="absolute h-28 w-28 animate-like-burst rounded-full bg-rouge/25 blur-md" />
           <Heart size={120} className="animate-like-burst fill-rouge text-rouge drop-shadow-[0_4px_16px_rgba(168,66,58,0.5)]" />
+          {minis.map((m, k) => (
+            <Heart
+              key={k}
+              size={m.size}
+              style={{ "--tx": `${m.tx}px`, "--ty": `${m.ty}px`, animationDelay: `${m.delay}ms` } as React.CSSProperties}
+              className="absolute animate-like-fly fill-rouge text-rouge"
+            />
+          ))}
         </div>
       )}
 
@@ -415,7 +476,17 @@ function FlipOverlay({ book, onTogglePlay }: { book: Book; onTogglePlay: () => v
       <Motif name="branch" className="pointer-events-none absolute bottom-28 -left-4 w-28 text-brass/10" />
 
       <div className="absolute right-3 z-10 flex flex-col items-center gap-6" style={{ bottom: "150px" }}>
-        <Action icon={<Heart size={30} className={fav ? "fill-rouge text-rouge" : "text-dark-text"} />} ariaLabel={fav ? "已收藏" : "收藏"} pressed={fav} onClick={() => requireLogin(() => { const n = toggleFav(realId); toast(n ? "已收藏" : "已取消收藏"); if (n) triggerBurst(); })} />
+        <Action
+          icon={
+            // key=bounce：每次收藏重挂载重播 [1,1.35,1] 弹跳
+            <motion.span key={bounce} animate={bounce > 0 ? { scale: [1, 1.35, 1] } : undefined} transition={{ duration: 0.4, ease: "easeOut" }} className="flex">
+              <Heart size={30} className={fav ? "fill-rouge text-rouge" : "text-dark-text"} />
+            </motion.span>
+          }
+          ariaLabel={fav ? "已收藏" : "收藏"}
+          pressed={fav}
+          onClick={() => requireLogin(() => { const n = toggleFav(realId); toast(n ? "已收藏" : "已取消收藏"); if (n) { triggerBurst(); setBounce((x) => x + 1); } })}
+        />
         <Action icon={<MessageSquare size={28} className="text-dark-text" />} ariaLabel={myReviews.some((r) => r.bookId === realId) ? "编辑书评" : "写书评"} onClick={openReview} />
       </div>
 

@@ -1,14 +1,19 @@
 "use client";
 import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { Plus, History, Send, Square, Sparkles, Mic, X } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
+import { Plus, History, Send, Square, Sparkles, Mic, X, ArrowDown, MessageCircle, ArrowRight } from "lucide-react";
 import { BottomNav } from "@/components/shell/BottomNav";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { Mascot } from "@/components/chat/Mascot";
 import { Motif } from "@/components/ui/Motif";
-import { exampleQuestions, getBook, getChapters } from "@/lib/api";
+import { getBook, getChapters, getHome } from "@/lib/api";
+import { greeting, buildQuestions, buildGuestQuestions } from "@/lib/chatWelcome";
 import { supabase } from "@/lib/supabase/client";
+import { useAuth, useChat, useLibrary, useUI } from "@/lib/store";
+import { formatChatTime } from "@/lib/utils";
+import type { Book, Citation, ChatMessage as TMsg } from "@/lib/types";
 
 // 引用卡数据回填：服务端只给 {b:book_id, c:章序号}，这里拉书与章节拼出展示字段
 async function buildCitations(items: { b: string; c: number }[]): Promise<Citation[]> {
@@ -31,9 +36,6 @@ async function buildCitations(items: { b: string; c: number }[]): Promise<Citati
   }
   return out;
 }
-import { sampleSessions } from "@/lib/mock/data";
-import { useAuth, useChat, useUI } from "@/lib/store";
-import type { Book, Citation, ChatMessage as TMsg } from "@/lib/types";
 
 type Locate = { type: "end" } | { type: "q"; q: string } | { type: "id"; id: string };
 
@@ -46,13 +48,20 @@ function takeChatLive() {
   if (chatLive?.messages.some((m) => m.streaming)) {
     chatLive = {
       ...chatLive,
-      messages: chatLive.messages.map((m) => (m.streaming ? { ...m, streaming: false, toolNote: undefined, content: m.content || "（已中断，可点重新生成）" } : m)),
+      messages: chatLive.messages.map((m) =>
+        m.streaming
+          ? m.content
+            ? { ...m, streaming: false, toolNote: undefined }
+            : { ...m, streaming: false, toolNote: undefined, content: "刚才断线了，点下方「重新生成」，我再说一遍", error: true }
+          : m
+      ),
     };
   }
   return chatLive;
 }
 
 function ChatInner() {
+  const router = useRouter();
   const sp = useSearchParams();
   const sessions = useChat((s) => s.sessions);
   const toast = useUI((s) => s.toast);
@@ -64,6 +73,7 @@ function ChatInner() {
   const [cancelArmed, setCancelArmed] = useState(false);
   const cancelArmedRef = useRef(false);
   const [locatedId, setLocatedId] = useState<string | null>(null);
+  const [showJump, setShowJump] = useState(false); // 用户上滑回看时浮出「回到最新」
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pressStart = useRef<{ x: number; y: number } | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -75,6 +85,10 @@ function ChatInner() {
   const pendingLocate = useRef<Locate | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const stick = useRef(true); // 贴底跟随：用户上滑回看时停止自动滚底（流式期间被强拽回底是 P0 体验事故）
+  const appliedSid = useRef<string | null>(null); // 深链 ?s= 只应用一次（防 loadCloud 晚到后覆盖进行中对话）
+  const regenHint = useRef<string | null>(null); // 点踩后重新生成：把踩的原因喂回模型（一次性）
+  const limitWarned = useRef(false); // 500 字截断只提醒一次
   const upsertSession = useChat((s) => s.upsertSession);
   const sessionId = useRef<string>(takeChatLive()?.id ?? "sess-" + Date.now());
 
@@ -92,26 +106,43 @@ function ChatInner() {
     c?.abort();
   }, []);
 
-  // 从历史打开指定会话：记录定位意图（无搜索→到最后；有搜索→命中处的最后一条）
+  // 贴底检测：离底 < 80px 视为"在底部"，自动跟随；上滑回看即停止跟随
+  useEffect(() => {
+    let raf = 0;
+    const compute = () => {
+      raf = 0;
+      const el = document.documentElement;
+      const dist = el.scrollHeight - window.scrollY - window.innerHeight;
+      const at = dist < 80;
+      stick.current = at;
+      setShowJump(!at && busyRef.current);
+    };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(compute); };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => { window.removeEventListener("scroll", onScroll); if (raf) cancelAnimationFrame(raf); };
+  }, []);
+
+  // 从历史打开指定会话：记录定位意图（无搜索→到最后；有搜索→命中处的最后一条）。
+  // 依赖带 sessions：冷启动直链时云端会话异步加载完成后才找得到；appliedSid 防重复应用覆盖进行中对话
   useEffect(() => {
     const sid = sp.get("s");
-    if (!sid) return;
+    if (!sid || appliedSid.current === sid) return;
     const qparam = sp.get("q") ?? "";
     const mid = sp.get("mid") ?? "";
-    const found = sessions.find((x) => x.id === sid) ?? sampleSessions.find((x) => x.id === sid);
+    const found = sessions.find((x) => x.id === sid);
     if (found && found.messages.length) {
+      appliedSid.current = sid;
       sessionId.current = found.id;
       setMessages(found.messages);
       pendingLocate.current = mid ? { type: "id", id: mid } : qparam ? { type: "q", q: qparam } : { type: "end" };
     }
-    // eslint-disable-next-line
-  }, [sp]);
+  }, [sp, sessions]);
 
-  // 统一滚动：从历史进入按意图瞬时定位；发消息/流式时跟随到底（无平滑动画，避免多余滑动）
+  // 统一滚动：从历史进入按意图瞬时定位；发消息/流式时仅在"贴底跟随"状态下滚到底
   useEffect(() => {
     const pl = pendingLocate.current;
     if (pl) {
-      if (messages.length === 0) return; // 会话内容尚未填充，待填充后再定位（修复：空消息时被提前消费只会滚到底部）
+      if (messages.length === 0) return; // 会话内容尚未填充，待填充后再定位
       pendingLocate.current = null;
       requestAnimationFrame(() => {
         let targetId: string | null = null;
@@ -133,7 +164,7 @@ function ChatInner() {
       });
       return;
     }
-    bottomRef.current?.scrollIntoView({ block: "end", behavior: "auto" });
+    if (stick.current) bottomRef.current?.scrollIntoView({ block: "end", behavior: "auto" });
   }, [messages]);
 
   useEffect(() => {
@@ -154,13 +185,21 @@ function ChatInner() {
     if (!q || busyRef.current) return;
     busyRef.current = true;
     setInput("");
+    if (inputRef.current) inputRef.current.style.height = "auto"; // 多行输入框复位
     if (timer.current) { clearInterval(timer.current); timer.current = null; } // 兜底清残留打字机
+    stick.current = true; // 发新问题必然想看回答：恢复贴底跟随
     const n = `${Date.now()}-${seq.current++}`;
     const userMsg: TMsg = { id: "u" + n, role: "user", content: q };
     const aId = "a" + n;
     const aMsg: TMsg = { id: aId, role: "assistant", content: "", streaming: true };
     // base：重新生成时传入「已截掉旧回答」的消息列表，避免旧渲染闭包把被删的回答又拼进上下文（模型会被旧答案锚定而复读）
-    const history = [...(base ?? messages), userMsg].map((m) => ({ role: m.role, content: m.content }));
+    // 错误/中断占位消息（error 标记）不进上下文：模型会把报错文案当成自己说过的话
+    const history = [...(base ?? messages), userMsg].filter((m) => !m.error).map((m) => ({ role: m.role, content: m.content }));
+    // 点踩后重新生成：把踩的原因作为一次性指示喂给模型（不渲染、不落库），反馈当场可感知地生效
+    if (regenHint.current) {
+      history.splice(history.length - 1, 0, { role: "user", content: `（说明：你上一条回答被我标记了「${regenHint.current}」，请换个角度重新回答，不要重复原来的说法）` });
+      regenHint.current = null;
+    }
     setMessages((prev) => [...prev, userMsg, aMsg]);
     setBusy(true);
 
@@ -208,12 +247,14 @@ function ChatInner() {
                 content: acc,
                 streaming: false,
                 toolNote: undefined,
+                recsPending: undefined,
                 ...(pendingRecs?.length ? { recommendations: pendingRecs } : {}),
                 ...(pendingCites?.length ? { citations: pendingCites } : {}),
               });
               pendingReply.current = null;
               busyRef.current = false;
               setBusy(false);
+              setShowJump(false);
             }
           }, 16);
         };
@@ -221,9 +262,11 @@ function ChatInner() {
           if (ev.t === "d" && typeof ev.v === "string") { acc += ev.v; apply({ toolNote: undefined }); smooth(); } // 新文字到达才清工具状态
           else if (ev.t === "status" && typeof ev.v === "string") apply({ toolNote: ev.v });
           else if (ev.t === "recs" && Array.isArray(ev.v)) {
-            // 预取展示数据（封面/书名/作者），收尾时随完整回答一起亮相
+            // 预取展示数据（封面/书名/作者）；先亮骨架卡占位（"书正在从架上取下来"），收尾时换真卡
+            apply({ recsPending: true });
             const books = (await Promise.all((ev.v as string[]).map((id) => getBook(id).catch(() => null)))).filter(Boolean) as Book[];
             if (books.length) { pendingRecs = books; pendingReply.current = { id: aId, citations: pendingCites ?? [], recommendations: books }; }
+            else apply({ recsPending: undefined });
           } else if (ev.t === "cites" && Array.isArray(ev.v)) {
             const cites = await buildCitations(ev.v as { b: string; c: number }[]);
             if (cites.length) { pendingCites = cites; pendingReply.current = { id: aId, citations: cites, recommendations: pendingRecs ?? [] }; }
@@ -254,11 +297,11 @@ function ChatInner() {
         fetchCtrl.current = null;
         // 必须清掉打字机 interval：否则残留空转的旧 interval 会让下一次提问永远渲染不出字（P0）
         if (timer.current) { clearInterval(timer.current); timer.current = null; }
-        const msg = e instanceof Error && e.message && e.message !== "Failed to fetch" ? e.message : "网络开小差了，请稍后重试";
-        setMessages((prev) => prev.map((m) => (m.id === aId ? { ...m, content: msg, streaming: false } : m)));
+        const msg = e instanceof Error && e.message && e.message !== "Failed to fetch" ? e.message : "网络有点不稳，缓一缓再问我一次吧";
+        // 错误进气泡即可（带重新生成按钮），不再叠一个 toast 双重打扰；error 标记防止进上下文
+        setMessages((prev) => prev.map((m) => (m.id === aId ? { ...m, content: msg, streaming: false, error: true } : m)));
         busyRef.current = false;
         setBusy(false);
-        toast(msg, "error");
       });
   }
 
@@ -272,12 +315,15 @@ function ChatInner() {
         .map((m) => {
           if (!m.streaming) return m;
           if (pr && m.id === pr.id) return { ...m, citations: pr.citations, recommendations: pr.recommendations, streaming: false };
-          return { ...m, content: m.content || "（已停止）", streaming: false };
+          return m.content
+            ? { ...m, streaming: false }
+            : { ...m, content: "好，先停在这里。想继续随时叫我", streaming: false, error: true };
         })
     );
     pendingReply.current = null;
     busyRef.current = false;
     setBusy(false);
+    setShowJump(false);
   }
 
   function setFeedback(id: string, v: "up" | "down" | null) {
@@ -300,13 +346,19 @@ function ChatInner() {
     const lastUserIdx = messages.map((m) => m.role).lastIndexOf("user");
     if (lastUserIdx < 0) return;
     const q = messages[lastUserIdx].content;
+    // 被重新生成的回答若被踩过，把原因一次性喂回模型（反馈闭环：用户当场看到"它听进去了"）
+    const replaced = messages[lastUserIdx + 1];
+    if (replaced?.feedback === "down") {
+      regenHint.current = replaced.feedbackReasons?.length ? replaced.feedbackReasons.join("、") : "不满意";
+    }
     const base = messages.slice(0, lastUserIdx); // 显式传给 send：旧闭包里的 messages 还带着被删的回答
     setMessages(base);
     setTimeout(() => send(q, base), 30);
   }
 
   function newSession() {
-    if (busy) return;
+    if (busy) { toast("等小涤说完这句，或先点停止生成", "info"); return; }
+    if (messages.length === 0) return;
     setMessages([]);
     sessionId.current = "sess-" + Date.now();
     chatLive = null; // 主动开新会话才清掉续存
@@ -326,7 +378,7 @@ function ChatInner() {
     if (cancelArmedRef.current) {
       toast("已取消", "info");
     } else {
-      toast("语音识别将在接入后端后启用，敬请期待", "info");
+      toast("语音功能快来了，先打字告诉我吧", "info");
     }
     cancelArmedRef.current = false;
     setCancelArmed(false);
@@ -351,40 +403,37 @@ function ChatInner() {
     }
   }
 
+  function onInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const raw = e.target.value;
+    if (raw.length > 500 && !limitWarned.current) {
+      limitWarned.current = true;
+      toast("一次最多 500 字，长段落可以分两次发我", "info");
+    }
+    if (raw.length <= 450) limitWarned.current = false;
+    setInput(raw.slice(0, 500));
+    // 多行自适应：随内容长高，封顶 96px（与 max-h-24 一致）后内部滚动
+    const el = e.target;
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 96) + "px";
+  }
+
   const empty = messages.length === 0;
 
   return (
     <main className="min-h-[100dvh] pb-[150px]">
       <header className="sticky top-0 z-30 flex h-14 items-center justify-between bg-moon/90 px-3 backdrop-blur dark:bg-dark-bg/90">
-        <Link href="/chat/history" className="flex h-9 w-9 items-center justify-center rounded-full active:bg-line/50">
+        <Link href="/chat/history" className="flex h-9 w-9 items-center justify-center rounded-full active:bg-line/50 dark:active:bg-white/10">
           <History size={20} className="text-ink-700 dark:text-dark-text" />
         </Link>
         <span className="font-serif text-lg text-ink dark:text-dark-text">智学</span>
-        <button onClick={newSession} className="flex h-9 w-9 items-center justify-center rounded-full active:bg-line/50">
+        <button onClick={newSession} aria-label="开启新对话" className={"flex h-9 w-9 items-center justify-center rounded-full active:bg-line/50 dark:active:bg-white/10" + (busy ? " opacity-40" : "")}>
           <Plus size={22} className="text-ink-700 dark:text-dark-text" />
         </button>
       </header>
 
       <div className="px-4">
         {empty ? (
-          <div className="relative flex flex-col items-center pt-10">
-            <Motif name="bamboo" className="pointer-events-none absolute -top-2 right-0 h-20 w-20 text-celadon/30" />
-            <Mascot size={88} className="shadow-celadon" />
-            <p className="mt-4 text-center font-serif text-xl text-ink dark:text-dark-text">你的 AI 读书伙伴</p>
-            <p className="mt-1 text-center text-xs text-ink-300">通览馆藏，为你荐书 · 答疑 · 解读原文</p>
-            <div className="mt-6 w-full space-y-2.5">
-              {exampleQuestions.map((q) => (
-                <button
-                  key={q}
-                  onClick={() => send(q)}
-                  className="flex w-full items-center gap-2 rounded-xl bg-snow px-4 py-3 text-left text-sm text-ink-700 shadow-sm active:scale-[0.99] dark:bg-dark-card dark:text-dark-text"
-                >
-                  <Sparkles size={14} className="shrink-0 text-celadon" />
-                  {q}
-                </button>
-              ))}
-            </div>
-          </div>
+          <Welcome onAsk={send} onResume={(sid) => router.push(`/chat?s=${sid}`)} />
         ) : (
           <div className="space-y-4 pt-3">
             {messages.map((m, i) => (
@@ -403,20 +452,34 @@ function ChatInner() {
         )}
       </div>
 
+      {/* 上滑回看时浮出「回到最新」：恢复贴底跟随 */}
+      {showJump && (
+        <button
+          onClick={() => { stick.current = true; setShowJump(false); bottomRef.current?.scrollIntoView({ block: "end", behavior: "smooth" }); }}
+          className="fixed bottom-[170px] left-1/2 z-40 flex -translate-x-1/2 animate-fade-up items-center gap-1 rounded-full border border-line bg-snow/95 px-3.5 py-1.5 text-xs text-ink-700 shadow-md backdrop-blur dark:border-white/10 dark:bg-dark-card/95 dark:text-dark-text"
+        >
+          <ArrowDown size={13} className="text-celadon" /> 回到最新
+        </button>
+      )}
+
       {/* 输入区：长按输入框即可语音输入（无单独麦克风入口） */}
       <div className="app-width fixed bottom-[58px] left-1/2 z-40 -translate-x-1/2 border-t border-line bg-moon/95 px-3 py-2.5 backdrop-blur dark:border-white/5 dark:bg-dark-bg/95">
         {busy && (
-          <button onClick={stop} className="mx-auto mb-2 flex items-center gap-1 rounded-full border border-line bg-snow px-3 py-1 text-xs text-ink-500 dark:bg-dark-card">
+          <button onClick={stop} className="mx-auto mb-2 flex items-center gap-1 rounded-full border border-line bg-snow px-3 py-1 text-xs text-ink-500 dark:border-white/10 dark:bg-dark-card dark:text-dark-text/70">
             <Square size={12} /> 停止生成
           </button>
+        )}
+        {input.length >= 450 && (
+          <p className={"mb-1 pr-1 text-right text-[11px] " + (input.length >= 500 ? "text-rouge" : "text-ink-300")}>{input.length}/500</p>
         )}
         <div className="flex items-end gap-2">
           <textarea
             ref={inputRef}
             value={input}
-            onChange={(e) => setInput(e.target.value.slice(0, 500))}
+            onChange={onInputChange}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); }
+              // isComposing：输入法候选未上屏时按 Enter 是"选词"，不能把半截拼音发出去
+              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(input); }
             }}
             onPointerDown={onInputPointerDown}
             onPointerUp={onInputPointerEnd}
@@ -429,6 +492,7 @@ function ChatInner() {
           <button
             onClick={() => send(input)}
             disabled={!input.trim() || busy}
+            aria-label="发送"
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-celadon text-snow disabled:opacity-40 active:scale-95"
           >
             <Send size={18} />
@@ -456,9 +520,138 @@ function ChatInner() {
   );
 }
 
+/* 欢迎区（UI Review 个性化重设计）：
+   登录 → 时段问候喊昵称 + 小涤"汇报近况"开场白（本地拼装 0 token）+ 按读者数据动态生成的示例问题 + 续聊上次话题；
+   游客 → 示例问题全部来自真实馆藏（绝不出现馆里没有的书）+ 一句克制的登录钩子。 */
+function Welcome({ onAsk, onResume }: { onAsk: (q: string) => void; onResume: (sid: string) => void }) {
+  const user = useAuth((s) => s.user);
+  const history = useLibrary((s) => s.history);
+  const progress = useLibrary((s) => s.progress);
+  const favorites = useLibrary((s) => s.favorites);
+  const notes = useLibrary((s) => s.notes);
+  const readSeconds = useLibrary((s) => s.readSeconds);
+  const sessions = useChat((s) => s.sessions);
+  const openLogin = useUI((s) => s.openLogin);
+  const [hideResume, setHideResume] = useState(false);
+  // 全馆书目（与泡馆首页共用缓存）：游客问题用真实书名，登录态用于把收藏 id 解析成书名
+  const home = useQuery({ queryKey: ["home"], queryFn: getHome, staleTime: 10 * 60 * 1000 });
+  const books = home.data?.recommend ?? [];
+
+  const questions = user
+    ? buildQuestions({ history, progress, favorites, notes, books })
+    : buildGuestQuestions(books, home.data?.categories ?? []);
+
+  // 开场白素材：最近接触的一本书
+  const last = history[0];
+  const hours = readSeconds >= 3600 ? `${(readSeconds / 3600).toFixed(1)} 小时` : `${Math.max(1, Math.round(readSeconds / 60))} 分钟`;
+  // 续聊条：最近一次会话在 24 小时内才提（太久远的话题再提反而尴尬）
+  const lastSession = sessions[0];
+  const resumable =
+    !hideResume && lastSession && lastSession.messages.length > 0 && Date.now() - +new Date(lastSession.updatedAt) < 24 * 3600 * 1000;
+
+  return (
+    <div className="relative flex flex-col items-center pt-8">
+      <Motif name="bamboo" className="pointer-events-none absolute -top-2 right-0 h-20 w-20 text-celadon/30" />
+      <Mascot size={84} className="shadow-celadon" />
+      {user ? (
+        <>
+          <p className="mt-4 text-center font-serif text-xl text-ink dark:text-dark-text">
+            {greeting()}，<span className="text-celadon-700 dark:text-celadon-300">{user.nickname}</span>
+          </p>
+          <p className="mt-1 text-center text-xs text-ink-300">我是小涤，今天想读点什么？</p>
+        </>
+      ) : (
+        <>
+          <p className="mt-4 text-center font-serif text-xl text-ink dark:text-dark-text">我是小涤，你的读书伙伴</p>
+          <p className="mt-1 text-center text-xs text-ink-300">馆里每本书我都翻过——荐书 · 答疑 · 解读原文</p>
+        </>
+      )}
+
+      {/* 小涤开场白：汇报阅读近况（仅登录且有阅读记录；纯本地拼装） */}
+      {user && last && (
+        <div className="mt-5 w-full animate-fade-up">
+          <div className="rounded-2xl rounded-tl-sm bg-snow px-3.5 py-3 text-sm leading-6 text-ink-700 shadow-sm dark:bg-dark-card dark:text-dark-text/85">
+            {last.progress >= 100 ? (
+              <>你在馆里已读 <b className="text-ink dark:text-dark-text">{hours}</b>，上次把《{last.bookTitle}》读完了——要不要我接着给你挑下一本？</>
+            ) : (
+              <>你在馆里已读 <b className="text-ink dark:text-dark-text">{hours}</b>。《{last.bookTitle}》进行到 <b className="text-ink dark:text-dark-text">{Math.round(last.progress)}%</b>——接着读，还是换个口味让我荐一本？</>
+            )}
+            <div className="mt-2.5 flex gap-2">
+              {last.progress < 100 && (
+                <Link
+                  href={last.mode === "text" ? `/library/book/${last.bookId}/read` : `/library/book/${last.bookId}`}
+                  className="rounded-full bg-celadon px-3.5 py-1.5 text-xs text-snow active:scale-95"
+                >
+                  继续读这本
+                </Link>
+              )}
+              <button
+                onClick={() => onAsk("根据我的阅读记录，推荐我下一本读什么")}
+                className="rounded-full border border-celadon/60 px-3.5 py-1.5 text-xs text-celadon-700 active:scale-95 dark:text-celadon-300"
+              >
+                给我荐一本
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 续聊上次话题 */}
+      {resumable && (
+        <div className="mt-3 flex w-full items-center gap-2.5 rounded-xl bg-snow px-3 py-2.5 shadow-sm dark:bg-dark-card">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-celadon-soft dark:bg-celadon/20">
+            <MessageCircle size={14} className="text-celadon-700 dark:text-celadon-300" />
+          </span>
+          <button onClick={() => onResume(lastSession.id)} className="min-w-0 flex-1 text-left">
+            <p className="truncate text-xs text-ink-700 dark:text-dark-text/80">
+              上次聊到「<span className="font-medium text-ink dark:text-dark-text">{lastSession.title}</span>」
+            </p>
+            <p className="mt-0.5 text-[11px] text-ink-300">{formatChatTime(lastSession.updatedAt)} · 点这里接着聊</p>
+          </button>
+          <button onClick={() => onResume(lastSession.id)} aria-label="继续上次对话" className="flex h-8 w-8 shrink-0 items-center justify-center text-celadon-700 dark:text-celadon-300">
+            <ArrowRight size={15} />
+          </button>
+          <button onClick={() => setHideResume(true)} aria-label="不再提示" className="flex h-8 w-8 shrink-0 items-center justify-center text-ink-300">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      <div className="mt-5 w-full space-y-2.5">
+        {questions.map((q) => (
+          <button
+            key={q}
+            onClick={() => onAsk(q)}
+            className="flex w-full items-center gap-2 rounded-xl bg-snow px-4 py-3 text-left text-sm text-ink-700 shadow-sm active:scale-[0.99] dark:bg-dark-card dark:text-dark-text"
+          >
+            <Sparkles size={14} className="shrink-0 text-celadon" />
+            <span>
+              {/* 书名提色：一眼看出"它知道我在读什么" */}
+              {q.split(/(《[^》]+》)/).map((part, i) =>
+                part.startsWith("《") ? (
+                  <span key={i} className="font-medium text-celadon-700 dark:text-celadon-300">{part}</span>
+                ) : (
+                  <span key={i}>{part}</span>
+                )
+              )}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {/* 游客登录钩子：一句话，不弹窗不打断 */}
+      {!user && (
+        <button onClick={() => openLogin()} className="mt-4 text-xs text-ink-300">
+          登录后，小涤能记得你读过的每一本书 · <span className="text-celadon-700 dark:text-celadon-300">去登录</span>
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function ChatPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-center text-ink-500">加载中…</div>}>
+    <Suspense fallback={<div className="p-8 text-center text-ink-500">小涤正在赶来…</div>}>
       <ChatInner />
     </Suspense>
   );

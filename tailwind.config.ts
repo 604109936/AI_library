@@ -84,6 +84,12 @@ const config: Config = {
           "20%": { opacity: "1", transform: "scale(1.15)" },
           "100%": { opacity: "0", transform: "scale(1) translateY(-22px)" },
         },
+        // 双击收藏的小心心：从中心向随机方向（--tx/--ty 内联变量）散开淡出
+        "like-fly": {
+          "0%": { opacity: "0", transform: "translate(0, 0) scale(0.4)" },
+          "30%": { opacity: "1" },
+          "100%": { opacity: "0", transform: "translate(var(--tx, 0px), var(--ty, -48px)) scale(1)" },
+        },
         "spin-slow": {
           "100%": { transform: "rotate(360deg)" },
         },
@@ -92,6 +98,7 @@ const config: Config = {
         "fade-up": "fade-up 0.22s cubic-bezier(0.4,0,0.2,1)",
         "scale-in": "scale-in 0.18s cubic-bezier(0.4,0,0.2,1)",
         "like-burst": "like-burst 0.8s cubic-bezier(0.4,0,0.2,1) forwards",
+        "like-fly": "like-fly 0.6s ease-out both", // both：动画延迟期间也保持 0% 的透明态
         "spin-slow": "spin-slow 8s linear infinite",
       },
     },

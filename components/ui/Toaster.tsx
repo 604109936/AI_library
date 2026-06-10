@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 export function Toaster() {
   const toasts = useUI((s) => s.toasts);
   return (
-    <div className="fixed top-4 left-0 right-0 z-[100] flex flex-col items-center gap-2 px-4 pointer-events-none">
+    <div className="fixed left-0 right-0 z-[100] flex flex-col items-center gap-2 px-4 pointer-events-none" style={{ top: "calc(env(safe-area-inset-top) + 12px)" }}>
       <AnimatePresence>
         {toasts.map((t) => (
           <motion.div
@@ -29,6 +29,14 @@ export function Toaster() {
               {t.type === "success" ? <Check size={16} strokeWidth={2.6} /> : t.type === "error" ? <X size={16} strokeWidth={2.6} /> : <Info size={16} strokeWidth={2.6} />}
             </span>
             <span className="leading-snug">{t.msg}</span>
+            {t.action && (
+              <button
+                onClick={() => { t.action!.onClick(); useUI.getState().dismiss(t.id); }}
+                className="-my-1 ml-1 shrink-0 rounded-full border border-white/25 px-2.5 py-1 text-xs text-celadon-300 active:scale-95"
+              >
+                {t.action.label}
+              </button>
+            )}
           </motion.div>
         ))}
       </AnimatePresence>

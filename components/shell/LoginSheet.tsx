@@ -1,7 +1,9 @@
 "use client";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { useAuth, useUI } from "@/lib/store";
+import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { Mail, Lock, Eye, EyeOff, BookHeart, User } from "lucide-react";
 
 // 体验账号（真实 Supabase 用户，由 scripts/create-demo-user.mjs 建）
@@ -17,16 +19,19 @@ function zhError(msg: string): string {
   if (m.includes("unable to validate email") || m.includes("invalid email")) return "邮箱格式不正确";
   if (m.includes("email not confirmed")) return "邮箱未验证，请先到邮箱点确认链接";
   if (m.includes("rate limit") || m.includes("too many")) return "操作太频繁，请稍后再试";
-  return "出错了：" + msg;
+  console.warn("[登录未知错误]", msg); // 原始报错留给控制台排查，不把英文抛给用户
+  return "登录遇到问题，请稍后重试";
 }
 
 export function LoginSheet() {
+  const router = useRouter();
   const open = useUI((s) => s.loginOpen);
   const pending = useUI((s) => s.pending);
   const close = useUI((s) => s.closeLogin);
   const toast = useUI((s) => s.toast);
   const login = useAuth((s) => s.login);
   const register = useAuth((s) => s.register);
+  useLockBodyScroll(open); // 弹层打开时锁定背景滚动
 
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
@@ -36,6 +41,7 @@ export function LoginSheet() {
   const [show, setShow] = useState(false);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
+  const [info, setInfo] = useState(""); // 非错误提示（如注册成功待邮箱确认），与 err 区分配色
 
   const emailOk = /\S+@\S+\.\S+/.test(email.trim());
   const pwdOk = pwd.length >= 6;
@@ -47,14 +53,26 @@ export function LoginSheet() {
     setPwd("");
     setPwd2("");
     setErr("");
+    setInfo("");
     setLoading(false);
     setShow(false);
+  }
+
+  // 登录成功后的统一收尾：关弹层、清表单、执行挂起操作
+  function finish(msg: string) {
+    setLoading(false);
+    toast(msg);
+    const action = pending;
+    close();
+    reset();
+    action?.(); // 立即执行挂起操作（已登录）
   }
 
   async function submit() {
     if (!canSubmit) return;
     setLoading(true);
     setErr("");
+    setInfo("");
     const res = mode === "login" ? await login(email, pwd) : await register(email, pwd, nickname);
     if (res.error) {
       setErr(zhError(res.error));
@@ -62,16 +80,30 @@ export function LoginSheet() {
       return;
     }
     if ("needConfirm" in res && res.needConfirm) {
-      setErr("注册成功，请到邮箱点确认链接后再登录");
+      setInfo("注册成功，请到邮箱点确认链接后再登录");
       setLoading(false);
       return;
     }
-    setLoading(false);
-    toast(mode === "login" ? "欢迎回来" : "注册成功，已自动登录");
-    const action = pending;
-    close();
-    reset();
-    action?.(); // 立即执行挂起操作（已登录）
+    finish(mode === "login" ? "欢迎回来" : "注册成功，已自动登录");
+  }
+
+  // 体验账号：填入即自动提交登录，无需再点登录按钮
+  async function demoLogin() {
+    if (loading) return;
+    setMode("login");
+    setEmail(DEMO_EMAIL);
+    setPwd(DEMO_PWD);
+    setNickname("");
+    setErr("");
+    setInfo("");
+    setLoading(true);
+    const res = await login(DEMO_EMAIL, DEMO_PWD);
+    if (res.error) {
+      setErr(zhError(res.error));
+      setLoading(false);
+      return;
+    }
+    finish("欢迎回来");
   }
 
   return (
@@ -95,11 +127,11 @@ export function LoginSheet() {
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
             transition={{ type: "spring", stiffness: 320, damping: 32 }}
-            className="app-width relative rounded-t-[24px] bg-snow px-6 pb-8 pt-3 dark:bg-dark-card"
+            className="app-width relative rounded-t-[24px] bg-snow px-6 pb-[calc(env(safe-area-inset-bottom)+24px)] pt-3 dark:bg-dark-card"
           >
-            <div className="mx-auto mb-5 h-1 w-10 rounded-full bg-line" />
+            <div className="mx-auto mb-5 h-1 w-10 rounded-full bg-line dark:bg-white/15" />
             <div className="mb-4 flex flex-col items-center">
-              <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-celadon-soft">
+              <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-celadon-soft dark:bg-celadon/20">
                 <BookHeart className="text-celadon" size={24} />
               </div>
               <h2 className="font-serif text-xl text-ink dark:text-dark-text">
@@ -107,10 +139,10 @@ export function LoginSheet() {
               </h2>
               <button
                 type="button"
-                onClick={() => { setMode("login"); setEmail(DEMO_EMAIL); setPwd(DEMO_PWD); setNickname(""); setErr(""); }}
-                className="mt-2 rounded-full bg-celadon-soft px-3 py-1 text-xs text-celadon-700"
+                onClick={demoLogin}
+                className="mt-2 rounded-full bg-celadon-soft px-3 py-1 text-xs text-celadon-700 dark:bg-celadon/20 dark:text-celadon-300"
               >
-                体验账号（点此一键填入，再点登录）
+                试试体验账号，一键直接登录
               </button>
             </div>
 
@@ -147,7 +179,7 @@ export function LoginSheet() {
                   value={pwd}
                   onChange={(e) => setPwd(e.target.value)}
                 />
-                <button type="button" aria-label={show ? "隐藏密码" : "显示密码"} onClick={() => setShow((s) => !s)} className="text-ink-300">
+                <button type="button" aria-label={show ? "隐藏密码" : "显示密码"} onClick={() => setShow((s) => !s)} className="-m-3.5 p-3.5 text-ink-300">
                   {show ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </Field>
@@ -164,6 +196,16 @@ export function LoginSheet() {
                 </Field>
               )}
               {err && <p className="text-xs text-rouge">{err}</p>}
+              {info && <p className="text-xs text-celadon-700 dark:text-celadon-300">{info}</p>}
+
+              {mode === "register" && (
+                <p className="text-[11px] leading-5 text-ink-300">
+                  注册即表示同意{" "}
+                  <button type="button" onClick={() => { close(); reset(); router.push("/me/legal?doc=terms"); }} className="text-celadon-700 dark:text-celadon-300">用户协议</button>
+                  {" "}与{" "}
+                  <button type="button" onClick={() => { close(); reset(); router.push("/me/legal?doc=privacy"); }} className="text-celadon-700 dark:text-celadon-300">隐私政策</button>
+                </p>
+              )}
 
               <button
                 type="submit"
@@ -177,7 +219,7 @@ export function LoginSheet() {
                 <button
                   type="button"
                   className="text-xs text-rouge"
-                  onClick={() => { setMode((m) => (m === "login" ? "register" : "login")); setErr(""); }}
+                  onClick={() => { setMode((m) => (m === "login" ? "register" : "login")); setErr(""); setInfo(""); }}
                 >
                   {mode === "login" ? "没有账号？立即注册" : "已有账号？返回登录"}
                 </button>
@@ -206,7 +248,7 @@ export function LoginSheet() {
 
 function Field({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-2 rounded-xl border border-line bg-moon px-3.5 py-3 focus-within:border-celadon dark:bg-dark-bg">
+    <div className="flex items-center gap-2 rounded-xl border border-line bg-moon px-3.5 py-3 focus-within:border-celadon dark:border-white/10 dark:bg-dark-bg">
       <span className="text-ink-300">{icon}</span>
       {children}
     </div>

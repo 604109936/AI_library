@@ -18,11 +18,12 @@ const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "�
 export function formatDate(iso: string): string {
   const d = new Date(iso);
   const now = new Date();
-  const diff = now.getTime() - d.getTime();
-  const day = 24 * 60 * 60 * 1000;
-  if (diff < day && now.getDate() === d.getDate()) return "今天";
-  if (diff < 2 * day) return "昨天";
-  if (diff < 7 * day) return WEEKDAYS[d.getDay()];
+  // 按日历日差判断（零点对齐），避免「昨晚 8 点」距今不足 24h 被误判成今天
+  const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((startOfDay(now) - startOfDay(d)) / (24 * 60 * 60 * 1000));
+  if (days <= 0) return "今天";
+  if (days === 1) return "昨天";
+  if (days < 7) return WEEKDAYS[d.getDay()];
   return `${d.getMonth() + 1}月${d.getDate()}日`;
 }
 

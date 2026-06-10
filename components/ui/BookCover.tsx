@@ -38,7 +38,8 @@ export function BookCover({
       role="img"
       aria-label={`《${title}》${author ? " " + author : ""}封面`}
       className={cn("relative overflow-hidden shadow-sm", rounded, className)}
-      style={{ background: p.bg, aspectRatio: "3 / 4" }}
+      // containerType 使兜底书名的 clamp(...cqw...) 按「封面自身宽度」缩放（否则 cqw 无容器上下文而失效）
+      style={{ background: p.bg, aspectRatio: "3 / 4", containerType: "inline-size" }}
     >
       {/* CSS 兜底美术：几何半圆/圆点 新中式留白 */}
       {useArt && (

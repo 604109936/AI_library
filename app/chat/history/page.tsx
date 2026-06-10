@@ -7,7 +7,6 @@ import { Header } from "@/components/shell/Header";
 import { EmptyState } from "@/components/ui/States";
 import { Motif } from "@/components/ui/Motif";
 import { useChat, useUI } from "@/lib/store";
-import { sampleSessions } from "@/lib/mock/data";
 import { formatChatTime } from "@/lib/utils";
 import type { ChatSession } from "@/lib/types";
 
@@ -45,23 +44,12 @@ export default function ChatHistory() {
   const sessions = useChat((s) => s.sessions);
   const removeSession = useChat((s) => s.removeSession);
   const clearSessions = useChat((s) => s.clearSessions);
-  const hiddenSamples = useChat((s) => s.hiddenSamples);
-  const hideSample = useChat((s) => s.hideSample);
-  const hideAllSamples = useChat((s) => s.hideAllSamples);
   const toast = useUI((s) => s.toast);
   const [q, setQ] = useState("");
-  const [confirm, setConfirm] = useState<{ type: "one"; id: string; real: boolean } | { type: "all" } | null>(null);
+  const [confirm, setConfirm] = useState<{ type: "one"; id: string } | { type: "all" } | null>(null);
 
-  const all = useMemo(() => {
-    const realIds = new Set(sessions.map((s) => s.id));
-    const merged = [
-      ...sessions.map((s) => ({ ...s, real: true })),
-      ...sampleSessions
-        .filter((s) => !realIds.has(s.id) && !hiddenSamples.includes(s.id))
-        .map((s) => ({ ...s, real: false })),
-    ];
-    return merged.sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt));
-  }, [sessions, hiddenSamples]);
+  // 只展示真实会话：以前合并的示例假对话会冒充"你问过的问题"，直接打脸"这座图书馆认识我"
+  const all = useMemo(() => [...sessions].sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt)), [sessions]);
 
   const kw = q.trim();
 
@@ -92,11 +80,9 @@ export default function ChatHistory() {
     if (!confirm) return;
     if (confirm.type === "all") {
       clearSessions();
-      hideAllSamples(sampleSessions.map((s) => s.id));
       toast("已清空");
     } else {
-      if (confirm.real) removeSession(confirm.id);
-      else hideSample(confirm.id);
+      removeSession(confirm.id);
       toast("已删除");
     }
     setConfirm(null);
@@ -125,7 +111,7 @@ export default function ChatHistory() {
         </div>
 
         {all.length === 0 ? (
-          <EmptyState title="还没有对话记录" subtitle="去智学问点什么吧" actionText="去智学" actionHref="/chat" />
+          <EmptyState title="小涤还在等你的第一个问题" subtitle="读书路上的疑惑，都可以问我" actionText="去聊聊" actionHref="/chat" />
         ) : kw ? (
           // 搜索态：命中条目列表（每条命中一项，点击唯一跳转到该条）
           hits.length === 0 ? (
@@ -167,13 +153,13 @@ export default function ChatHistory() {
                       <p className="min-w-0 flex-1 truncate text-sm text-ink dark:text-dark-text">{s.title}</p>
                       <span className="shrink-0 text-[11px] text-ink-300">{formatChatTime(s.updatedAt)}</span>
                     </div>
-                    <p className="mt-0.5 truncate text-[12px] text-ink-300">{preview(s) || "（示例对话）"}</p>
+                    <p className="mt-0.5 truncate text-[12px] text-ink-300">{preview(s)}</p>
                   </div>
                 </button>
                 <button
                   aria-label={`删除对话 ${s.title}`}
-                  onClick={() => setConfirm({ type: "one", id: s.id, real: s.real })}
-                  className="p-1 text-ink-300 active:text-rouge"
+                  onClick={() => setConfirm({ type: "one", id: s.id })}
+                  className="-m-1 flex h-10 w-10 items-center justify-center text-ink-300 active:text-rouge"
                 >
                   <Trash2 size={16} />
                 </button>
@@ -188,7 +174,7 @@ export default function ChatHistory() {
         {confirm && (
           <motion.div className="fixed inset-0 z-50 flex items-end justify-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <div className="absolute inset-0 bg-ink/30" onClick={() => setConfirm(null)} />
-            <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="app-width relative rounded-t-[24px] bg-snow p-5 dark:bg-dark-card">
+            <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="app-width relative rounded-t-[24px] bg-snow p-5 pb-[calc(env(safe-area-inset-bottom)+20px)] dark:bg-dark-card">
               <p className="text-center text-sm text-ink dark:text-dark-text">
                 {confirm.type === "all" ? "确认清空全部对话记录？" : "确认删除这条对话？"}
               </p>

@@ -3,12 +3,12 @@ import { useRouter } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-/** 返回兜底：直链/分享打开时无历史可退，裸 back() 会毫无反应——退不动就去泡馆 */
-export function useGoBack() {
+/** 返回兜底：直链/分享打开时无历史可退，裸 back() 会毫无反应——退不动就去兜底页（默认泡馆） */
+export function useGoBack(fallback = "/library") {
   const router = useRouter();
   return () => {
     if (typeof window !== "undefined" && window.history.length > 1) router.back();
-    else router.push("/library");
+    else router.push(fallback);
   };
 }
 
@@ -38,7 +38,7 @@ export function Header({
     >
       <button
         onClick={goBack}
-        className="flex h-10 w-10 items-center justify-center rounded-full active:bg-line/50"
+        className="flex h-10 w-10 items-center justify-center rounded-full active:bg-line/50 dark:active:bg-white/10"
         aria-label="返回"
       >
         <ChevronLeft size={24} className="text-ink dark:text-dark-text" />

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { ChevronLeft, Heart, ChevronRight, ChevronDown, PenLine, Check } from "lucide-react";
+import { ChevronLeft, Heart, ChevronRight, ChevronDown, PenLine, Check, BookOpen, Play } from "lucide-react";
 import { getBook, getChapters } from "@/lib/api";
 import { BookCover } from "@/components/ui/BookCover";
 import { Stars } from "@/components/ui/Stars";
@@ -45,6 +45,8 @@ export default function BookDetail({ params }: { params: { id: string } }) {
   // 章节「在读/已读」一律取真实阅读状态（store），不用写死的 c.status
   const readCh = readChapters[real] ?? [];
   const prog = progress[real];
+  // 底部续读 CTA 用：仅认文字稿进度（progress 本就只写 text 模式，仍显式守一道）
+  const textProg = prog && prog.mode === "text" && prog.pct > 0 ? prog : undefined;
 
   // 简介「展开全文」仅当收起（3 行）时确实溢出才显示
   useEffect(() => {
@@ -86,7 +88,7 @@ export default function BookDetail({ params }: { params: { id: string } }) {
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.26, ease: [0.4, 0, 0.2, 1] }}
-      className="min-h-[100dvh] pb-12"
+      className="min-h-[100dvh]"
     >
       {/* 媒体台 */}
       <div className="relative overflow-hidden">
@@ -121,7 +123,8 @@ export default function BookDetail({ params }: { params: { id: string } }) {
               onClick={onFav}
               aria-pressed={fav}
               className={
-                "flex items-center gap-1 rounded-full px-4 py-1.5 text-xs font-medium shadow-sm transition active:scale-95 " +
+                // before 伪元素纵向扩触区到 ≥40px，视觉不变
+                "relative flex items-center gap-1 rounded-full px-4 py-1.5 text-xs font-medium shadow-sm transition before:absolute before:inset-x-0 before:-inset-y-1.5 before:content-[''] active:scale-95 " +
                 (fav ? "bg-rouge/15 text-rouge dark:bg-rouge/25" : "bg-celadon-soft text-celadon-700 dark:bg-celadon/20 dark:text-celadon-300")
               }
             >
@@ -219,6 +222,29 @@ export default function BookDetail({ params }: { params: { id: string } }) {
         >
           <PenLine size={15} /> {myReview ? "更新书评" : "写书评"}
         </button>
+      </div>
+
+      {/* 底部常驻续读 CTA：sticky 占位在文档流末尾（滚到底回到原位，不遮挡上方内容） */}
+      <div className="sticky bottom-0 z-20 mt-8 border-t border-line bg-snow/[0.92] px-4 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur dark:border-white/10 dark:bg-dark-card/[0.92]">
+        {book.hasText ? (
+          <Link
+            href={`/library/book/${book.id}/read${textProg ? `?ch=${textProg.chapterId}` : ""}`}
+            className="flex w-full items-center justify-center gap-1.5 rounded-full bg-celadon py-3 text-sm font-medium text-snow shadow-celadon transition active:scale-[0.98]"
+          >
+            <BookOpen size={16} />
+            {textProg
+              ? `继续阅读 · ${textProg.chapterNo === 0 ? "序" : `第${textProg.chapterNo}章`} · ${textProg.pct}%`
+              : "开始阅读"}
+          </Link>
+        ) : (
+          <button
+            onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+            className="flex w-full items-center justify-center gap-1.5 rounded-full bg-celadon py-3 text-sm font-medium text-snow shadow-celadon transition active:scale-[0.98]"
+          >
+            <Play size={16} className="fill-snow" />
+            {book.hasVideo ? "播放视频" : "播放音频"}
+          </button>
+        )}
       </div>
     </motion.main>
   );

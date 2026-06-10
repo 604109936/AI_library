@@ -8,6 +8,7 @@ import { RequireAuth } from "@/components/shell/RequireAuth";
 import { Avatar } from "@/components/ui/Avatar";
 import { Motif } from "@/components/ui/Motif";
 import { useAuth, useUI, useReader, type Theme, type ReaderBg } from "@/lib/store";
+import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { supabase } from "@/lib/supabase/client";
 
 const THEMES: { key: Theme; label: string }[] = [
@@ -26,6 +27,7 @@ export default function SettingsPage() {
   const toast = useUI((s) => s.toast);
   const reader = useReader();
   const [sheet, setSheet] = useState<Sheet>(null);
+  useLockBodyScroll(sheet !== null); // 弹层打开时锁定背景滚动
 
   const [oldPwd, setOldPwd] = useState("");
   const [newPwd, setNewPwd] = useState("");
@@ -173,7 +175,7 @@ export default function SettingsPage() {
         {sheet && (
           <motion.div className="fixed inset-0 z-50 flex items-end justify-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <div className="absolute inset-0 bg-ink/30" onClick={close} />
-            <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", stiffness: 320, damping: 32 }} className="app-width relative rounded-t-[24px] bg-snow p-5 pb-safe dark:bg-dark-card">
+            <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", stiffness: 320, damping: 32 }} className="app-width relative rounded-t-[24px] bg-snow p-5 pb-[calc(env(safe-area-inset-bottom)+20px)] dark:bg-dark-card">
               {sheet === "password" && (
                 <>
                   <h3 className="mb-4 text-center font-serif text-base text-ink dark:text-dark-text">修改密码</h3>
@@ -224,11 +226,19 @@ function Group({ title, children }: { title: string; children: React.ReactNode }
   );
 }
 function Item({ label, value, danger, onClick }: { label: string; value?: string; danger?: boolean; onClick?: () => void }) {
-  return (
-    <button onClick={onClick} className="flex w-full items-center gap-3 border-b border-line px-4 py-3.5 last:border-0 active:bg-moon/60 dark:border-white/5 dark:active:bg-dark-bg">
+  const base = "flex w-full items-center gap-3 border-b border-line px-4 py-3.5 last:border-0 dark:border-white/5";
+  const inner = (
+    <>
       <span className={"shrink-0 text-left text-sm " + (danger ? "text-rouge" : "text-ink dark:text-dark-text")}>{label}</span>
       {value && <span className="ml-auto max-w-[55%] truncate text-xs text-ink-300">{value}</span>}
       {onClick && <ChevronRight size={16} className={"text-ink-300 " + (value ? "" : "ml-auto")} />}
+    </>
+  );
+  // 纯展示行（如版本号）：不可点就不渲染按钮、不给按压态，避免“看着能点却没反应”
+  if (!onClick) return <div className={base}>{inner}</div>;
+  return (
+    <button onClick={onClick} className={base + " active:bg-moon/60 dark:active:bg-dark-bg"}>
+      {inner}
     </button>
   );
 }

@@ -119,7 +119,8 @@ export default function CategoryPage({ params }: { params: { id: string } }) {
       {/* 阅读类型下拉 + 状态筛选 Tab */}
       <div className="sticky top-14 z-20 flex items-center justify-between gap-2 bg-moon/90 px-4 py-2 backdrop-blur dark:bg-dark-bg/90">
         <div className="relative">
-          <button onClick={() => setTypeOpen((v) => !v)} className="flex items-center gap-1 rounded-full border border-line px-3 py-1 text-xs text-ink-500 dark:border-white/10 dark:text-dark-text/70">
+          {/* before 伪元素纵向扩触区到 ≥40px，视觉不变 */}
+          <button onClick={() => setTypeOpen((v) => !v)} className="relative flex items-center gap-1 rounded-full border border-line px-3 py-1 text-xs text-ink-500 before:absolute before:-inset-x-1 before:-inset-y-2 before:content-[''] dark:border-white/10 dark:text-dark-text/70">
             {TYPE_LABEL[rtype]} <ChevronDown size={13} />
           </button>
           {typeOpen && (
@@ -135,9 +136,10 @@ export default function CategoryPage({ params }: { params: { id: string } }) {
             </>
           )}
         </div>
+        {/* 状态 pill：before 伪元素纵向扩触区到 ≥40px（横向不扩，避免相邻 pill 触区重叠），视觉不变 */}
         <div className="flex gap-1.5">
           {STATUS.map((s) => (
-            <button key={s.key} aria-pressed={status === s.key} onClick={() => pickStatus(s.key)} className={"rounded-full px-3 py-1 text-xs transition " + (status === s.key ? "bg-celadon text-snow" : "bg-snow text-ink-500 dark:bg-dark-card dark:text-dark-text/70")}>
+            <button key={s.key} aria-pressed={status === s.key} onClick={() => pickStatus(s.key)} className={"relative rounded-full px-3 py-1 text-xs transition before:absolute before:inset-x-0 before:-inset-y-2 before:content-[''] " + (status === s.key ? "bg-celadon text-snow" : "bg-snow text-ink-500 dark:bg-dark-card dark:text-dark-text/70")}>
               {s.label}
             </button>
           ))}
@@ -161,7 +163,7 @@ export default function CategoryPage({ params }: { params: { id: string } }) {
           );
         })}
         <div ref={sentinel} className="h-8" />
-        {q.isFetchingNextPage && <p className="py-2 text-center text-xs text-ink-300">加载中…</p>}
+        {q.isFetchingNextPage && <p className="py-2 text-center text-xs text-ink-300">正在取书…</p>}
       </div>
       <BackToTop />
     </main>

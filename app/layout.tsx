@@ -27,6 +27,8 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: "cover",
+  // 键盘弹起时收缩视口而非覆盖：否则智学输入框会被软键盘整个盖住（Android Chrome 108+ 默认 overlay）
+  interactiveWidget: "resizes-content",
 };
 
 export default function RootLayout({
@@ -43,7 +45,7 @@ export default function RootLayout({
         <script
           dangerouslySetInnerHTML={{
             __html:
-              "(function(){try{if(window.innerWidth>=1024)return;var sw=(window.screen&&window.screen.width)||393;var t=(sw>=320&&sw<=500)?sw:393;var m=document.querySelector('meta[name=\"viewport\"]');if(m)m.setAttribute('content','width='+t+', viewport-fit=cover');}catch(e){}})();",
+              "(function(){try{if(window.innerWidth>=1024)return;var sw=(window.screen&&window.screen.width)||393;var t=(sw>=320&&sw<=500)?sw:393;var m=document.querySelector('meta[name=\"viewport\"]');if(m)m.setAttribute('content','width='+t+', viewport-fit=cover, interactive-widget=resizes-content');}catch(e){}})();",
           }}
         />
         <Providers>

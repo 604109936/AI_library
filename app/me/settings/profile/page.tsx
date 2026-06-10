@@ -1,12 +1,13 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronLeft, Camera, Check, ImagePlus } from "lucide-react";
+import { useGoBack } from "@/components/shell/Header";
 import { RequireAuth } from "@/components/shell/RequireAuth";
 import { Avatar } from "@/components/ui/Avatar";
 import { Motif } from "@/components/ui/Motif";
 import { useAuth, useUI } from "@/lib/store";
+import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { supabase } from "@/lib/supabase/client";
 
 const PRESET_SEEDS = [1, 2, 3, 4, 5, 6, 7, 8];
@@ -38,7 +39,7 @@ async function compressImage(file: File, max = 512): Promise<Blob> {
 }
 
 export default function ProfileEdit() {
-  const router = useRouter();
+  const goBack = useGoBack("/me"); // 直链打开无历史可退时兜底回「我的」
   const user = useAuth((s) => s.user);
   const updateProfile = useAuth((s) => s.updateProfile);
   const toast = useUI((s) => s.toast);
@@ -48,6 +49,7 @@ export default function ProfileEdit() {
   const [avatarUrl, setAvatarUrl] = useState<string | undefined>(user?.avatarUrl);
   const [picker, setPicker] = useState(false);
   const [saving, setSaving] = useState(false);
+  useLockBodyScroll(picker); // 头像选择弹层打开时锁定背景滚动
   const fileRef = useRef<HTMLInputElement>(null);
   const bioRef = useRef<HTMLTextAreaElement>(null);
   const pendingBlob = useRef<Blob | null>(null); // 已选但未保存的头像（点保存才真上传，取消不留垃圾文件）
@@ -99,7 +101,7 @@ export default function ProfileEdit() {
   // 选预设头像 = 显式清除云端头像（avatarUrl 传 undefined → DB 置 null）
   async function save() {
     if (!nickname.trim()) { toast("昵称不能为空", "error"); return; }
-    if (!dirty) { router.back(); return; }
+    if (!dirty) { goBack(); return; }
     if (saving) return;
     if (!user) { toast("登录已失效，请重新登录", "error"); return; } // 弹层在 RequireAuth 外，会话中途失效时不能静默没反应
     setSaving(true);
@@ -117,7 +119,7 @@ export default function ProfileEdit() {
       const res = await updateProfile({ nickname: nickname.trim(), bio: bio.trim(), avatarSeed: seed, avatarUrl: finalUrl });
       if (res?.error) { toast("保存失败，请检查网络后重试", "error"); return; } // 不假装成功，留在本页可重试
       toast("已保存");
-      router.back();
+      goBack();
     } finally {
       setSaving(false);
     }
@@ -126,7 +128,7 @@ export default function ProfileEdit() {
   return (
     <main className="relative min-h-[100dvh] pb-28">
       <header className="sticky top-0 z-30 flex h-14 items-center bg-moon/90 px-2 backdrop-blur dark:bg-dark-bg/90">
-        <button onClick={() => router.back()} aria-label="返回" className="flex h-10 w-10 items-center justify-center rounded-full">
+        <button onClick={goBack} aria-label="返回" className="flex h-10 w-10 items-center justify-center rounded-full">
           <ChevronLeft size={24} className="text-ink dark:text-dark-text" />
         </button>
         <h1 className="flex-1 text-center font-serif text-lg text-ink dark:text-dark-text">编辑资料</h1>
