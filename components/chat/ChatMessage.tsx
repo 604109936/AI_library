@@ -16,11 +16,13 @@ export function ChatMessage({
   msg,
   onRegenerate,
   onFeedback,
+  onFeedbackDetail,
   highlight,
 }: {
   msg: TMsg;
   onRegenerate?: () => void;
   onFeedback?: (value: "up" | "down" | null) => void;
+  onFeedbackDetail?: (reasons: string[], text: string) => void; // 踩原因随消息落库（T2.5）
   highlight?: boolean;
 }) {
   const ringCls = highlight ? " ring-2 ring-celadon/70 ring-offset-2 ring-offset-moon dark:ring-offset-dark-bg" : "";
@@ -43,6 +45,7 @@ export function ChatMessage({
   const thinking = msg.streaming && !msg.content;
 
   function submitFeedback() {
+    onFeedbackDetail?.(picked, picked.includes("其它") ? other.trim() : "");
     setShowFb(false);
     setPicked([]);
     setOther("");

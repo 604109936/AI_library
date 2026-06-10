@@ -11,7 +11,7 @@ import type {
   UserProfile,
 } from "@/lib/types";
 import { supabase } from "@/lib/supabase/client";
-import { loadUserData, db } from "@/lib/supabase/userdata";
+import { loadUserData, loadChatSessions, chatDb, db } from "@/lib/supabase/userdata";
 
 /* ---------------- Auth（接 Supabase Auth） ---------------- */
 // profiles + auth.users.email → UserProfile。stats 由前端各页实时计算，这里置 0（不用 user.stats）。
@@ -50,6 +50,7 @@ export const useAuth = create<AuthState>()((set, get) => ({
         const p = await loadProfile(data.session.user);
         set({ user: p });
         await useLibrary.getState().load(p);
+        await useChat.getState().loadCloud(p.id);
       } catch {}
     } else {
       useLibrary.getState().setHydrated();
@@ -61,6 +62,7 @@ export const useAuth = create<AuthState>()((set, get) => ({
         if (event === "SIGNED_OUT") {
           set({ user: null });
           useLibrary.getState().reset();
+          useChat.getState().resetLocal();
         } else if (sess?.user && (event === "SIGNED_IN" || event === "USER_UPDATED" || event === "TOKEN_REFRESHED")) {
           loadProfile(sess.user).then((p) => set({ user: p })).catch(() => {});
         }
@@ -74,6 +76,7 @@ export const useAuth = create<AuthState>()((set, get) => ({
       const p = await loadProfile(data.user);
       set({ user: p });
       await useLibrary.getState().load(p);
+      await useChat.getState().loadCloud(p.id);
     }
     return {};
   },
@@ -89,12 +92,14 @@ export const useAuth = create<AuthState>()((set, get) => ({
     const p = await loadProfile(u);
     set({ user: p });
     await useLibrary.getState().load(p);
+    await useChat.getState().loadCloud(p.id);
     return {};
   },
   logout: async () => {
     await supabase.auth.signOut();
     set({ user: null });
     useLibrary.getState().reset();
+    useChat.getState().resetLocal(); // 对话只清本地，云端永久保留
   },
   updateProfile: async (patch) => {
     const u = get().user;
@@ -411,6 +416,7 @@ export const useReader = create<ReaderState>()(
 );
 
 /* ---------------- Chat ---------------- */
+// T2.5 云同步：本地乐观更新 + 登录态写穿透 chat_sessions；登录时云端为主、本地未上云的会话合并上传；退出只清本地、云端永久保留。
 interface ChatState {
   sessions: ChatSession[];
   hiddenSamples: string[]; // 被用户删除/清空的示例会话 id（持久化，刷新后不再复现）
@@ -419,22 +425,53 @@ interface ChatState {
   clearSessions: () => void;
   hideSample: (id: string) => void;
   hideAllSamples: (ids: string[]) => void;
+  loadCloud: (uid: string) => Promise<void>;
+  resetLocal: () => void; // 退出登录：仅清本地，不动云端
 }
+const chatUid = () => useAuth.getState().user?.id;
+const chatSync = (q: PromiseLike<{ error: unknown }>) => {
+  Promise.resolve(q).then(
+    ({ error }) => { if (error) useUI.getState().toast("对话同步失败，已存本机", "error"); },
+    () => {}
+  );
+};
 export const useChat = create<ChatState>()(
   persist(
     (set, get) => ({
       sessions: [],
       hiddenSamples: [],
-      upsertSession: (s) =>
+      upsertSession: (s) => {
         set({
           sessions: [s, ...get().sessions.filter((x) => x.id !== s.id)].sort(
             (a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt)
           ),
-        }),
-      removeSession: (id) => set({ sessions: get().sessions.filter((x) => x.id !== id) }),
-      clearSessions: () => set({ sessions: [] }),
+        });
+        const u = chatUid();
+        if (u) chatSync(chatDb.upsert(u, s));
+      },
+      removeSession: (id) => {
+        set({ sessions: get().sessions.filter((x) => x.id !== id) });
+        const u = chatUid();
+        if (u) chatSync(chatDb.remove(u, id));
+      },
+      clearSessions: () => {
+        set({ sessions: [] });
+        const u = chatUid();
+        if (u) chatSync(chatDb.clear(u));
+      },
       hideSample: (id) => set({ hiddenSamples: Array.from(new Set([...get().hiddenSamples, id])) }),
       hideAllSamples: (ids) => set({ hiddenSamples: Array.from(new Set([...get().hiddenSamples, ...ids])) }),
+      loadCloud: async (uid) => {
+        try {
+          const cloud = await loadChatSessions(uid);
+          const cloudIds = new Set(cloud.map((s) => s.id));
+          // 游客期间产生、还没上云的会话：合并展示并补传云端
+          const localOnly = get().sessions.filter((s) => !cloudIds.has(s.id));
+          for (const s of localOnly) chatSync(chatDb.upsert(uid, s));
+          set({ sessions: [...cloud, ...localOnly].sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt)) });
+        } catch {}
+      },
+      resetLocal: () => set({ sessions: [] }),
     }),
     { name: "ail-chat" }
   )

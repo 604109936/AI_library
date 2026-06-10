@@ -100,6 +100,8 @@ export interface ChatMessage {
   citations?: Citation[];
   recommendations?: Book[];
   feedback?: "up" | "down";
+  feedbackReasons?: string[]; // 踩反馈原因标签（推荐偏差/答疑有误/解读没用/其它）
+  feedbackText?: string; // 「其它」自定义反馈文本
   streaming?: boolean;
   toolNote?: string; // 工具调用中文案（查找书籍…/翻阅图书…/章节浏览…），仅流式期间展示
 }

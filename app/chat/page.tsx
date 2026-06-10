@@ -249,6 +249,15 @@ function ChatInner() {
     persist(next);
   }
 
+  // 踩反馈原因随消息落库（T2.5：persist 会写穿透 chat_sessions）
+  function setFeedbackDetail(id: string, reasons: string[], text: string) {
+    const next = messages.map((m) =>
+      m.id === id ? { ...m, feedbackReasons: reasons.length ? reasons : undefined, feedbackText: text || undefined } : m
+    );
+    setMessages(next);
+    persist(next);
+  }
+
   function regenerate() {
     if (busy) return;
     const lastUserIdx = messages.map((m) => m.role).lastIndexOf("user");
@@ -346,6 +355,7 @@ function ChatInner() {
                   highlight={locatedId === m.id}
                   onRegenerate={!busy && m.role === "assistant" && i === messages.length - 1 ? regenerate : undefined}
                   onFeedback={(v) => setFeedback(m.id, v)}
+                  onFeedbackDetail={(reasons, text) => setFeedbackDetail(m.id, reasons, text)}
                 />
               </div>
             ))}

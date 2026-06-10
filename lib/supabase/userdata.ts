@@ -3,7 +3,7 @@
 // 注意：用户表的 book_id/chapter_id 故意不设外键（解耦），所以不能用 PostgREST 内嵌，
 //       需先取用户行、再按 id 批量查 books/chapters，在 JS 里拼装展示字段。
 import { supabase } from "@/lib/supabase/client";
-import type { HistoryItem, NoteItem, Progress, ReadingMode, Review } from "@/lib/types";
+import type { ChatSession, HistoryItem, NoteItem, Progress, ReadingMode, Review } from "@/lib/types";
 
 export interface UserDataSlices {
   favorites: string[];
@@ -131,6 +131,32 @@ export async function loadUserData(user: { id: string; nickname: string; avatarS
 }
 
 const catOf = (m: ReadingMode) => (m === "text" ? "text" : "av");
+
+/* ---------------- 智学对话云同步（T2.5） ---------------- */
+// messages 整段存 jsonb（含卡片/反馈），简单可靠；流式中间态字段（streaming/toolNote）入库前剥掉
+const cleanMsgs = (msgs: ChatSession["messages"]) =>
+  msgs.filter((m) => !m.streaming).map(({ streaming, toolNote, ...keep }) => keep);
+
+export async function loadChatSessions(uid: string): Promise<ChatSession[]> {
+  const { data, error } = await supabase
+    .from("chat_sessions")
+    .select("id,title,updated_at,messages")
+    .eq("user_id", uid)
+    .order("updated_at", { ascending: false })
+    .limit(100);
+  if (error) throw error;
+  return (data ?? []).map((r: any) => ({ id: r.id, title: r.title ?? "", updatedAt: r.updated_at, messages: Array.isArray(r.messages) ? r.messages : [] }));
+}
+
+export const chatDb = {
+  upsert: (uid: string, s: ChatSession) =>
+    supabase.from("chat_sessions").upsert(
+      { user_id: uid, id: s.id, title: s.title, messages: cleanMsgs(s.messages), updated_at: s.updatedAt },
+      { onConflict: "user_id,id" }
+    ),
+  remove: (uid: string, id: string) => supabase.from("chat_sessions").delete().eq("user_id", uid).eq("id", id),
+  clear: (uid: string) => supabase.from("chat_sessions").delete().eq("user_id", uid),
+};
 
 // T1.5「一次阅读」上报：books.read_count +1（不去重，游客也计入）。
 // fire-and-forget：RPC 为 SECURITY DEFINER，失败静默（计数列不展示，不值得打扰用户）
