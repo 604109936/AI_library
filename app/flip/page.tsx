@@ -227,7 +227,13 @@ function FlipSlide({ book, index, active, near, registerVideo, userPausedRef }: 
   const fav = favorites.includes(realId);
   useReadingClock(active && playing && !err); // 仅「当前可见且在播」的那一条计入「我的-总时长」（避免离屏条多倍计时）
 
-  const setVideoRef = useCallback((el: HTMLVideoElement | null) => { videoRef.current = el; registerVideo(index, el); }, [index, registerVideo]);
+  const setVideoRef = useCallback((el: HTMLVideoElement | null) => {
+    const prev = videoRef.current;
+    // 视频元素卸载（划出 ±1 窗口）前，显式释放硬件解码器，防止移动端/微信(X5) 解码器泄漏累积超限（表现为第 5 个起 play 失败）
+    if (!el && prev) { try { prev.pause(); prev.removeAttribute("src"); prev.load(); } catch { /* noop */ } }
+    videoRef.current = el;
+    registerVideo(index, el);
+  }, [index, registerVideo]);
 
   // 进度与「泡馆」共享 mediaPlayed(真实观看覆盖，用于已读判定)/history；乱翻为发现流，不写 mediaProgress(续播位置归泡馆所有，避免污染/快进)
   function writeMedia(force = false) {
