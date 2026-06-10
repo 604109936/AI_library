@@ -65,10 +65,16 @@ export default function MePage() {
   const ongoingBooks = new Set(history.filter((h) => h.progress < 100).map((h) => h.bookId));
   doneBooks.forEach((id) => ongoingBooks.delete(id));
   const ongoing = ongoingBooks.size;
+  // 数据卡入口带上「有记录的大类」作为历史页默认筛选：避免卡上"已读 1"，点进去却因默认音视频筛选而显示空态
+  const modeFor = (done: boolean) => {
+    const rows = history.filter((h) => (done ? h.progress >= 100 : h.progress < 100));
+    const hasAv = rows.some((h) => h.mode !== "text");
+    return hasAv ? "av" : rows.some((h) => h.mode === "text") ? "text" : "av";
+  };
   const stats = [
     { label: "总时长", value: user ? durLabel : "—", icon: Clock, href: undefined as string | undefined },
-    { label: "已读", value: user ? String(readCount) : "—", icon: BookCheck, href: "/me/history?status=read" },
-    { label: "进行中", value: user ? String(ongoing) : "—", icon: BookOpen, href: "/me/history?status=reading" },
+    { label: "已读", value: user ? String(readCount) : "—", icon: BookCheck, href: `/me/history?status=read&mode=${modeFor(true)}` },
+    { label: "进行中", value: user ? String(ongoing) : "—", icon: BookOpen, href: `/me/history?status=reading&mode=${modeFor(false)}` },
     { label: "收藏", value: user ? String(favorites.length) : "—", icon: Heart, href: "/me/favorites" },
   ];
 

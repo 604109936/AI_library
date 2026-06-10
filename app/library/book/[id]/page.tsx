@@ -14,12 +14,14 @@ import { BookMediaHero } from "@/components/library/Players";
 import { Skeleton, ErrorState } from "@/components/ui/States";
 import { formatCount, formatDate } from "@/lib/utils";
 import { useAuth, useLibrary, useUI, requireLogin } from "@/lib/store";
+import { useGoBack } from "@/components/shell/Header";
 import type { Book } from "@/lib/types";
 
 export default function BookDetail({ params }: { params: { id: string } }) {
   const { id } = params;
   const real = id.split("__")[0];
   const router = useRouter();
+  const goBack = useGoBack();
   const toast = useUI((s) => s.toast);
   const user = useAuth((s) => s.user);
   const isFav = useLibrary((s) => s.isFav);
@@ -52,7 +54,24 @@ export default function BookDetail({ params }: { params: { id: string } }) {
   }, [book?.summary]);
 
   if (bookQ.isLoading) return <DetailSkeleton />;
-  if (bookQ.isError || !book) return <ErrorState onRetry={() => bookQ.refetch()} />;
+  // 书不存在（已下架/链接错误）≠ 网络错误：给 404 文案与出路，别让"重试"骗人（重试永远失败且无路可退）
+  if (!bookQ.isError && bookQ.isSuccess && !book) {
+    return (
+      <main className="flex min-h-[100dvh] flex-col items-center justify-center gap-4 px-8 text-center">
+        <p className="font-serif text-lg text-ink dark:text-dark-text">书架上没有这一页</p>
+        <p className="text-sm text-ink-500 dark:text-dark-text/55">这本书可能已被移走，或链接有误</p>
+        <button onClick={() => router.push("/library")} className="rounded-full bg-celadon px-6 py-2.5 text-sm text-snow active:scale-95">回到泡馆</button>
+      </main>
+    );
+  }
+  if (bookQ.isError || !book) {
+    return (
+      <main className="flex min-h-[100dvh] flex-col items-center justify-center px-4">
+        <ErrorState onRetry={() => bookQ.refetch()} />
+        <button onClick={() => router.push("/library")} className="mt-3 text-sm text-celadon">回到泡馆</button>
+      </main>
+    );
+  }
 
   function onFav() {
     requireLogin(() => {
@@ -74,7 +93,7 @@ export default function BookDetail({ params }: { params: { id: string } }) {
         <HeroBg book={book} />
         <div className="pointer-events-none absolute left-1/2 top-[24%] h-72 w-72 -translate-x-1/2 rounded-full bg-celadon/18 blur-[80px]" />
         <button
-          onClick={() => router.back()}
+          onClick={goBack}
           aria-label="返回"
           className="absolute left-2 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-snow/80 text-ink backdrop-blur transition active:scale-90 dark:bg-dark-card/70 dark:text-dark-text"
           style={{ top: "calc(env(safe-area-inset-top) + 8px)" }}
@@ -178,8 +197,9 @@ export default function BookDetail({ params }: { params: { id: string } }) {
         {myReview ? (
           <div className="rounded-2xl bg-snow p-3.5 shadow-sm dark:bg-dark-card">
             <div className="flex items-center gap-2">
-              <Avatar seed={myReview.avatarSeed} name={myReview.nickname} src={myReview.avatarUrl} size={28} />
-              <span className="text-sm text-ink dark:text-dark-text">{myReview.nickname}</span>
+              {/* 头像/昵称直接用当前登录用户（本来就只展示本人）：书评行的快照在刷新重载后会丢自定义头像/旧昵称 */}
+              <Avatar seed={user?.avatarSeed ?? myReview.avatarSeed} name={user?.nickname ?? myReview.nickname} src={user?.avatarUrl ?? myReview.avatarUrl} size={28} />
+              <span className="text-sm text-ink dark:text-dark-text">{user?.nickname ?? myReview.nickname}</span>
               <span className="rounded bg-celadon-soft px-1.5 py-0.5 text-[10px] text-celadon-700 dark:bg-celadon/20 dark:text-celadon-300">我的</span>
               <Stars value={myReview.rating} size={11} className="ml-auto" />
             </div>

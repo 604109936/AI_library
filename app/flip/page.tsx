@@ -262,11 +262,11 @@ export default function FlipPage() {
           <FlipSkeleton />
         ) : error ? (
           <div className="flex h-full items-center justify-center text-dark-text">
-            <ErrorState title="内容加载失败" subtitle="请检查网络后重试" onRetry={load} />
+            <ErrorState onDark title="内容加载失败" subtitle="请检查网络后重试" onRetry={load} />
           </div>
         ) : books.length === 0 ? (
           <div className="flex h-full items-center justify-center text-dark-text">
-            <EmptyState icon="book" title="暂无视频解读" subtitle="去泡馆挑一本书读读吧" actionText="去泡馆逛逛" actionHref="/library" />
+            <EmptyState onDark icon="book" title="暂无视频解读" subtitle="去泡馆挑一本书读读吧" actionText="去泡馆逛逛" actionHref="/library" />
           </div>
         ) : (
           <>

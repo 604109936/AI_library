@@ -26,6 +26,7 @@ export function EmptyState({
   actionText,
   actionHref,
   onAction,
+  onDark,
 }: {
   icon?: EmptyIcon;
   illustration?: string; // 线描插画图片路径，缺图时回退到图标圆
@@ -34,6 +35,7 @@ export function EmptyState({
   actionText?: string;
   actionHref?: string;
   onAction?: () => void;
+  onDark?: boolean; // 宿主恒为暗底（如乱翻）：浅色主题下也用浅色文字，否则深字打暗底看不清
 }) {
   const [imgOk, setImgOk] = useState(true);
   const Icon = ICONS[icon] ?? Inbox;
@@ -52,8 +54,8 @@ export function EmptyState({
           <Icon className="text-celadon" size={40} strokeWidth={1.4} />
         </div>
       )}
-      <p className="font-serif text-lg text-ink dark:text-dark-text">{title}</p>
-      {subtitle && <p className="mt-1.5 text-sm text-ink-500 dark:text-dark-text/60">{subtitle}</p>}
+      <p className={cn("font-serif text-lg", onDark ? "text-dark-text" : "text-ink dark:text-dark-text")}>{title}</p>
+      {subtitle && <p className={cn("mt-1.5 text-sm", onDark ? "text-dark-text/60" : "text-ink-500 dark:text-dark-text/60")}>{subtitle}</p>}
       {actionText &&
         (actionHref ? (
           <Link
@@ -79,11 +81,13 @@ export function ErrorState({
   title = "网络开小差了",
   subtitle = "请检查网络后重试",
   illustration,
+  onDark,
 }: {
   onRetry?: () => void;
   title?: string;
   subtitle?: string;
   illustration?: string;
+  onDark?: boolean; // 宿主恒为暗底（如乱翻）
 }) {
   const [imgOk, setImgOk] = useState(true);
   return (
@@ -97,16 +101,16 @@ export function ErrorState({
           className="mb-5 h-40 w-40 object-contain opacity-95 dark:opacity-80"
         />
       ) : (
-        <div className="mb-5 flex h-24 w-24 items-center justify-center rounded-full bg-line/60 dark:bg-white/5">
-          <WifiOff className="text-ink-500 dark:text-dark-text/60" size={38} strokeWidth={1.4} />
+        <div className={cn("mb-5 flex h-24 w-24 items-center justify-center rounded-full", onDark ? "bg-white/5" : "bg-line/60 dark:bg-white/5")}>
+          <WifiOff className={cn(onDark ? "text-dark-text/60" : "text-ink-500 dark:text-dark-text/60")} size={38} strokeWidth={1.4} />
         </div>
       )}
-      <p className="font-serif text-lg text-ink dark:text-dark-text">{title}</p>
-      <p className="mt-1.5 text-sm text-ink-500 dark:text-dark-text/60">{subtitle}</p>
+      <p className={cn("font-serif text-lg", onDark ? "text-dark-text" : "text-ink dark:text-dark-text")}>{title}</p>
+      <p className={cn("mt-1.5 text-sm", onDark ? "text-dark-text/60" : "text-ink-500 dark:text-dark-text/60")}>{subtitle}</p>
       {onRetry && (
         <button
           onClick={onRetry}
-          className="mt-6 rounded-full border border-celadon px-6 py-2.5 text-sm text-celadon-700 transition active:scale-95 dark:text-celadon-300"
+          className={cn("mt-6 rounded-full border border-celadon px-6 py-2.5 text-sm transition active:scale-95", onDark ? "text-celadon-300" : "text-celadon-700 dark:text-celadon-300")}
         >
           重试
         </button>

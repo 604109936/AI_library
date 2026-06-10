@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Header } from "@/components/shell/Header";
 import { RequireAuth } from "@/components/shell/RequireAuth";
 import { BookCover } from "@/components/ui/BookCover";
-import { EmptyState, Skeleton } from "@/components/ui/States";
+import { EmptyState, ErrorState, Skeleton } from "@/components/ui/States";
 import { ChevronDown, Check, Heart } from "lucide-react";
 import { useLibrary, useUI } from "@/lib/store";
 import { getBooksByIds } from "@/lib/api";
@@ -22,11 +22,14 @@ export default function FavoritesPage() {
   const [sort, setSort] = useState<Sort>("new");
   const [open, setOpen] = useState(false);
 
-  // 把收藏的 book_id 解析成真实书（按 id 批量查 Supabase）
+  // 把收藏的 book_id 解析成真实书（按 id 批量查 Supabase）。
+  // queryKey 固定 + 取消收藏时由本地 list 过滤：避免每次 toggleFav 生成新 key 导致整页闪骨架重拉
+  const favKey = useMemo(() => [...favorites].sort().join(","), [favorites]);
   const booksQ = useQuery({
-    queryKey: ["favBooks", favorites],
+    queryKey: ["favBooks", favKey],
     queryFn: () => getBooksByIds(favorites),
     enabled: favorites.length > 0,
+    placeholderData: (prev) => prev, // 收藏集变化时沿用旧数据渲染，不闪加载态
   });
 
   const list = useMemo(() => {
@@ -36,7 +39,7 @@ export default function FavoritesPage() {
     return sort === "old" ? [...arr].reverse() : arr;
   }, [favorites, booksQ.data, sort]);
 
-  const loading = favorites.length > 0 && booksQ.isLoading;
+  const loading = favorites.length > 0 && booksQ.isLoading && !booksQ.data;
 
   return (
     <main className="min-h-[100dvh]">
@@ -67,6 +70,9 @@ export default function FavoritesPage() {
           <div className="grid grid-cols-2 gap-4 p-4">
             {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="aspect-[3/4] rounded-2xl" />)}
           </div>
+        ) : booksQ.isError ? (
+          // 网络失败 ≠ 没有收藏：显示假空态会让用户以为收藏丢了
+          <ErrorState title="收藏加载失败" subtitle="请检查网络后重试" onRetry={() => booksQ.refetch()} />
         ) : list.length === 0 ? (
           <EmptyState icon="book" title="还没有收藏任何书" subtitle="去泡馆发现好书吧" actionText="去泡馆逛逛" actionHref="/library" />
         ) : (

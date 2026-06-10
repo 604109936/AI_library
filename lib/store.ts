@@ -196,7 +196,6 @@ interface LibState {
   progress: Record<string, Progress>;
   history: HistoryItem[];
   likedReviews: string[];
-  likedBooks: string[];
   myReviews: Review[];
   mediaProgress: Record<string, number>;
   mediaPlayed: Record<string, number>;
@@ -216,8 +215,6 @@ interface LibState {
   clearHistory: () => void;
   removeHistory: (bookId: string) => void;
   toggleLike: (id: string) => void;
-  isBookLiked: (id: string) => boolean;
-  toggleBookLike: (id: string) => boolean;
   addReview: (r: Review) => void;
   removeReview: (id: string) => void;
   upsertReview: (r: Review) => void;
@@ -236,7 +233,6 @@ const EMPTY = {
   myReviews: [] as Review[],
   progress: {} as Record<string, Progress>,
   likedReviews: [] as string[],
-  likedBooks: [] as string[],
   mediaProgress: {} as Record<string, number>,
   mediaPlayed: {} as Record<string, number>,
   readChapters: {} as Record<string, string[]>,
@@ -341,18 +337,12 @@ export const useLibrary = create<LibState>()((set, get) => {
       const u = uid();
       if (u) sync(db.removeHistory(u, id), "历史");
     },
-    toggleLike: (id) =>
-      set({
-        likedReviews: get().likedReviews.includes(id)
-          ? get().likedReviews.filter((x) => x !== id)
-          : [id, ...get().likedReviews],
-      }),
-    isBookLiked: (id) => get().likedBooks.includes(real(id)),
-    toggleBookLike: (id) => {
-      const r = real(id);
-      const has = get().likedBooks.includes(r);
-      set({ likedBooks: has ? get().likedBooks.filter((x) => x !== r) : [r, ...get().likedBooks] });
-      return !has;
+    // 书评点赞：写穿透 review_likes（本版 UI 不展示，数据先闭环——原实现纯本地，刷新即丢，与登录加载的云端数据形成鬼影）
+    toggleLike: (id) => {
+      const has = get().likedReviews.includes(id);
+      set({ likedReviews: has ? get().likedReviews.filter((x) => x !== id) : [id, ...get().likedReviews] });
+      const u = uid();
+      if (u) sync(has ? db.removeReviewLike(u, id) : db.addReviewLike(u, id), "点赞");
     },
     addReview: (r) => {
       set({ myReviews: [r, ...get().myReviews] });

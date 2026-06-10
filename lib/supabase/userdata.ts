@@ -208,6 +208,10 @@ export const db = {
       { user_id: uid, book_id: bookId, position, played },
       { onConflict: "user_id,book_id" }
     ),
+  // 书评点赞（本版 UI 不展示，数据闭环备将来）
+  addReviewLike: (uid: string, reviewId: string) => supabase.from("review_likes").insert({ user_id: uid, review_id: reviewId }),
+  removeReviewLike: (uid: string, reviewId: string) => supabase.from("review_likes").delete().eq("user_id", uid).eq("review_id", reviewId),
+
   // 时长走服务端增量累加 RPC（add_read_seconds，见 docs/后端_Review修复SQL.md）：
   // 绝对值覆盖在多设备并行阅读时会互相吃掉增量（lost update），增量累加天然无冲突
   addReadSeconds: (delta: number) => supabase.rpc("add_read_seconds", { p_delta: delta }),

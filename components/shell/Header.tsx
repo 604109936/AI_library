@@ -3,6 +3,15 @@ import { useRouter } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+/** 返回兜底：直链/分享打开时无历史可退，裸 back() 会毫无反应——退不动就去泡馆 */
+export function useGoBack() {
+  const router = useRouter();
+  return () => {
+    if (typeof window !== "undefined" && window.history.length > 1) router.back();
+    else router.push("/library");
+  };
+}
+
 /** 二级页通用顶栏：返回箭头 + 居中标题 + 右侧操作。不含底部栏。 */
 export function Header({
   title,
@@ -18,7 +27,7 @@ export function Header({
   /** 标题是否显示（用于大标题滚动收起后再淡入顶栏标题）。默认 true。 */
   titleShown?: boolean;
 }) {
-  const router = useRouter();
+  const goBack = useGoBack();
   return (
     <header
       className={cn(
@@ -28,7 +37,7 @@ export function Header({
       )}
     >
       <button
-        onClick={() => router.back()}
+        onClick={goBack}
         className="flex h-10 w-10 items-center justify-center rounded-full active:bg-line/50"
         aria-label="返回"
       >

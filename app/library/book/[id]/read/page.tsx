@@ -13,6 +13,7 @@ import { Skeleton, ErrorState } from "@/components/ui/States";
 import { Motif } from "@/components/ui/Motif";
 import { useLibrary, useReader, useUI, requireLogin, type ReaderBg } from "@/lib/store";
 import { useReadCountBump, useReadingClock } from "@/lib/useReadingClock";
+import { useGoBack } from "@/components/shell/Header";
 import { uid, chapterLabel } from "@/lib/utils";
 import type { Chapter, NoteItem } from "@/lib/types";
 
@@ -45,6 +46,7 @@ const FONT_LABEL = ["小", "中", "大", "超大"];
 
 function ReaderInner({ id }: { id: string }) {
   const router = useRouter();
+  const goBack = useGoBack();
   const sp = useSearchParams();
   const toast = useUI((s) => s.toast);
   const reader = useReader();
@@ -141,15 +143,18 @@ function ReaderInner({ id }: { id: string }) {
     // eslint-disable-next-line
   }, [cur?.id, bookQ.data?.id]);
 
-  // 从「我的笔记」跳转：轮询等高亮渲染好（应对数据水合/渲染延迟）再滚动到对应标记并轻闪一下
+  // 从「我的笔记」跳转：轮询等高亮渲染好（应对数据水合/渲染延迟）再滚动到对应标记并轻闪一下。
+  // 只定位一次：URL 上的 ?mark 会残留，切章往返时若重复定位会反复劫持阅读位置
+  const markDone = useRef(false);
   useEffect(() => {
     const mk = sp.get("mark");
-    if (!mk || !cur) return;
+    if (!mk || !cur || markDone.current) return;
     let tries = 0;
     let timer: ReturnType<typeof setTimeout>;
     const tick = () => {
       const el = document.getElementById("mk-" + mk);
       if (el) {
+        markDone.current = true;
         el.scrollIntoView({ block: "center", behavior: "auto" }); // 直接定位，不做平滑滚动动画
         el.animate?.([{ filter: "brightness(1.45)" }, { filter: "brightness(1)" }], { duration: 1200, easing: "ease-out" });
         return;
@@ -282,7 +287,15 @@ function ReaderInner({ id }: { id: string }) {
         <ErrorState title="内容加载失败" subtitle="点击重试" onRetry={() => { bookQ.refetch(); chQ.refetch(); }} />
       </main>
     );
-  if (!bookQ.data || !cur) return <div className="p-8 text-center text-ink-500">未找到内容</div>;
+  // 书不存在/无章节：给文案与出路（原来是无任何按钮的死页）
+  if (!bookQ.data || !cur)
+    return (
+      <main className="flex min-h-[100dvh] flex-col items-center justify-center gap-4 px-8 text-center">
+        <p className="font-serif text-lg text-ink dark:text-dark-text">未找到可阅读的内容</p>
+        <p className="text-sm text-ink-500 dark:text-dark-text/55">这本书可能没有文字稿，或已被移走</p>
+        <button onClick={() => router.push("/library")} className="rounded-full bg-celadon px-6 py-2.5 text-sm text-snow active:scale-95">回到泡馆</button>
+      </main>
+    );
 
   const idx = chapters.findIndex((c) => c.id === cur.id);
   // 全书进度 =（已读完章节数 + 当前章滚动比例）/ 总章数：章内滚动也平滑前进，全部读完才 100
@@ -297,7 +310,7 @@ function ReaderInner({ id }: { id: string }) {
       <Motif name="bamboo" className="reader-deco h-24 w-24" />
       {/* 顶栏：返回 · 章标题（设置入口在底部工具栏最右） */}
       <header className="sticky top-0 z-20 flex h-14 items-center px-2 backdrop-blur" style={{ background: "transparent" }}>
-        <button onClick={() => router.back()} aria-label="返回" className="flex h-10 w-10 items-center justify-center rounded-full">
+        <button onClick={goBack} aria-label="返回" className="flex h-10 w-10 items-center justify-center rounded-full">
           <ChevronLeft size={24} />
         </button>
         <h1 className="flex-1 truncate text-center font-serif text-base">{chapterLabel(cur.no, cur.title)}</h1>
@@ -308,7 +321,7 @@ function ReaderInner({ id }: { id: string }) {
       <div
         ref={scrollRef}
         onScroll={onScroll}
-        className={"h-[calc(100dvh-3.5rem-3.5rem)] overflow-y-auto px-6 pb-10 no-scrollbar " + bgCls}
+        className={"h-[calc(100dvh-3.5rem-3.5rem-env(safe-area-inset-bottom))] overflow-y-auto px-6 pb-10 no-scrollbar " + bgCls}
         style={{ filter: `brightness(${reader.brightness})` }}
       >
         <div
@@ -325,8 +338,8 @@ function ReaderInner({ id }: { id: string }) {
         </div>
       </div>
 
-      {/* 底部工具栏：目录 / 设置 / 笔记（图标区分明显） */}
-      <div className="sticky bottom-0 z-20 border-t border-current/10 px-4 py-2 backdrop-blur">
+      {/* 底部工具栏：目录 / 设置 / 笔记（图标区分明显）。pb-safe：全面屏别压在 home 横条上 */}
+      <div className="sticky bottom-0 z-20 border-t border-current/10 px-4 py-2 pb-safe backdrop-blur">
         <div className="mb-1 text-center text-[11px] opacity-50">
           {chapterLabel(cur.no)} · 本章 {Math.round(pct)}% · 全书 {bookPct}%
         </div>

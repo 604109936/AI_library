@@ -22,8 +22,8 @@ function HistoryInner() {
   const history = useLibrary((s) => s.history);
   const removeHistory = useLibrary((s) => s.removeHistory);
   const toast = useUI((s) => s.toast);
-  // 类型筛选（音视频/文字稿，默认音视频，页面内可平铺切换）
-  const [filter, setFilter] = useState<Filter>("av");
+  // 类型筛选（音视频/文字稿，页面内可平铺切换）；入口可经 ?mode= 指定默认值（数据卡按"有记录的大类"传入）
+  const [filter, setFilter] = useState<Filter>(() => (sp.get("mode") === "text" ? "text" : "av"));
   // 状态由入口决定（已读卡 / 进行中卡），页面内不提供状态切换
   const sParam = sp.get("status");
   const status: Status = sParam === "read" ? "read" : sParam === "reading" ? "reading" : "all";
