@@ -36,7 +36,7 @@ interface AuthState {
   login: (email: string, password: string) => Promise<{ error?: string }>;
   register: (email: string, password: string, nickname?: string) => Promise<{ error?: string; needConfirm?: boolean }>;
   logout: () => Promise<void>;
-  updateProfile: (patch: Partial<UserProfile>) => Promise<void>;
+  updateProfile: (patch: Partial<UserProfile>) => Promise<{ error?: string }>;
 }
 let authSubscribed = false;
 export const useAuth = create<AuthState>()((set, get) => ({
@@ -114,7 +114,7 @@ export const useAuth = create<AuthState>()((set, get) => ({
   },
   updateProfile: async (patch) => {
     const u = get().user;
-    if (!u) return;
+    if (!u) return { error: "登录已失效" };
     set({ user: { ...u, ...patch } }); // 乐观更新
     const db: Record<string, any> = {};
     if (patch.nickname !== undefined) db.nickname = patch.nickname;
@@ -122,7 +122,12 @@ export const useAuth = create<AuthState>()((set, get) => ({
     if (patch.avatarSeed !== undefined) db.avatar_seed = patch.avatarSeed;
     // avatarUrl 用「键是否存在」判断：传 undefined 表示明确清除云端头像（换回预设），否则永远清不掉
     if ("avatarUrl" in patch) db.avatar_url = patch.avatarUrl ?? null;
-    if (Object.keys(db).length) await supabase.from("profiles").update(db).eq("id", u.id);
+    if (Object.keys(db).length) {
+      // 必须检查 error：supabase 写失败不 throw。吞掉会变成"保存假成功"——本地新值/云端旧值永久不一致
+      const { error } = await supabase.from("profiles").update(db).eq("id", u.id);
+      if (error) { set({ user: u }); return { error: "保存失败" }; } // 回滚乐观值
+    }
+    return {};
   },
 }));
 

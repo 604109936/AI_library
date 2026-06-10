@@ -155,10 +155,10 @@ export async function getChapter(bookId: string, chapterId: string): Promise<Cha
 // 排除已读、在读优先）；新用户/游客/当天未生成 → 回退最新入库 50 本有视频的书。
 // 模块级短缓存：续拉（loadMore）每次都会进来，5 分钟内不重复打库；按 uid 隔离防换号串池。
 let flipPoolCache: { key: string; books: Book[]; at: number } | null = null;
-async function flipPool(): Promise<Book[]> {
+async function flipPool(): Promise<{ books: Book[]; owner: string }> {
   const { data: sess } = await supabase.auth.getSession();
   const uid = sess.session?.user?.id ?? "guest";
-  if (flipPoolCache && flipPoolCache.key === uid && Date.now() - flipPoolCache.at < 5 * 60 * 1000) return flipPoolCache.books;
+  if (flipPoolCache && flipPoolCache.key === uid && Date.now() - flipPoolCache.at < 5 * 60 * 1000) return { books: flipPoolCache.books, owner: uid };
   let books: Book[] = [];
   if (uid !== "guest") {
     // 取最近一期日更（RLS 只放行本人行）。不强卡“当天”：Cron 偶发失败时退回上一期个性化，比直接掉回退池体验好
@@ -176,16 +176,19 @@ async function flipPool(): Promise<Book[]> {
     books = (data ?? []).map(toBook).filter((b) => b.videoUrl);
   }
   flipPoolCache = { key: uid, books, at: Date.now() };
-  return books;
+  return { books, owner: uid };
 }
 
-export async function getFlip(seenIds: string[]): Promise<Book[]> {
-  const pool = await flipPool();
-  if (pool.length === 0) return [];
+// owner = 本批书池属于谁（与查询同源的会话 uid）。乱翻页用它给缓存打主人戳——
+// 若用页面侧 zustand uid 打戳，冷启动 user 未就绪时会把登录用户的个性化池错标成 guest，
+// 退出登录后游客会续看上一账号的个性化书单（Review 修复）
+export async function getFlip(seenIds: string[]): Promise<{ books: Book[]; owner: string }> {
+  const { books: pool, owner } = await flipPool();
+  if (pool.length === 0) return { books: [], owner };
   // 首批按 feed 顺序（个性化排序生效）；划完一轮后续拉打乱重发，并赋唯一 id 后缀防 key 冲突
-  if (seenIds.length === 0) return pool;
+  if (seenIds.length === 0) return { books: pool, owner };
   const shuffled = [...pool].sort(() => Math.random() - 0.5);
-  return shuffled.map((b) => ({ ...b, id: `${b.id}__f${seenIds.length}_${b.coverSeed}` }));
+  return { books: shuffled.map((b) => ({ ...b, id: `${b.id}__f${seenIds.length}_${b.coverSeed}` })), owner };
 }
 
 // T3.3 搜索行为上报：有效搜索（有结果）写一条 search_logs，供热门搜索聚合。

@@ -126,7 +126,9 @@ export default function FlipPage() {
     setLoading(true);
     setError(false);
     getFlip([])
-      .then((b) => { setBooks(b); setLoading(false); flipCache = { books: b, idx: 0, uid: cacheUid() }; })
+      // 缓存主人戳用 getFlip 返回的 owner（与书池查询同源）：用页面侧 zustand uid 会在冷启动时
+      // 把登录用户的个性化池错标成 guest，退出登录后游客续看上一账号书单
+      .then(({ books: b, owner }) => { setBooks(b); setLoading(false); flipCache = { books: b, idx: 0, uid: owner }; })
       .catch(() => { setError(true); setLoading(false); });
   }, []);
 
@@ -144,7 +146,8 @@ export default function FlipPage() {
     if (fetching.current) return;
     fetching.current = true;
     getFlip(booksRef.current.map((b) => b.id))
-      .then((more) => setBooks((cur) => { const next = [...cur, ...more]; if (flipCache) flipCache.books = next; return next; }))
+      .then(({ books: more }) => setBooks((cur) => { const next = [...cur, ...more]; if (flipCache) flipCache.books = next; return next; }))
+      .catch(() => {}) // 弱网续拉失败静默：fetching 复位后下次滑动自动重试（不 catch 会冒未处理 rejection）
       .finally(() => { fetching.current = false; });
   }, []);
 

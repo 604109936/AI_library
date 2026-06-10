@@ -35,10 +35,14 @@ export default function SearchPage() {
 
   const hasResult = !!data && data.books.length > 0;
 
-  // 仅“有结果”时写入历史（提交/点击只切换 q，由此 effect 统一记录，避免零结果词污染最近搜索）；
-  // 同时上报 search_logs 供热门搜索聚合（T3.3，库内去重防刷）
+  // 仅“有结果”时写入历史（提交/点击只切换 q，由此 effect 统一记录，避免零结果词污染最近搜索）。
+  // search_logs 上报延后 1.2s：连续输入的中间态前缀词（打“认知觉醒”停顿出的“认”）会被 q 变化取消，
+  // 不污染热门聚合；停下来真正看结果的词才算一次有效搜索
   useEffect(() => {
-    if (q && hasResult) { addRecent(q); logSearch(q); }
+    if (!(q && hasResult)) return;
+    addRecent(q);
+    const t = setTimeout(() => logSearch(q), 1200);
+    return () => clearTimeout(t);
   }, [q, hasResult, addRecent]);
 
   function submit(term: string) {

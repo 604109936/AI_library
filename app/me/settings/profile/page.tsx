@@ -27,7 +27,10 @@ async function compressImage(file: File, max = 512): Promise<Blob> {
     const canvas = document.createElement("canvas");
     canvas.width = w;
     canvas.height = h;
-    canvas.getContext("2d")!.drawImage(img, 0, 0, w, h);
+    const ctx = canvas.getContext("2d")!;
+    ctx.fillStyle = "#fff"; // 先铺白底：透明 PNG 直接转 JPEG 会把透明区域染成纯黑
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(img, 0, 0, w, h);
     return await new Promise<Blob>((ok, no) => canvas.toBlob((b) => (b ? ok(b) : no(new Error("图片压缩失败"))), "image/jpeg", 0.85));
   } finally {
     URL.revokeObjectURL(url);
@@ -97,7 +100,8 @@ export default function ProfileEdit() {
   async function save() {
     if (!nickname.trim()) { toast("昵称不能为空", "error"); return; }
     if (!dirty) { router.back(); return; }
-    if (saving || !user) return;
+    if (saving) return;
+    if (!user) { toast("登录已失效，请重新登录", "error"); return; } // 弹层在 RequireAuth 外，会话中途失效时不能静默没反应
     setSaving(true);
     try {
       let finalUrl = avatarUrl;
@@ -108,8 +112,10 @@ export default function ProfileEdit() {
         const { data } = supabase.storage.from("avatars").getPublicUrl(path);
         finalUrl = `${data.publicUrl}?v=${Date.now()}`; // 固定路径覆盖上传，加版本参数破 CDN 缓存
         pendingBlob.current = null;
+        setAvatarUrl(finalUrl); // 公网 URL 固化进 state：写库失败重试时不会把 dataURL 预览当真值写库
       }
-      await updateProfile({ nickname: nickname.trim(), bio: bio.trim(), avatarSeed: seed, avatarUrl: finalUrl });
+      const res = await updateProfile({ nickname: nickname.trim(), bio: bio.trim(), avatarSeed: seed, avatarUrl: finalUrl });
+      if (res?.error) { toast("保存失败，请检查网络后重试", "error"); return; } // 不假装成功，留在本页可重试
       toast("已保存");
       router.back();
     } finally {

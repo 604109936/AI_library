@@ -59,7 +59,9 @@ export default function SettingsPage() {
   }
   // T4.4 反馈真落库：feedback 表只写不读（RLS 仅本人可写，无读策略 → 只有管理员能看）
   async function submitFeedback() {
-    if (!feedback.trim() || acting || !user) return;
+    if (!feedback.trim() || acting) return;
+    // 弹层在 RequireAuth 外：会话中途失效时要明确提示而非静默没反应（不关弹层，已写的内容不丢）
+    if (!user) { toast("登录已失效，请重新登录", "error"); return; }
     setActing(true);
     try {
       const { error } = await supabase.from("feedback").insert({ user_id: user.id, content: feedback.trim() });

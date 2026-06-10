@@ -26,19 +26,26 @@ const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const page = await ctx.newPage();
   await page.goto(`${BASE}/search`, { waitUntil: "domcontentloaded" });
+  // 必须等 React 水合完（热门区客户端渲染后出现）再输入：受控 input 在水合时会被重置回空串；
+  // 结果态用「书籍」区头判断（不能用书名文本——热门 chips 里也有，会误命中）
+  await page.waitForFunction(() => (document.body.textContent || "").includes("热门搜索"), { timeout: 15000 });
   await page.fill("input", TERM);
-  await page.waitForFunction(() => (document.body.textContent || "").includes("认知觉醒"), { timeout: 15000 });
-  await page.waitForTimeout(1500); // 等 fire-and-forget 落库
+  await page.waitForFunction(() => (document.body.textContent || "").includes("书籍"), { timeout: 15000 });
+  await page.waitForTimeout(2500); // 等 1.2s 延迟上报 + 落库
   // 再搜一次同词（清空→重输），验证库内去重
   await page.fill("input", "");
   await page.waitForTimeout(500);
   await page.fill("input", TERM);
-  await page.waitForFunction(() => (document.body.textContent || "").includes("认知觉醒"), { timeout: 15000 });
-  await page.waitForTimeout(1500);
+  await page.waitForFunction(() => (document.body.textContent || "").includes("书籍"), { timeout: 15000 });
+  await page.waitForTimeout(2500);
   const { data: logs } = await admin.from("search_logs").select("id,user_id").eq("term", TERM);
   ok(logs?.length === 1, "有效搜索落一条 search_logs（同词去重）", `${logs?.length} 条`);
   ok(logs?.[0]?.user_id === null, "游客搜索 user_id 为空");
 
+  // 阈值核验：单人搜索（1 条）不上榜（防投毒）；补一条模拟第二人后才上榜
+  const { data: hot1 } = await admin.rpc("get_hot_searches", { p_limit: 20, p_days: 30 });
+  ok(Array.isArray(hot1) && !hot1.includes(TERM), "单人搜索词不进热榜（双人阈值）", JSON.stringify(hot1));
+  await admin.from("search_logs").insert({ term: TERM });
   const { data: hot } = await admin.rpc("get_hot_searches", { p_limit: 20, p_days: 30 });
   ok(Array.isArray(hot) && hot.includes(TERM), "get_hot_searches 聚合出该词", JSON.stringify(hot));
 
