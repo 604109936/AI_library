@@ -68,9 +68,9 @@ export function ChatMessage({
           </div>
         ) : (
           <div className={"rounded-2xl rounded-tl-sm bg-snow px-3.5 py-3 shadow-sm transition dark:bg-dark-card" + ringCls}>
+            {/* 不放流式光标：Markdown 渲染为块级段落，光标会被挤到独立一行像根"杵着的竖线" */}
             <div className="prose-cn">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-              {msg.streaming && <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-celadon align-middle" />}
             </div>
 
             {/* 引用卡 */}
@@ -108,6 +108,18 @@ export function ChatMessage({
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* 工具调用中（已有正文时显示在气泡下方）：查找书籍… / 翻阅图书… / 章节浏览… */}
+        {msg.streaming && !!msg.content && msg.toolNote && (
+          <div className="mt-1.5 flex items-center gap-1.5 pl-1 text-xs text-ink-400 dark:text-dark-text/50">
+            {msg.toolNote}
+            <span className="flex gap-0.5">
+              <span className="h-1 w-1 animate-bounce rounded-full bg-celadon [animation-delay:-0.2s]" />
+              <span className="h-1 w-1 animate-bounce rounded-full bg-celadon [animation-delay:-0.1s]" />
+              <span className="h-1 w-1 animate-bounce rounded-full bg-celadon" />
+            </span>
           </div>
         )}
 

@@ -167,32 +167,42 @@ function ChatInner() {
         let acc = "";
         let shown = 0;
         let ended = false;
+        // 卡片数据先暂存（事件到达就预取），等打字机吐完字与收尾一起亮相，避免吐字中途插卡的顿挫感
+        let pendingRecs: Book[] | null = null;
+        let pendingCites: Citation[] | null = null;
         const smooth = () => {
           if (timer.current) return;
           timer.current = setInterval(() => {
             if (fetchCtrl.current !== ctrl && !ended) return; // stop() 已接管收尾
             if (shown < acc.length) {
               shown = Math.min(acc.length, shown + Math.max(2, Math.ceil((acc.length - shown) / 25)));
-              apply({ content: acc.slice(0, shown), toolNote: undefined });
+              apply({ content: acc.slice(0, shown) }); // 不动 toolNote：工具状态由事件自己管理
             } else if (ended) {
               if (timer.current) clearInterval(timer.current);
               timer.current = null;
-              apply({ content: acc, streaming: false, toolNote: undefined });
+              apply({
+                content: acc,
+                streaming: false,
+                toolNote: undefined,
+                ...(pendingRecs?.length ? { recommendations: pendingRecs } : {}),
+                ...(pendingCites?.length ? { citations: pendingCites } : {}),
+              });
+              pendingReply.current = null;
               busyRef.current = false;
               setBusy(false);
             }
           }, 16);
         };
         const handle = async (ev: { t: string; v?: unknown }) => {
-          if (ev.t === "d" && typeof ev.v === "string") { acc += ev.v; smooth(); }
+          if (ev.t === "d" && typeof ev.v === "string") { acc += ev.v; apply({ toolNote: undefined }); smooth(); } // 新文字到达才清工具状态
           else if (ev.t === "status" && typeof ev.v === "string") apply({ toolNote: ev.v });
           else if (ev.t === "recs" && Array.isArray(ev.v)) {
-            // 触发即出卡：只收 book_id，前端拉展示数据（封面/书名/作者）
+            // 预取展示数据（封面/书名/作者），收尾时随完整回答一起亮相
             const books = (await Promise.all((ev.v as string[]).map((id) => getBook(id).catch(() => null)))).filter(Boolean) as Book[];
-            if (books.length) apply({ recommendations: books });
+            if (books.length) { pendingRecs = books; pendingReply.current = { id: aId, citations: pendingCites ?? [], recommendations: books }; }
           } else if (ev.t === "cites" && Array.isArray(ev.v)) {
             const cites = await buildCitations(ev.v as { b: string; c: number }[]);
-            if (cites.length) apply({ citations: cites });
+            if (cites.length) { pendingCites = cites; pendingReply.current = { id: aId, citations: cites, recommendations: pendingRecs ?? [] }; }
           } else if (ev.t === "err") throw new Error(typeof ev.v === "string" ? ev.v : "服务暂时不可用");
         };
         const reader = r.body.getReader();
