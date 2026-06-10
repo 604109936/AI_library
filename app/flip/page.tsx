@@ -163,7 +163,7 @@ export default function FlipPage() {
           <>
             <div ref={scrollerRef} className="h-full snap-y snap-mandatory overflow-y-auto overscroll-contain no-scrollbar">
               {books.map((b, i) => (
-                <FlipSlide key={b.id} book={b} index={i} active={i === activeIdx} registerVideo={registerVideo} userPausedRef={userPausedRef} />
+                <FlipSlide key={b.id} book={b} index={i} active={i === activeIdx} near={Math.abs(i - activeIdx) <= 1} registerVideo={registerVideo} userPausedRef={userPausedRef} />
               ))}
             </div>
             {/* 顶部装饰短线 */}
@@ -204,7 +204,7 @@ function FlipSkeleton() {
   );
 }
 
-function FlipSlide({ book, index, active, registerVideo, userPausedRef }: { book: Book; index: number; active: boolean; registerVideo: (i: number, el: HTMLVideoElement | null) => void; userPausedRef: { current: boolean[] } }) {
+function FlipSlide({ book, index, active, near, registerVideo, userPausedRef }: { book: Book; index: number; active: boolean; near: boolean; registerVideo: (i: number, el: HTMLVideoElement | null) => void; userPausedRef: { current: boolean[] } }) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [playing, setPlaying] = useState(false); // 仅在视频真正起播(onPlay/onPlaying)后才 true
@@ -290,8 +290,9 @@ function FlipSlide({ book, index, active, registerVideo, userPausedRef }: { book
 
   return (
     <div className="relative h-full w-full snap-start snap-always overflow-hidden bg-dark-bg">
-      {/* 前景视频：object-cover 铺满整块视频区、裁切到无黑边。muted 由页面集中命令式控制(不用 React prop) */}
-      {!err ? (
+      {/* 前景视频：object-cover 铺满整块视频区、裁切到无黑边。muted 由页面集中命令式控制(不用 React prop)。
+          仅当前条 ±1 渲染真正的 <video>（窗口化），避免移动端/微信并发视频元素超上限导致第 5 个起播放失败 */}
+      {!err && near ? (
         <video
           ref={setVideoRef}
           src={book.videoUrl}
@@ -318,13 +319,13 @@ function FlipSlide({ book, index, active, registerVideo, userPausedRef }: { book
           }}
           onError={() => setErr(true)}
         />
-      ) : (
+      ) : err ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 text-center text-dark-text/70">
           <Motif name="cloud" className="relative w-24 text-celadon/20" />
           <p className="relative">这本书的视频暂时无法播放</p>
           <button onClick={() => router.push(`/library/book/${realId}`)} className="relative rounded-full border border-celadon/50 bg-white/8 px-5 py-2 text-sm text-celadon-300 backdrop-blur-md active:scale-95">看图文详情</button>
         </div>
-      )}
+      ) : null}
 
       {/* 缓冲加载页：进入/缓冲时显示，缓解黑屏焦虑 */}
       {active && !err && !loaded && (
