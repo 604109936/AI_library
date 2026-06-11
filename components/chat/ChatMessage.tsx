@@ -4,12 +4,12 @@ import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
-import { ThumbsUp, ThumbsDown, Copy, RotateCw, Pencil } from "lucide-react";
+import { ThumbsUp, ThumbsDown, Copy, RotateCw, Pencil, ExternalLink } from "lucide-react";
 import { BookCover } from "@/components/ui/BookCover";
 import { ShimmerText } from "@/components/chat/ShimmerText";
 import { splitCardSegments, stripCardMarkers, hasCardMarker } from "@/lib/chatMarkers";
 import { useAuth, useLibrary, useUI } from "@/lib/store";
-import type { Book, Citation, ChatMessage as TMsg } from "@/lib/types";
+import type { Book, Citation, WebSource, ChatMessage as TMsg } from "@/lib/types";
 
 // 反馈标签（对齐补充文档：推荐偏差 / 答疑有误 / 解读没用 / 其它，「其它」可个性化输入）
 const FEEDBACK = ["推荐偏差", "答疑有误", "解读没用", "其它"];
@@ -114,6 +114,41 @@ function CitesBlock({ cites }: { cites: Citation[] }) {
   );
 }
 
+/* 联网来源卡组（T10）：与引用章节卡同风格的列表卡，点击外链新开页。
+   域名 + 日期给可信度参照；不渲染 snippet（正文已综合作答，来源卡只管溯源） */
+function WebBlock({ sources }: { sources: WebSource[] }) {
+  return (
+    <div className="my-3 animate-fade-up space-y-2 first:mt-0 last:mb-0">
+      <p className="text-[11px] text-ink-300">来源 {sources.length} 处，点击可查看</p>
+      {sources.map((s, i) => {
+        let host = "";
+        try { host = new URL(s.u).hostname.replace(/^www\./, ""); } catch {}
+        return (
+          <a
+            key={i}
+            href={s.u}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 rounded-xl border border-line p-2.5 active:bg-moon/50 dark:border-white/10 dark:active:bg-white/5"
+          >
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-celadon-soft text-[11px] font-medium text-celadon-700 dark:bg-celadon/15 dark:text-celadon-300">
+              {i + 1}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-medium text-ink dark:text-dark-text">{s.t}</p>
+              <p className="mt-0.5 truncate text-[10px] text-ink-300">
+                {host}
+                {s.d ? ` · ${s.d}` : ""}
+              </p>
+            </div>
+            <ExternalLink size={13} className="shrink-0 text-ink-300" />
+          </a>
+        );
+      })}
+    </div>
+  );
+}
+
 export function ChatMessage({
   msg,
   onRegenerate,
@@ -148,6 +183,7 @@ export function ChatMessage({
   const segments = splitCardSegments(msg.content);
   const recsInFlow = hasCardMarker(msg.content, "recs");
   const citesInFlow = hasCardMarker(msg.content, "cites");
+  const webInFlow = hasCardMarker(msg.content, "web");
 
   function submitFeedback() {
     onFeedbackDetail?.(picked, picked.includes("其它") ? other.trim() : "");
@@ -181,6 +217,10 @@ export function ChatMessage({
               const books = (msg.recommendations ?? []).slice(seg.from, seg.to);
               return books.length ? <RecsBlock key={i} books={books} /> : null;
             }
+            if (seg.kind === "web") {
+              const sources = (msg.webSources ?? []).slice(seg.from, seg.to);
+              return sources.length ? <WebBlock key={i} sources={sources} /> : null;
+            }
             const cites = (msg.citations ?? []).slice(seg.from, seg.to);
             return cites.length ? <CitesBlock key={i} cites={cites} /> : null;
           })}
@@ -189,6 +229,7 @@ export function ChatMessage({
               流式中不回退：标记还在路上，先出现在末尾再跳到正确位置会很怪 */}
           {!msg.streaming && !citesInFlow && !!msg.citations?.length && <CitesBlock cites={msg.citations} />}
           {!msg.streaming && !recsInFlow && !!msg.recommendations?.length && <RecsBlock books={msg.recommendations} />}
+          {!msg.streaming && !webInFlow && !!msg.webSources?.length && <WebBlock sources={msg.webSources} />}
         </div>
       )}
 

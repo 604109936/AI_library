@@ -1,7 +1,8 @@
-// 小涤的 4 个工具（T2.3）：推荐书目卡片 / 读取书本目录 / 读取章内容 / 引用章节卡片。
-// 卡片类工具「触发即出卡」：服务端只回 book_id(+章序号) 事件，前端收信号后自行拉取展示数据。
+// 小涤的 5 个工具：推荐书目卡片 / 读取书本目录 / 读取章内容 / 引用章节卡片 / 联网搜索（T10）。
+// 卡片类工具「触发即出卡」：服务端回事件（直带展示数据），前端按占位标记交错渲染。
 import "server-only";
 import { admin } from "@/lib/server/agent";
+import { searchWeb, type WebHit } from "@/lib/server/websearch";
 import type { MMTool } from "@/lib/server/minimax";
 
 // 工具执行中的等待文案：要有"它真的在替我翻书"的画面感（UI Review C16）。
@@ -11,6 +12,7 @@ export const TOOL_STATUS: Record<string, string> = {
   read_book_toc: "翻开这本书",
   read_chapter: "细读章节",
   cite_chapters: "整理原文出处",
+  web_search: "正在网上帮你查",
 };
 
 // 状态文案带书名：「翻开《认知觉醒》」比「翻开这本书」更有"它真的在替我翻书"的实感。
@@ -91,13 +93,28 @@ export const AGENT_TOOLS: MMTool[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "web_search",
+      description:
+        "联网搜索互联网实时公开信息。仅在以下情况调用：问题涉及时效性内容（新闻/近况/最新出版/当下日期相关）、或明显超出馆藏与你的知识范围且读者确有需要。馆藏书目内容、读书方法等常规问题严禁使用本工具。结果来源卡片由系统展示给用户。",
+      parameters: {
+        type: "object",
+        properties: { query: { type: "string", description: "搜索关键词（精炼、中文优先）" } },
+        required: ["query"],
+      },
+    },
+  },
 ];
 
 // 卡片事件直带展示数据（T3 加固）：recs 带 {id,title} 供前端拉不到完整书目时降级渲染保底可点；
-// cites 直带 书名/章题/snippet——前端不再为 60 字摘要拉整本书正文（原性能黑洞），也消除"拉数据失败丢卡"失配
+// cites 直带 书名/章题/snippet——前端不再为 60 字摘要拉整本书正文（原性能黑洞），也消除"拉数据失败丢卡"失配；
+// web 直带来源列表（标题/链接/日期），前端渲染「来源」卡组（T10）
 export type ToolEvent =
   | { t: "recs"; v: { id: string; title: string }[] }
-  | { t: "cites"; v: { b: string; c: number; bt: string; ct: string; sn: string; cs: number; cv: string }[] };
+  | { t: "cites"; v: { b: string; c: number; bt: string; ct: string; sn: string; cs: number; cv: string }[] }
+  | { t: "web"; v: { q: string; items: { t: string; u: string; d: string }[] } };
 
 export async function execTool(name: string, argsJson: string): Promise<{ result: string; event?: ToolEvent }> {
   let args: any = {};
@@ -161,9 +178,20 @@ export async function execTool(name: string, argsJson: string): Promise<{ result
       if (!valid.length) return { result: "失败：引用的章节不存在，卡片没有展示。请核对 book_id 与 chapter_no 后重试；若不重试，正文中不得提及卡片。" };
       return { result: "引用章节卡片已展示给用户。", event: { t: "cites", v: valid } };
     }
+    if (name === "web_search") {
+      const q = String(args.query ?? "").trim().slice(0, 60);
+      if (!q) return { result: "失败：缺少搜索关键词 query。" };
+      const hits: WebHit[] = await searchWeb(q);
+      if (!hits.length) return { result: `联网搜索「${q}」没有找到结果。可换个关键词重试，或如实告诉读者没查到。` };
+      const lines = hits.map((h, i) => `${i + 1}. ${h.title}${h.date ? `（${h.date}）` : ""}\n   ${h.snippet}\n   来源：${h.link}`);
+      return {
+        result: `联网搜索「${q}」结果（来源卡片已展示给用户，正文综合作答时不必罗列链接）：\n${lines.join("\n")}`,
+        event: { t: "web", v: { q, items: hits.map((h) => ({ t: h.title, u: h.link, d: h.date })) } },
+      };
+    }
     return { result: `失败：未知工具 ${name}。` };
   } catch (e) {
-    // 数据库抖动等异常：卡片必然没出。明确告知模型，防止它在正文里假装"已展示"
+    // 数据库/搜索服务抖动等异常：卡片必然没出。明确告知模型，防止它在正文里假装"已展示"
     return { result: `工具执行出错（卡片未展示，正文中不得提及卡片）：${e instanceof Error ? e.message : "未知错误"}` };
   }
 }

@@ -16,7 +16,8 @@ export function makeThinkHint() {
     const books = buf.match(/《[^》]{1,18}》/g);
     const book = books?.[books.length - 1];
     let hint: string | null = null;
-    if (/原文|引用|出处/.test(buf)) hint = "正在核对原文出处";
+    if (/搜索|联网|网上|最新|时效/.test(buf)) hint = "正在网上帮你查";
+    else if (/原文|引用|出处/.test(buf)) hint = "正在核对原文出处";
     else if (/目录|章节|第[一二三四五六七八九十\d]+章|哪一章/.test(buf)) hint = book ? clip(`在${book}里找最相关的章`) : "在比较哪一章最能回答你";
     else if (/偏好|喜欢|读过|阅读记录|笔记|书架|收藏/.test(buf)) hint = "在回想你的阅读足迹";
     else if (/推荐|挑|选书|荐书/.test(buf)) hint = "在书架间为你挑书";

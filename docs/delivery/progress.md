@@ -18,7 +18,7 @@
 | 2 | T5 切 M3 + 思考链回灌 + 压缩放宽 | ✅ | 3ff73a5 | M3全量(线上env已写)；回灌实测两轮<think>连续；压缩until新口径+摘要2034字样本；verify-m3-agent 6/6；evidence/T5/ |
 | 3 | T4 全局单一会话窗口 | ✅ | 7f23cd3 | 迁移51行→3条main零丢失(备份表chat_sessions_backup_t4)；入口全删；换设备连续实测；E2E改备份-还原模式 |
 | 4 | T3 卡片三层加固 + T8 水波纹文案 | ✅ | T3+T8 两commit | T3: 10轮零失配+UI 10/10(兜底实际拦截过失配)；T8: shimmer纯transform+思考包装7/7+全仓省略号清零 |
-| 5 | T6 语音输入 + T10 联网搜索 | 🔄 T6 进行中 | - | |
+| 5 | T6 语音输入 + T10 联网搜索 | 🔄 T6✅(8/8+commit) T10 验收中 | T6 已 commit | T10: 服务端searchWeb+第5工具+web事件/标记/WebBlock来源卡全链路已写；UI级来源卡✅；待 stream=false 收集器修复后重跑验收 |
 | 6 | T7 Memory 记忆系统 | ⬜ | - | |
 | 7 | T9 限流放宽 | ⬜ | - | |
 | 8 | T1-下半场 最终全面 Review | ⬜ | - | |

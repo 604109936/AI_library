@@ -142,7 +142,7 @@ export async function POST(req: NextRequest) {
       const events: ToolEvent[] = [];
       await runAgent(msgs, uid, (e) => {
         if (e.t === "d" && e.v) content += e.v;
-        if (e.t === "recs" || e.t === "cites") events.push(e as ToolEvent);
+        if (e.t === "recs" || e.t === "cites" || e.t === "web") events.push(e as ToolEvent);
       }, undefined, compressed);
       afterAnswer();
       return NextResponse.json({ content, events });

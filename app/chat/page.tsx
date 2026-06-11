@@ -13,7 +13,7 @@ import { greeting, buildQuestions, buildGuestQuestions } from "@/lib/chatWelcome
 import { supabase } from "@/lib/supabase/client";
 import { MAIN_SESSION_TITLE, useAuth, useChat, useLibrary, useUI } from "@/lib/store";
 import { useVoiceInput, voiceSupported } from "@/lib/useVoiceInput";
-import type { Book, Citation, ChatMessage as TMsg } from "@/lib/types";
+import type { Book, Citation, WebSource, ChatMessage as TMsg } from "@/lib/types";
 
 // 引用卡数据：T3 起服务端 cites 事件直带全部展示字段（书名/章题/snippet/封面），前端零查询直渲染——
 // 既消除"拉数据失败丢卡"的失配源，也不再为 60 字摘要拉整本书正文。兼容旧格式（{b,c}）时回退轻量查询
@@ -236,8 +236,9 @@ function ChatInner() {
         // 数据立即挂上消息；打字机推进到标记处卡片自然亮相——顺序与模型行为一致（理由→卡片→后话）
         const recsAcc: Book[] = [];
         const citesAcc: Citation[] = [];
+        const webAcc: WebSource[] = [];
         const markerSpans: [number, number][] = []; // 标记在 acc 中的区间：打字机一步跨过，不让半截标记可见
-        const pushMarker = (kind: "recs" | "cites", from: number, to: number) => {
+        const pushMarker = (kind: "recs" | "cites" | "web", from: number, to: number) => {
           if (!acc.endsWith("\n\n")) acc += acc.endsWith("\n") ? "\n" : "\n\n";
           const marker = `[[${kind}:${from},${to}]]\n\n`;
           markerSpans.push([acc.length, acc.length + marker.length]);
@@ -255,7 +256,7 @@ function ChatInner() {
               if (timer.current) clearInterval(timer.current);
               timer.current = null;
               // 流正常 end 但全程零文字零卡片（如 max_tokens 烧尽在思考段）：给错误占位而非空气泡
-              if (!acc.trim() && !recsAcc.length && !citesAcc.length) {
+              if (!acc.trim() && !recsAcc.length && !citesAcc.length && !webAcc.length) {
                 apply({ content: "这次没说出话来，点「重新生成」再试一次吧", streaming: false, toolNote: undefined, error: true });
               } else {
                 apply({ content: acc, streaming: false, toolNote: undefined });
@@ -287,6 +288,16 @@ function ChatInner() {
               citesAcc.push(...cites);
               pushMarker("cites", from, citesAcc.length);
               apply({ citations: citesAcc.slice() });
+              smooth();
+            }
+          } else if (ev.t === "web" && ev.v && Array.isArray((ev.v as { items?: unknown }).items)) {
+            // 联网来源卡（T10）：事件直带 title/url/date，零查询直渲染
+            const items = (ev.v as { items: WebSource[] }).items.filter((x) => x?.t && x?.u);
+            if (items.length) {
+              const from = webAcc.length;
+              webAcc.push(...items);
+              pushMarker("web", from, webAcc.length);
+              apply({ webSources: webAcc.slice() });
               smooth();
             }
           } else if (ev.t === "err") throw new Error(typeof ev.v === "string" ? ev.v : "服务暂时不可用");

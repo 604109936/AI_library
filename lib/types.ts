@@ -93,14 +93,22 @@ export interface Citation {
   snippet: string;
 }
 
+// 联网搜索来源（T10）：title/url/date，渲染「来源」卡组（外链）
+export interface WebSource {
+  t: string;
+  u: string;
+  d: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
-  // 卡片交错渲染：content 内嵌占位标记 [[recs:起,止]]/[[cites:起,止]]，指向下面两个数组的切片，
+  // 卡片交错渲染：content 内嵌占位标记 [[recs:起,止]]/[[cites:起,止]]/[[web:起,止]]，指向下面数组的切片，
   // 卡片渲染在工具调用的真实位置（无标记的老消息回退末尾渲染）；标记随 content 落库
   citations?: Citation[];
   recommendations?: Book[];
+  webSources?: WebSource[];
   feedback?: "up" | "down";
   feedbackReasons?: string[]; // 踩反馈原因标签（推荐偏差/答疑有误/解读没用/其它）
   feedbackText?: string; // 「其它」自定义反馈文本
