@@ -92,7 +92,11 @@ export const AGENT_TOOLS: MMTool[] = [
   },
 ];
 
-export type ToolEvent = { t: "recs"; v: string[] } | { t: "cites"; v: { b: string; c: number }[] };
+// 卡片事件直带展示数据（T3 加固）：recs 带 {id,title} 供前端拉不到完整书目时降级渲染保底可点；
+// cites 直带 书名/章题/snippet——前端不再为 60 字摘要拉整本书正文（原性能黑洞），也消除"拉数据失败丢卡"失配
+export type ToolEvent =
+  | { t: "recs"; v: { id: string; title: string }[] }
+  | { t: "cites"; v: { b: string; c: number; bt: string; ct: string; sn: string; cs: number; cv: string }[] };
 
 export async function execTool(name: string, argsJson: string): Promise<{ result: string; event?: ToolEvent }> {
   let args: any = {};
@@ -102,10 +106,10 @@ export async function execTool(name: string, argsJson: string): Promise<{ result
       const ids: string[] = Array.isArray(args.book_ids) ? args.book_ids.map(String) : [];
       const { data } = await admin.from("books").select("id,title").in("id", ids);
       const valid = (data ?? []).slice(0, 5);
-      if (!valid.length) return { result: "失败：这些 book_id 在馆藏中不存在，请用〔图书馆书单〕里的 [id] 重试。" };
+      if (!valid.length) return { result: "失败：这些 book_id 在馆藏中不存在，卡片没有展示。请用〔图书馆书单〕里的 [id] 重试；若不重试，正文中不得提及卡片。" };
       return {
         result: `推荐卡片已展示给用户：${valid.map((b: any) => `《${b.title}》`).join("、")}。正文中自然衔接即可，不要再重复罗列书名清单。`,
-        event: { t: "recs", v: valid.map((b: any) => b.id) },
+        event: { t: "recs", v: valid.map((b: any) => ({ id: b.id, title: b.title })) },
       };
     }
     if (name === "read_book_toc") {
@@ -131,18 +135,34 @@ export async function execTool(name: string, argsJson: string): Promise<{ result
     }
     if (name === "cite_chapters") {
       const items: { book_id?: unknown; chapter_no?: unknown }[] = Array.isArray(args.items) ? args.items : [];
-      const valid: { b: string; c: number }[] = [];
+      const valid: { b: string; c: number; bt: string; ct: string; sn: string; cs: number; cv: string }[] = [];
       for (const it of items.slice(0, 4)) {
         const b = String(it.book_id ?? "");
         const c = Number(it.chapter_no);
-        const { data } = await admin.from("chapters").select("no").eq("book_id", b).eq("no", c).maybeSingle();
-        if (data) valid.push({ b, c });
+        // 展示数据一次取齐：书名/封面 + 章题/开头 60 字（前端原来为这点数据拉整本书正文）
+        const [bookR, chapR] = await Promise.all([
+          admin.from("books").select("title,cover_url,cover_seed").eq("id", b).maybeSingle(),
+          admin.from("chapters").select("no,title,content").eq("book_id", b).eq("no", c).maybeSingle(),
+        ]);
+        const bk: any = bookR.data;
+        const ch: any = chapR.data;
+        if (bk && ch) {
+          valid.push({
+            b, c,
+            bt: bk.title,
+            ct: ch.title,
+            sn: String(ch.content ?? "").replace(/\s+/g, " ").trim().slice(0, 60),
+            cs: bk.cover_seed ?? 1,
+            cv: bk.cover_url ?? "",
+          });
+        }
       }
-      if (!valid.length) return { result: "失败：引用的章节不存在，请核对 book_id 与 chapter_no。" };
+      if (!valid.length) return { result: "失败：引用的章节不存在，卡片没有展示。请核对 book_id 与 chapter_no 后重试；若不重试，正文中不得提及卡片。" };
       return { result: "引用章节卡片已展示给用户。", event: { t: "cites", v: valid } };
     }
     return { result: `失败：未知工具 ${name}。` };
   } catch (e) {
-    return { result: `工具执行出错：${e instanceof Error ? e.message : "未知错误"}` };
+    // 数据库抖动等异常：卡片必然没出。明确告知模型，防止它在正文里假装"已展示"
+    return { result: `工具执行出错（卡片未展示，正文中不得提及卡片）：${e instanceof Error ? e.message : "未知错误"}` };
   }
 }

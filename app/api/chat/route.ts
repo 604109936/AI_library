@@ -29,21 +29,31 @@ type Emit = (e: { t: "d" | "status" | "end" | "err"; v?: string } | ToolEvent) =
 async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signal?: AbortSignal, compressed?: string) {
   const system = await buildSystem(uid, compressed);
   const convo: MMMessage[] = [{ role: "system", content: system }, ...msgs];
+  // 失配监测（T3 层②兜底）：累积用户可见正文 + 记录是否出过卡片事件
+  let fullText = "";
+  let emittedCard = false;
+  const emitW: Emit = (e) => {
+    if (e.t === "d" && typeof e.v === "string") fullText += e.v;
+    if (e.t === "recs" || e.t === "cites") emittedCard = true;
+    emit(e);
+  };
+  let lastRaw = ""; // 最后一轮原始 content（含 <think>）：补救轮回灌需要
   for (let round = 0; ; round++) {
     let raw = ""; // 本轮原始 content（含 <think>），工具循环回灌用
     let calls: MMToolCall[] | null = null;
     for await (const ev of streamChat(convo, { tools: AGENT_TOOLS, temperature: 0.7, signal })) {
-      if (ev.type === "delta") emit({ t: "d", v: ev.text });
+      if (ev.type === "delta") { raw += ev.text; emitW({ t: "d", v: ev.text }); }
       else if (ev.type === "think") { /* 思考增量不直出；T8 在此接包装提示 */ }
       else { calls = ev.calls; raw = ev.rawContent; }
     }
+    lastRaw = raw;
     if (!calls?.length) break;
     if (round >= MAX_ROUNDS) {
       // 轮次耗尽：纯出卡工具仍执行（正文可能已承诺"为你推荐/依据如下"，卡片是用户唯一点击入口），其余丢弃
       for (const c of calls) {
         if (c.function.name === "recommend_books" || c.function.name === "cite_chapters") {
           const { event } = await execTool(c.function.name, c.function.arguments);
-          if (event) emit(event);
+          if (event) emitW(event);
         }
       }
       break;
@@ -56,11 +66,31 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
       console.log(`[agent-debug] 第${round + 1}轮回灌 assistant（前240字）：${raw.slice(0, 240).replace(/\n/g, "⏎")}`);
     }
     for (const c of calls) {
-      emit({ t: "status", v: await toolStatus(c.function.name, c.function.arguments) }); // 带书名：「翻开《认知觉醒》…」
+      emitW({ t: "status", v: await toolStatus(c.function.name, c.function.arguments) }); // 带书名：「翻开《认知觉醒》…」
       const { result, event } = await execTool(c.function.name, c.function.arguments);
-      if (event) emit(event);
+      if (event) emitW(event);
       convo.push({ role: "tool", tool_call_id: c.id, content: result });
     }
+  }
+  // T3 层②兜底：正文承诺了卡片、全程却没有任何卡片事件（模型说了没做）→ 追加一轮"只许出卡"的
+  // 补救调用，把卡补在回答末尾。模型若仍不调或调错工具则放弃（已三层尽力，记日志供排查）。
+  if (!emittedCard && /卡片/.test(fullText) && lastRaw) {
+    convo.push({ role: "assistant", content: lastRaw });
+    convo.push({
+      role: "user",
+      content: "（系统校验：你刚才的回答里提到了卡片，但没有真实调用卡片工具，用户面前没有任何卡片。请立即调用 recommend_books 或 cite_chapters 补出对应卡片；只调用工具，不要输出文字。）",
+    });
+    for await (const ev of streamChat(convo, { tools: AGENT_TOOLS, temperature: 0.3, signal })) {
+      if (ev.type === "tool_calls") {
+        for (const c of ev.calls) {
+          if (c.function.name === "recommend_books" || c.function.name === "cite_chapters") {
+            const { event } = await execTool(c.function.name, c.function.arguments);
+            if (event) emitW(event);
+          }
+        }
+      }
+    }
+    if (!emittedCard) console.warn("[chat] 失配兜底未能补出卡片：", fullText.slice(-120));
   }
 }
 

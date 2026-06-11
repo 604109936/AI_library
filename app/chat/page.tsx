@@ -14,24 +14,43 @@ import { supabase } from "@/lib/supabase/client";
 import { MAIN_SESSION_TITLE, useAuth, useChat, useLibrary, useUI } from "@/lib/store";
 import type { Book, Citation, ChatMessage as TMsg } from "@/lib/types";
 
-// 引用卡数据回填：服务端只给 {b:book_id, c:章序号}，这里拉书与章节拼出展示字段
-async function buildCitations(items: { b: string; c: number }[]): Promise<Citation[]> {
+// 引用卡数据：T3 起服务端 cites 事件直带全部展示字段（书名/章题/snippet/封面），前端零查询直渲染——
+// 既消除"拉数据失败丢卡"的失配源，也不再为 60 字摘要拉整本书正文。兼容旧格式（{b,c}）时回退轻量查询
+async function buildCitations(items: { b: string; c: number; bt?: string; ct?: string; sn?: string; cs?: number; cv?: string }[]): Promise<Citation[]> {
   const out: Citation[] = [];
   for (const it of items.slice(0, 4)) {
+    if (it.bt && it.ct !== undefined) {
+      out.push({ bookId: it.b, bookTitle: it.bt, coverSeed: it.cs ?? 1, cover: it.cv ?? "", chapterNo: it.c, chapterTitle: it.ct ?? "", snippet: it.sn ?? "" });
+      continue;
+    }
+    // 旧格式兜底（历史在途请求）：轻量拼装
     try {
       const [book, chapters] = await Promise.all([getBook(it.b), getChapters(it.b)]);
       const ch = chapters.find((x) => x.no === it.c);
       if (!book || !ch) continue;
-      out.push({
-        bookId: book.id,
-        bookTitle: book.title,
-        coverSeed: book.coverSeed,
-        cover: book.cover,
-        chapterNo: ch.no,
-        chapterTitle: ch.title,
-        snippet: (ch.content ?? "").replace(/\s+/g, " ").trim().slice(0, 60),
-      });
+      out.push({ bookId: book.id, bookTitle: book.title, coverSeed: book.coverSeed, cover: book.cover, chapterNo: ch.no, chapterTitle: ch.title, snippet: (ch.content ?? "").replace(/\s+/g, " ").trim().slice(0, 60) });
     } catch {}
+  }
+  return out;
+}
+
+// 推荐卡数据：getBook 失败重试一次；仍失败用事件自带的 {id,title} 构造降级书目（保底可点进详情页）
+async function resolveRecBooks(items: (string | { id: string; title: string })[]): Promise<Book[]> {
+  const out: Book[] = [];
+  for (const it of items) {
+    const id = typeof it === "string" ? it : it.id;
+    const title = typeof it === "string" ? "" : it.title;
+    let book: Book | null = null;
+    try { book = await getBook(id); } catch { try { book = await getBook(id); } catch {} }
+    if (book) out.push(book);
+    else if (title) {
+      out.push({
+        id, title, author: "", cover: "", coverSeed: 1, heroUrl: "", posterUrl: "", category: "", categoryId: "",
+        tags: [], summary: "", rating: 0, readers: 0, words: 0, durationMin: 0,
+        hasVideo: false, hasAudio: false, hasText: false, likes: 0, favCount: 0, reviewCount: 0,
+        featured: false, intro: "", shelvedAt: "",
+      } as Book);
+    }
   }
   return out;
 }
@@ -250,7 +269,7 @@ function ChatInner() {
           else if (ev.t === "status" && typeof ev.v === "string") apply({ toolNote: ev.v });
           else if (ev.t === "recs" && Array.isArray(ev.v)) {
             // 预取展示数据（封面/书名/作者）后插标记；handle 在行循环里被 await，期间不会有新文字混进 acc，位置不漂移
-            const books = (await Promise.all((ev.v as string[]).map((id) => getBook(id).catch(() => null)))).filter(Boolean) as Book[];
+            const books = await resolveRecBooks(ev.v as (string | { id: string; title: string })[]);
             if (books.length) {
               const from = recsAcc.length;
               recsAcc.push(...books);
@@ -272,6 +291,13 @@ function ChatInner() {
         const reader = r.body.getReader();
         const dec = new TextDecoder();
         let buf = "";
+        // 单行解析容错：某一行损坏（代理截断/编码异常）只跳过该行，绝不让整个流中断（T3 加固）
+        const handleLine = async (line: string) => {
+          if (!line) return;
+          let ev: { t: string; v?: unknown } | null = null;
+          try { ev = JSON.parse(line); } catch { return; }
+          if (ev) await handle(ev);
+        };
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -280,9 +306,10 @@ function ChatInner() {
           while ((nl = buf.indexOf("\n")) >= 0) {
             const line = buf.slice(0, nl).trim();
             buf = buf.slice(nl + 1);
-            if (line) await handle(JSON.parse(line));
+            await handleLine(line);
           }
         }
+        await handleLine(buf.trim()); // 末行可能没有换行符（代理缓冲截断）：不 flush 会整行丢事件
         if (fetchCtrl.current !== ctrl) return; // 已被停止/新请求取代
         fetchCtrl.current = null;
         ended = true;
