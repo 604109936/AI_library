@@ -83,6 +83,27 @@ body {
   }
 }
 
+/* 文字水波纹扫光（T8）：双层文字 + 滑动窗口，纯 transform 合成动画（零 paint）。
+   窗口宽 36% 容器；窗口位移与窗内文字位移按 -0.36 比例精确互补，文字视觉静止、高光窗掠过。
+   节奏 2.6s ease-in-out：舒缓不抢戏，与「东方典雅」的气质一致 */
+.shimmer-win {
+  animation: shimmer-win-x 2.6s ease-in-out infinite;
+  will-change: transform;
+}
+.shimmer-win-text {
+  animation: shimmer-win-text-x 2.6s ease-in-out infinite;
+  will-change: transform;
+}
+@keyframes shimmer-win-x {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(290%); }
+}
+@keyframes shimmer-win-text-x {
+  /* = -0.36 × 窗口关键帧（窗口百分比基于窗宽 0.36C，文字百分比基于文字宽 C） */
+  from { transform: translateX(36%); }
+  to { transform: translateX(-104.4%); }
+}
+
 /* 骨架屏暗色适配（浅色白高光在暗底会穿帮） */
 .dark .skeleton {
   background: rgba(255, 255, 255, 0.06);

@@ -360,7 +360,7 @@ export default function FlipPage() {
             {!vErr && !loaded && (
               <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center gap-3">
                 <span className="h-11 w-11 animate-spin rounded-full border-2 border-white/15 border-t-celadon" />
-                <span className="text-xs tracking-wide text-dark-text/55">视频加载中…</span>
+                <span className="text-xs tracking-wide text-dark-text/55">视频加载中</span>
               </div>
             )}
 

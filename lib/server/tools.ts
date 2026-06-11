@@ -4,18 +4,19 @@ import "server-only";
 import { admin } from "@/lib/server/agent";
 import type { MMTool } from "@/lib/server/minimax";
 
-// 工具执行中的等待文案：要有"它真的在替我翻书"的画面感（UI Review C16）
+// 工具执行中的等待文案：要有"它真的在替我翻书"的画面感（UI Review C16）。
+// T8：进行感由前端水波纹扫光传达，文案一律不带省略号
 export const TOOL_STATUS: Record<string, string> = {
-  recommend_books: "在书架间找书…",
-  read_book_toc: "翻开这本书…",
-  read_chapter: "细读章节…",
-  cite_chapters: "整理出处…",
+  recommend_books: "在书架间为你找书",
+  read_book_toc: "翻开这本书",
+  read_chapter: "细读章节",
+  cite_chapters: "整理原文出处",
 };
 
-// 状态文案带书名：「翻开《认知觉醒》…」比「翻开这本书…」更有"它真的在替我翻书"的实感。
+// 状态文案带书名：「翻开《认知觉醒》」比「翻开这本书」更有"它真的在替我翻书"的实感。
 // 查询失败/参数缺失时回落通用文案；书名查询极轻（主键单行），不拖慢工具执行
 export async function toolStatus(name: string, argsJson: string): Promise<string> {
-  const base = TOOL_STATUS[name] ?? "查阅资料…";
+  const base = TOOL_STATUS[name] ?? "查阅资料";
   if (name !== "read_book_toc" && name !== "read_chapter") return base;
   try {
     const args = JSON.parse(argsJson || "{}");
@@ -24,9 +25,9 @@ export async function toolStatus(name: string, argsJson: string): Promise<string
     const { data } = await admin.from("books").select("title").eq("id", id).maybeSingle();
     const title = (data as any)?.title;
     if (!title) return base;
-    if (name === "read_book_toc") return `翻开《${title}》…`;
+    if (name === "read_book_toc") return `翻开《${title}》`;
     const no = Number(args.chapter_no);
-    return Number.isFinite(no) ? (no === 0 ? `细读《${title}》前言…` : `细读《${title}》第${no}章…`) : `细读《${title}》…`;
+    return Number.isFinite(no) ? (no === 0 ? `细读《${title}》前言` : `细读《${title}》第${no}章`) : `细读《${title}》`;
   } catch {
     return base;
   }
@@ -121,7 +122,7 @@ export async function execTool(name: string, argsJson: string): Promise<{ result
       const b: any = bookR.data;
       if (!b) return { result: `失败：馆藏中没有 book_id=${id} 的书。` };
       const lines = ((chapR.data ?? []) as any[]).map(
-        (c) => `第${c.no}章《${c.title}》：${(c.ai_summary ?? "").trim() || `（${c.no === 0 ? "前言，" : ""}无概要，开头：${String(c.content ?? "").slice(0, 60)}…）`}`
+        (c) => `第${c.no}章《${c.title}》：${(c.ai_summary ?? "").trim() || `（${c.no === 0 ? "前言，" : ""}无概要，开头：${String(c.content ?? "").slice(0, 60)}（后略））`}`
       );
       return { result: `《${b.title}》（${b.author}｜${(b.tags ?? []).join("/")}）\n全书概要：${b.ai_digest ?? "无"}\n目录（共 ${lines.length} 章）：\n${lines.join("\n")}` };
     }

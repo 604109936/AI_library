@@ -20,7 +20,7 @@ export default function ReviewEditor({ params }: { params: { id: string } }) {
   const authHydrated = useAuth((s) => s.hydrated);
   const libHydrated = useLibrary((s) => s.hydrated);
   if (!authHydrated || !libHydrated) {
-    return <main className="flex min-h-[100dvh] items-center justify-center text-sm text-ink-300">加载中…</main>;
+    return <main className="flex min-h-[100dvh] items-center justify-center text-sm text-ink-300">正在打开</main>;
   }
   return <ReviewForm id={params.id} />;
 }
@@ -112,7 +112,7 @@ function ReviewForm({ id }: { id: string }) {
           disabled={!canPublish || submitting}
           className="rounded-full bg-celadon px-4 py-1.5 text-sm text-snow disabled:opacity-40"
         >
-          {submitting ? "发布中…" : isEdit ? "更新" : "发布"}
+          {submitting ? "发布中" : isEdit ? "更新" : "发布"}
         </button>
       </header>
 
@@ -151,7 +151,7 @@ function ReviewForm({ id }: { id: string }) {
           <textarea
             value={content}
             onChange={(e) => setContent(e.target.value.slice(0, MAX))}
-            placeholder="写下你的想法…（至少 10 字）"
+            placeholder="写下你的想法（至少 10 字）"
             className="h-44 w-full resize-none bg-transparent text-sm text-ink outline-none dark:text-dark-text"
           />
           <div className={"text-right text-[11px] " + (nearLimit ? "text-rouge" : "text-ink-300")}>{content.length}/{MAX}</div>

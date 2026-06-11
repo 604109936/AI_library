@@ -90,7 +90,7 @@ export default function NotesPage() {
                               </p>
                               {editing ? (
                                 <div className="mt-2" onClick={(e) => e.stopPropagation()}>
-                                  <textarea autoFocus value={editText} onChange={(e) => setEditText(e.target.value)} placeholder="写下你的笔记…" className="h-20 w-full resize-none rounded-lg border border-line bg-snow p-2 text-sm text-ink outline-none focus:border-celadon dark:border-white/10 dark:bg-dark-card dark:text-dark-text" />
+                                  <textarea autoFocus value={editText} onChange={(e) => setEditText(e.target.value)} placeholder="写下你的笔记" className="h-20 w-full resize-none rounded-lg border border-line bg-snow p-2 text-sm text-ink outline-none focus:border-celadon dark:border-white/10 dark:bg-dark-card dark:text-dark-text" />
                                   <div className="mt-2 flex justify-end gap-2">
                                     <button onClick={() => setEditingId(null)} className="rounded-full px-3 py-1 text-xs text-ink-500 dark:text-dark-text/60">取消</button>
                                     <button onClick={() => saveEdit(n.id)} className="rounded-full bg-celadon px-3 py-1 text-xs text-snow">保存</button>

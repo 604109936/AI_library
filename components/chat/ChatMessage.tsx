@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
 import { ThumbsUp, ThumbsDown, Copy, RotateCw, Pencil } from "lucide-react";
 import { BookCover } from "@/components/ui/BookCover";
+import { ShimmerText } from "@/components/chat/ShimmerText";
 import { splitCardSegments, stripCardMarkers, hasCardMarker } from "@/lib/chatMarkers";
 import { useAuth, useLibrary, useUI } from "@/lib/store";
 import type { Book, Citation, ChatMessage as TMsg } from "@/lib/types";
@@ -13,8 +14,9 @@ import type { Book, Citation, ChatMessage as TMsg } from "@/lib/types";
 // 反馈标签（对齐补充文档：推荐偏差 / 答疑有误 / 解读没用 / 其它，「其它」可个性化输入）
 const FEEDBACK = ["推荐偏差", "答疑有误", "解读没用", "其它"];
 
-// 等待文案轮换：M3 思考期约 5~8 秒，固定"思考中"显得卡死；换着说话让等待有进度感。
-// 登录/游客两套（游客没有书架，"翻了翻你的书架"是谎言）；走到尾后在最后两句间交替，不会卡死在"快好了"
+// 等待文案轮换：思考过程提示（服务端 status 事件）优先；没有提示时本地句池轮换兜底。
+// 登录/游客两套（游客没有书架，"翻了翻你的书架"是谎言）；走到尾后在最后两句间交替，不会卡死在"快好了"。
+// 全部以水波纹扫光呈现（T8 统一等待表达）
 const THINKING_USER = ["让我想想", "翻了翻你的书架", "正在组织语言", "内容有点多，再等等我", "快好了"];
 const THINKING_GUEST = ["让我想想", "在馆里找了找", "正在组织语言", "内容有点多，再等等我", "快好了"];
 function ThinkingNote({ override }: { override?: string }) {
@@ -22,12 +24,12 @@ function ThinkingNote({ override }: { override?: string }) {
   const list = logged ? THINKING_USER : THINKING_GUEST;
   const [i, setI] = useState(0);
   useEffect(() => {
-    if (override) return; // 工具调用文案优先，不轮换
+    if (override) return; // 服务端过程提示优先，不轮换
     const t = setInterval(() => setI((x) => x + 1), 2600);
     return () => clearInterval(t);
   }, [override]);
   const idx = i < list.length ? i : list.length - 2 + ((i - list.length) % 2); // 尾部两句循环交替
-  return <>{override || list[idx]}</>;
+  return <ShimmerText text={override || list[idx]} />;
 }
 
 // 推荐卡"懂你"徽标：已读完 > 在读 N% > 在书架（数据全在本地 store，游客自然为空）
@@ -157,14 +159,9 @@ export function ChatMessage({
   return (
     <div>
       {thinking ? (
-        // 思考中 / 工具调用文案：不套整块气泡，只显示文字 + 动效（等待文案随时间轮换）
-        <div className="flex items-center gap-1.5 py-1.5 text-sm text-ink-400 dark:text-dark-text/50">
+        // 思考中 / 过程提示：水波纹扫光文字（T8 统一等待表达，无省略号无跳点）
+        <div className="flex items-center py-1.5 text-sm">
           <ThinkingNote override={msg.toolNote} />
-          <span className="flex gap-0.5">
-            <span className="h-1 w-1 animate-bounce rounded-full bg-celadon [animation-delay:-0.2s]" />
-            <span className="h-1 w-1 animate-bounce rounded-full bg-celadon [animation-delay:-0.1s]" />
-            <span className="h-1 w-1 animate-bounce rounded-full bg-celadon" />
-          </span>
         </div>
       ) : (
         <div className="rounded-2xl rounded-tl-sm bg-snow px-3.5 py-3 shadow-sm transition dark:bg-dark-card">
@@ -195,15 +192,10 @@ export function ChatMessage({
         </div>
       )}
 
-      {/* 工具调用中（已有正文时显示在气泡下方）：翻开《某本书》… / 细读章节… */}
+      {/* 工具调用/思考过程提示（已有正文时显示在气泡下方）：水波纹扫光，正文继续输出时由事件清除（淡出） */}
       {msg.streaming && !!msg.content && msg.toolNote && (
-        <div className="mt-1.5 flex items-center gap-1.5 pl-1 text-xs text-ink-400 dark:text-dark-text/50">
-          {msg.toolNote}
-          <span className="flex gap-0.5">
-            <span className="h-1 w-1 animate-bounce rounded-full bg-celadon [animation-delay:-0.2s]" />
-            <span className="h-1 w-1 animate-bounce rounded-full bg-celadon [animation-delay:-0.1s]" />
-            <span className="h-1 w-1 animate-bounce rounded-full bg-celadon" />
-          </span>
+        <div className="mt-1.5 flex items-center pl-1 text-xs animate-fade-up">
+          <ShimmerText text={msg.toolNote} />
         </div>
       )}
 
@@ -291,7 +283,7 @@ export function ChatMessage({
                 autoFocus
                 value={other}
                 onChange={(e) => setOther(e.target.value.slice(0, 200))}
-                placeholder="说说具体问题…"
+                placeholder="说说具体问题"
                 className="mt-2 h-16 w-full resize-none rounded-lg border border-line bg-moon p-2 text-xs text-ink outline-none focus:border-celadon dark:border-white/10 dark:bg-dark-bg dark:text-dark-text"
               />
             )}

@@ -644,7 +644,7 @@ function Welcome({ onAsk }: { onAsk: (q: string) => void }) {
 
 export default function ChatPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-center text-ink-500">小涤正在赶来…</div>}>
+    <Suspense fallback={<div className="p-8 text-center text-ink-500">小涤正在赶来</div>}>
       <ChatInner />
     </Suspense>
   );

@@ -183,22 +183,22 @@ export default function SettingsPage() {
                   <Field label="新密码" value={newPwd} onChange={setNewPwd} placeholder="至少 6 位" />
                   <Field label="确认新密码" value={confirmPwd} onChange={setConfirmPwd} placeholder="再次输入新密码" />
                   {newPwd && confirmPwd && newPwd !== confirmPwd && <p className="mb-2 text-xs text-rouge">两次输入的新密码不一致</p>}
-                  <button onClick={submitPwd} disabled={!pwdValid || acting} className="mt-2 w-full rounded-2xl bg-celadon py-3 text-sm text-snow disabled:opacity-40 active:scale-[0.99]">{acting ? "修改中…" : "确认修改"}</button>
+                  <button onClick={submitPwd} disabled={!pwdValid || acting} className="mt-2 w-full rounded-2xl bg-celadon py-3 text-sm text-snow disabled:opacity-40 active:scale-[0.99]">{acting ? "修改中" : "确认修改"}</button>
                 </>
               )}
               {sheet === "deactivate" && (
                 <>
                   <h3 className="mb-2 text-center font-serif text-base text-rouge">注销账号</h3>
                   <p className="mb-4 text-center text-sm leading-6 text-ink-500 dark:text-dark-text/60">注销后账号将被永久删除，云端的收藏、笔记、书评、阅读记录与对话全部清除，且不可恢复。确定要注销吗？</p>
-                  <button onClick={doDeactivate} disabled={acting} className="w-full rounded-2xl bg-rouge py-3 text-sm text-snow disabled:opacity-40 active:scale-[0.99]">{acting ? "注销中…" : "确认注销"}</button>
+                  <button onClick={doDeactivate} disabled={acting} className="w-full rounded-2xl bg-rouge py-3 text-sm text-snow disabled:opacity-40 active:scale-[0.99]">{acting ? "注销中" : "确认注销"}</button>
                   <button onClick={close} className="mt-2 w-full rounded-2xl py-3 text-sm text-ink-500 dark:text-dark-text/60">再想想</button>
                 </>
               )}
               {sheet === "feedback" && (
                 <>
                   <h3 className="mb-3 text-center font-serif text-base text-ink dark:text-dark-text">意见反馈</h3>
-                  <textarea autoFocus value={feedback} onChange={(e) => setFeedback(e.target.value.slice(0, 500))} placeholder="说说你的想法或遇到的问题，我们会认真查看…" className="h-28 w-full resize-none rounded-2xl border border-line bg-moon p-3 text-sm text-ink outline-none focus:border-celadon dark:border-white/10 dark:bg-dark-bg dark:text-dark-text" />
-                  <button onClick={submitFeedback} disabled={!feedback.trim() || acting} className="mt-3 w-full rounded-2xl bg-celadon py-3 text-sm text-snow disabled:opacity-40 active:scale-[0.99]">{acting ? "提交中…" : "提交反馈"}</button>
+                  <textarea autoFocus value={feedback} onChange={(e) => setFeedback(e.target.value.slice(0, 500))} placeholder="说说你的想法或遇到的问题，我们会认真查看" className="h-28 w-full resize-none rounded-2xl border border-line bg-moon p-3 text-sm text-ink outline-none focus:border-celadon dark:border-white/10 dark:bg-dark-bg dark:text-dark-text" />
+                  <button onClick={submitFeedback} disabled={!feedback.trim() || acting} className="mt-3 w-full rounded-2xl bg-celadon py-3 text-sm text-snow disabled:opacity-40 active:scale-[0.99]">{acting ? "提交中" : "提交反馈"}</button>
                 </>
               )}
               {sheet === "logout" && (

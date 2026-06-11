@@ -9,7 +9,7 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
   const openLogin = useUI((s) => s.openLogin);
 
   if (!hydrated) {
-    return <div className="p-8 text-center text-sm text-ink-300">加载中…</div>;
+    return <div className="p-8 text-center text-sm text-ink-300">正在打开</div>;
   }
   if (!user) {
     return (

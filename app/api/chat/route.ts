@@ -1,6 +1,6 @@
 // 智学 Agent「小涤」云函数（T2.2 变量注入 + T2.3 工具循环 + T2.4 真流式）
 // 协议：默认 NDJSON 流式，每行一个事件：
-//   {"t":"d","v":文本增量} {"t":"status","v":"查找书籍…"} {"t":"recs","v":[book_id]}
+//   {"t":"d","v":文本增量} {"t":"status","v":"翻开《某书》"} {"t":"recs","v":[book_id]}
 //   {"t":"cites","v":[{b,c}]} {"t":"end"} {"t":"err","v":消息}
 // body.stream === false 时返回一次性 JSON（脚本/调试用）。
 import { NextRequest, NextResponse } from "next/server";
@@ -9,6 +9,7 @@ import { streamChat, type MMMessage, type MMToolCall } from "@/lib/server/minima
 import { buildSystem, getUid } from "@/lib/server/agent";
 import { AGENT_TOOLS, toolStatus, execTool, type ToolEvent } from "@/lib/server/tools";
 import { getCompressed, maybeCompress } from "@/lib/server/compress";
+import { makeThinkHint } from "@/lib/server/thinkhint";
 import { rateLimit, limiterKey } from "@/lib/server/ratelimit";
 
 export const runtime = "nodejs";
@@ -38,12 +39,17 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
     emit(e);
   };
   let lastRaw = ""; // 最后一轮原始 content（含 <think>）：补救轮回灌需要
+  const thinkHint = makeThinkHint(); // 思考包装：跨轮共用（去重状态连续，提示不重复闪现）
   for (let round = 0; ; round++) {
     let raw = ""; // 本轮原始 content（含 <think>），工具循环回灌用
     let calls: MMToolCall[] | null = null;
     for await (const ev of streamChat(convo, { tools: AGENT_TOOLS, temperature: 0.7, signal })) {
       if (ev.type === "delta") { raw += ev.text; emitW({ t: "d", v: ev.text }); }
-      else if (ev.type === "think") { /* 思考增量不直出；T8 在此接包装提示 */ }
+      else if (ev.type === "think") {
+        // 思考原文绝不直出：规则提取成 ≤20 字过程提示（status 事件），前端以水波纹呈现（T8）
+        const h = thinkHint(ev.text);
+        if (h) emitW({ t: "status", v: h });
+      }
       else { calls = ev.calls; raw = ev.rawContent; }
     }
     lastRaw = raw;
@@ -66,7 +72,7 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
       console.log(`[agent-debug] 第${round + 1}轮回灌 assistant（前240字）：${raw.slice(0, 240).replace(/\n/g, "⏎")}`);
     }
     for (const c of calls) {
-      emitW({ t: "status", v: await toolStatus(c.function.name, c.function.arguments) }); // 带书名：「翻开《认知觉醒》…」
+      emitW({ t: "status", v: await toolStatus(c.function.name, c.function.arguments) }); // 带书名：「翻开《认知觉醒》」
       const { result, event } = await execTool(c.function.name, c.function.arguments);
       if (event) emitW(event);
       convo.push({ role: "tool", tool_call_id: c.id, content: result });

@@ -98,7 +98,7 @@ function HistoryInner() {
 
 export default function HistoryPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-center text-ink-500">加载中…</div>}>
+    <Suspense fallback={<div className="p-8 text-center text-ink-500">正在打开</div>}>
       <HistoryInner />
     </Suspense>
   );

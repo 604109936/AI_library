@@ -212,7 +212,7 @@ export function LoginSheet() {
                 disabled={!canSubmit}
                 className="mt-1 w-full rounded-2xl bg-ink py-3 text-sm font-medium text-snow transition active:scale-[0.98] disabled:opacity-40 dark:bg-celadon"
               >
-                {loading ? "请稍候…" : mode === "login" ? "登录" : "注册"}
+                {loading ? "请稍候" : mode === "login" ? "登录" : "注册"}
               </button>
 
               <div className="pt-1 text-center">

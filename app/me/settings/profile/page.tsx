@@ -166,7 +166,7 @@ export default function ProfileEdit() {
           </div>
 
           <button onClick={save} disabled={saving} className="mt-6 w-full rounded-2xl bg-celadon py-3.5 text-sm font-medium text-snow shadow-celadon disabled:opacity-60 active:scale-[0.99]">
-            {saving ? "保存中…" : "保存"}
+            {saving ? "保存中" : "保存"}
           </button>
         </div>
       </RequireAuth>

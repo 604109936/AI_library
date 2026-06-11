@@ -163,7 +163,7 @@ export default function CategoryPage({ params }: { params: { id: string } }) {
           );
         })}
         <div ref={sentinel} className="h-8" />
-        {q.isFetchingNextPage && <p className="py-2 text-center text-xs text-ink-300">正在取书…</p>}
+        {q.isFetchingNextPage && <p className="py-2 text-center text-xs text-ink-300">正在取书</p>}
       </div>
       <BackToTop />
     </main>

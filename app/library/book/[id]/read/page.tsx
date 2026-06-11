@@ -619,7 +619,7 @@ function ReaderInner({ id }: { id: string }) {
                 value={noteText}
                 onChange={(e) => setNoteText(e.target.value)}
                 onFocus={(e) => { const el = e.target; setTimeout(() => el.scrollIntoView({ block: "center" }), 300); }}
-                placeholder="写下你的想法…"
+                placeholder="写下你的想法"
                 className="h-24 w-full resize-none rounded-lg border border-line bg-moon p-3 text-sm text-ink outline-none focus:border-celadon dark:border-white/10 dark:bg-dark-bg dark:text-dark-text"
               />
               <button onClick={saveNote} className="mt-3 w-full rounded-2xl bg-celadon py-2.5 text-sm text-snow active:scale-[0.99]">保存</button>
@@ -869,7 +869,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 export default function ReaderPage({ params }: { params: { id: string } }) {
   return (
-    <Suspense fallback={<div className="p-8 text-center text-ink-500">加载中…</div>}>
+    <Suspense fallback={<div className="p-8 text-center text-ink-500">正在打开书页</div>}>
       <ReaderInner id={params.id} />
     </Suspense>
   );
