@@ -113,9 +113,11 @@ export async function POST(req: NextRequest) {
     .filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim())
     .map((m) => ({ role: m.role as "user" | "assistant", content: m.content!.slice(0, MAX_CHARS) }));
   const uid = await getUid(req.headers.get("authorization"));
-  // 限流（T5）：每人 10 次/分钟 且 80 次/小时（游客按 IP）。烧 LLM token 的口子必须有闸
+  // 限流（T9 放宽）：登录 20 次/分 + 200 次/时（真实读者连续追问不该被打断）；
+  // 游客按 IP 收紧到 8 次/分 + 40 次/时（无身份约束，防脚本滥刷烧 token）
   const lk = limiterKey(uid, req.headers.get("x-forwarded-for"));
-  if (!rateLimit(`m:${lk}`, 10, 60_000) || !rateLimit(`h:${lk}`, 80, 3_600_000)) {
+  const [perMin, perHour] = uid ? [20, 200] : [8, 40];
+  if (!rateLimit(`m:${lk}`, perMin, 60_000) || !rateLimit(`h:${lk}`, perHour, 3_600_000)) {
     return NextResponse.json({ error: "你问得好快呀——歇口气，一分钟后我们接着聊" }, { status: 429 });
   }
   // T4 单一会话：登录用户一律落在唯一会话 'main'（忽略请求里的 sessionId——旧客户端缓存的
