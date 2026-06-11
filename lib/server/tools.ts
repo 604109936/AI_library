@@ -3,6 +3,7 @@
 import "server-only";
 import { admin } from "@/lib/server/agent";
 import { searchWeb, type WebHit } from "@/lib/server/websearch";
+import { cutSafe } from "@/lib/server/text";
 import type { MMTool } from "@/lib/server/minimax";
 
 // 工具执行中的等待文案：要有"它真的在替我翻书"的画面感（UI Review C16）。
@@ -123,7 +124,12 @@ export async function execTool(name: string, argsJson: string): Promise<{ result
     if (name === "recommend_books") {
       const ids: string[] = Array.isArray(args.book_ids) ? args.book_ids.map(String) : [];
       const { data } = await admin.from("books").select("id,title").in("id", ids);
-      const valid = (data ?? []).slice(0, 5);
+      // 必须按模型传入的顺序重排：.in() 返回行序是 DB 扫描序，与推荐优先级无关——
+      // 正文说"最推荐第一本《A》"而卡组第一张是《B》即失配；超 5 本时砍掉的也该是模型排最后的
+      const order = new Map(ids.map((id, i) => [id, i]));
+      const valid = (data ?? [])
+        .sort((a: any, b: any) => (order.get(a.id) ?? 99) - (order.get(b.id) ?? 99))
+        .slice(0, 5);
       if (!valid.length) return { result: "失败：这些 book_id 在馆藏中不存在，卡片没有展示。请用〔图书馆书单〕里的 [id] 重试；若不重试，正文中不得提及卡片。" };
       return {
         result: `推荐卡片已展示给用户：${valid.map((b: any) => `《${b.title}》`).join("、")}。正文中自然衔接即可，不要再重复罗列书名清单。`,
@@ -132,14 +138,23 @@ export async function execTool(name: string, argsJson: string): Promise<{ result
     }
     if (name === "read_book_toc") {
       const id = String(args.book_id ?? "");
+      // 不再整本书正文进内存：原 select 含 content 是为"概要缺失时取开头 60 字"，却把全书每章
+      // 正文（30 章 × 1.5 万字级）拉穿 DB→函数。改两步：先拉轻量列，仅对缺概要的章补拉正文
       const [bookR, chapR] = await Promise.all([
         admin.from("books").select("id,title,author,tags,ai_digest").eq("id", id).maybeSingle(),
-        admin.from("chapters").select("no,title,ai_summary,content").eq("book_id", id).order("no"),
+        admin.from("chapters").select("no,title,ai_summary").eq("book_id", id).order("no"),
       ]);
       const b: any = bookR.data;
       if (!b) return { result: `失败：馆藏中没有 book_id=${id} 的书。` };
-      const lines = ((chapR.data ?? []) as any[]).map(
-        (c) => `第${c.no}章《${c.title}》：${(c.ai_summary ?? "").trim() || `（${c.no === 0 ? "前言，" : ""}无概要，开头：${String(c.content ?? "").slice(0, 60)}（后略））`}`
+      const chaps = (chapR.data ?? []) as any[];
+      const missing = chaps.filter((c) => !(c.ai_summary ?? "").trim()).map((c) => c.no);
+      const headOf = new Map<number, string>();
+      if (missing.length) {
+        const { data: extra } = await admin.from("chapters").select("no,content").eq("book_id", id).in("no", missing);
+        for (const c of (extra ?? []) as any[]) headOf.set(c.no, cutSafe(String(c.content ?? ""), 60));
+      }
+      const lines = chaps.map(
+        (c) => `第${c.no}章《${c.title}》：${(c.ai_summary ?? "").trim() || `（${c.no === 0 ? "前言，" : ""}无概要，开头：${headOf.get(c.no) ?? ""}（后略））`}`
       );
       return { result: `《${b.title}》（${b.author}｜${(b.tags ?? []).join("/")}）\n全书概要：${b.ai_digest ?? "无"}\n目录（共 ${lines.length} 章）：\n${lines.join("\n")}` };
     }
@@ -149,7 +164,7 @@ export async function execTool(name: string, argsJson: string): Promise<{ result
       const { data: c } = await admin.from("chapters").select("no,title,content").eq("book_id", id).eq("no", no).maybeSingle();
       if (!c) return { result: `失败：${id} 没有第 ${no} 章。可先用 read_book_toc 查目录。` };
       const content = String((c as any).content ?? "");
-      return { result: `第${(c as any).no}章《${(c as any).title}》完整原文：\n${content.slice(0, 15000)}${content.length > 15000 ? "\n（后文略）" : ""}` };
+      return { result: `第${(c as any).no}章《${(c as any).title}》完整原文：\n${cutSafe(content, 15000)}${content.length > 15000 ? "\n（后文略）" : ""}` };
     }
     if (name === "cite_chapters") {
       const items: { book_id?: unknown; chapter_no?: unknown }[] = Array.isArray(args.items) ? args.items : [];
@@ -169,7 +184,7 @@ export async function execTool(name: string, argsJson: string): Promise<{ result
             b, c,
             bt: bk.title,
             ct: ch.title,
-            sn: String(ch.content ?? "").replace(/\s+/g, " ").trim().slice(0, 60),
+            sn: cutSafe(String(ch.content ?? "").replace(/\s+/g, " ").trim(), 60),
             cs: bk.cover_seed ?? 1,
             cv: bk.cover_url ?? "",
           });
@@ -179,7 +194,7 @@ export async function execTool(name: string, argsJson: string): Promise<{ result
       return { result: "引用章节卡片已展示给用户。", event: { t: "cites", v: valid } };
     }
     if (name === "web_search") {
-      const q = String(args.query ?? "").trim().slice(0, 60);
+      const q = cutSafe(String(args.query ?? "").trim(), 60);
       if (!q) return { result: "失败：缺少搜索关键词 query。" };
       const hits: WebHit[] = await searchWeb(q);
       if (!hits.length) return { result: `联网搜索「${q}」没有找到结果。可换个关键词重试，或如实告诉读者没查到。` };

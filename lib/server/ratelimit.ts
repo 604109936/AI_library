@@ -7,16 +7,24 @@ import "server-only";
 // 一刀切过滤，分钟检查触发的清扫会把小时桶里 >60s 的记录全删光（小时限流失效）
 const buckets = new Map<string, { win: number; ts: number[] }>();
 const SWEEP_AT = 5000; // 键数超过此值时全量清扫过期记录，防内存膨胀
+const SWEEP_GAP = 30_000; // 清扫节流：超阈值后若每个请求都全表扫描，大量游客 IP 场景下是 O(N) CPU 放大
+const HARD_MAX = 20_000; // 键数硬上限：清扫后仍超出按最旧插入淘汰（被淘汰键的限流略放宽，尽力而为口径）
+let lastSweep = 0;
 
 // 返回 true=放行；false=超限
 export function rateLimit(key: string, max: number, windowMs: number): boolean {
   const now = Date.now();
-  if (buckets.size > SWEEP_AT) {
+  if (buckets.size > SWEEP_AT && now - lastSweep > SWEEP_GAP) {
+    lastSweep = now;
     buckets.forEach((b, k) => {
       const live = b.ts.filter((t) => now - t < b.win);
       if (live.length) b.ts = live;
       else buckets.delete(k);
     });
+    if (buckets.size > HARD_MAX) {
+      let drop = buckets.size - HARD_MAX;
+      buckets.forEach((_, k) => { if (drop-- > 0) buckets.delete(k); }); // Map 迭代序=插入序，删的是最旧键
+    }
   }
   const b = buckets.get(key) ?? { win: windowMs, ts: [] };
   b.ts = b.ts.filter((t) => now - t < windowMs);

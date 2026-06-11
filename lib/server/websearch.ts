@@ -3,6 +3,7 @@
 // TS 直调等价且零额外依赖（实测连通见 docs/delivery/evidence/T10/websearch-http-probe.md）。
 // 计费走 TokenPlan 套餐共享额度，不另扣现金。
 import "server-only";
+import { cutSafe } from "@/lib/server/text";
 
 export interface WebHit {
   title: string;
@@ -27,14 +28,18 @@ export async function searchWeb(query: string): Promise<WebHit[]> {
     signal: AbortSignal.timeout(20000),
   });
   const j: any = await r.json().catch(() => null);
+  // 200 + 非 JSON（网关错误页/协议变更）必须抛错而不是当"零结果"：否则基础设施故障会被
+  // 模型转述成"网上没查到"，误导用户且无任何日志可排查
+  if (j === null) throw new Error(`搜索服务返回非 JSON（HTTP ${r.status}），疑似网关错误或协议变更`);
   if (!r.ok || (j?.base_resp && j.base_resp.status_code !== 0)) {
     throw new Error(`搜索服务调用失败：HTTP ${r.status}${j?.base_resp ? ` biz ${j.base_resp.status_code}` : ""}`);
   }
+  if (!Array.isArray(j?.organic)) console.warn("[websearch] 响应缺 organic 字段：", JSON.stringify(j).slice(0, 200));
   const organic: any[] = Array.isArray(j?.organic) ? j.organic : [];
   return organic.slice(0, MAX_HITS).map((it) => ({
-    title: String(it.title ?? "").slice(0, 80),
+    title: cutSafe(String(it.title ?? ""), 80),
     link: String(it.link ?? ""),
-    snippet: String(it.snippet ?? "").replace(/\s+/g, " ").trim().slice(0, 200),
+    snippet: cutSafe(String(it.snippet ?? "").replace(/\s+/g, " ").trim(), 200),
     date: String(it.date ?? "").slice(0, 10),
   }));
 }

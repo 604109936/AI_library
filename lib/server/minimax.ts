@@ -82,7 +82,7 @@ export function makeThinkFilter() {
 // 工具调用增量按 OpenAI 规范以 index 聚合（id/name 先到，arguments 分片续传）。
 export async function* streamChat(
   messages: MMMessage[],
-  opts?: { maxTokens?: number; temperature?: number; tools?: MMTool[]; signal?: AbortSignal }
+  opts?: { maxTokens?: number; temperature?: number; tools?: MMTool[]; signal?: AbortSignal; timeoutMs?: number }
 ): AsyncGenerator<
   | { type: "delta"; text: string }
   | { type: "think"; text: string }
@@ -101,8 +101,11 @@ export async function* streamChat(
       temperature: opts?.temperature ?? 0.8,
       ...(opts?.tools?.length ? { tools: opts.tools } : {}),
     }),
-    // 客户端断开与 120s 超时двойная保护：只传 req.signal 会丢超时，上游挂起时用户会白等到平台杀进程
-    signal: opts?.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(120000)]) : AbortSignal.timeout(120000),
+    // 客户端断开与超时双重保护：只传 req.signal 会丢超时，上游挂起时用户会白等到平台杀进程。
+    // timeoutMs 由调用方按整请求剩余预算传入（工具循环多轮共享 120s，每轮各吃满会被平台硬杀产生无 end 截断流）
+    signal: opts?.signal
+      ? AbortSignal.any([opts.signal, AbortSignal.timeout(opts?.timeoutMs ?? 120000)])
+      : AbortSignal.timeout(opts?.timeoutMs ?? 120000),
   });
   if (!r.ok || !r.body) {
     const t = await r.text().catch(() => "");

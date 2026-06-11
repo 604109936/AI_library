@@ -10,6 +10,8 @@ import { stripCardMarkers } from "@/lib/chatMarkers";
 
 const KEEP = 40; // 最近 20 轮（40 条）不压缩
 const BATCH_MIN = 8; // 新增未压缩消息攒够这个数才值得跑一次压缩
+const CATCH_UP = 60; // 单轮最多消化的消息数：存量长会话首压（until=0）若不设上限，part 可达数十万字必超时，
+//                      且失败不推进 until → 每轮白烧一次百秒长调用永不自愈；分多轮滚动合并追平
 const COMPRESS_MODEL = process.env.MINIMAX_COMPRESS_MODEL || "MiniMax-M3"; // 任务书 T5：全部调用统一 M3
 
 // 「请求口径」视图：与前端组装上下文的过滤规则完全一致（剔除 error 占位 → 剥卡片标记 → 滤空）。
@@ -25,29 +27,35 @@ export function requestView(msgs: { role?: string; content?: unknown; error?: bo
 // 防同一会话并发重复压缩（serverless 单实例内有效，多实例最坏重复压一次，幂等无害）
 const inflight = new Set<string>();
 
-export function maybeCompress(uid: string, sessionId: string): Promise<void> {
+export function maybeCompress(uid: string, sessionId: string, budgetMs = Number.POSITIVE_INFINITY): Promise<void> {
   const key = `${uid}/${sessionId}`;
   if (inflight.has(key)) return Promise.resolve();
   inflight.add(key);
   // 返回 Promise 供 waitUntil 托管：serverless 响应关闭后实例会被冻结，fire-and-forget 永远跑不完
-  return compress(uid, sessionId)
+  return compress(uid, sessionId, budgetMs)
     .catch((e) => console.error("[compress]", e))
     .finally(() => inflight.delete(key));
 }
 
-async function compress(uid: string, sessionId: string) {
-  const { data: row } = await admin
+async function compress(uid: string, sessionId: string, budgetMs: number) {
+  const t0 = Date.now();
+  const { data: row, error: readErr } = await admin
     .from("chat_sessions")
     .select("messages, compressed_history, compressed_until")
     .eq("user_id", uid)
     .eq("id", sessionId)
     .maybeSingle();
+  if (readErr) { console.error("[compress] 读会话失败：", readErr); return; }
   if (!row) return;
   // 统一按「请求口径」计数与切片（详见 requestView 注释）：摘要覆盖范围与请求裁剪范围严格互补
   const msgs = requestView(Array.isArray(row.messages) ? row.messages : []);
   const until = row.compressed_until ?? 0;
-  const cut = msgs.length - KEEP; // 压到这条为止（保住最近 20 轮）
+  const cut = Math.min(msgs.length - KEEP, until + CATCH_UP); // 压到这条为止（保住最近 20 轮；单轮限量追赶）
   if (cut - until < BATCH_MIN) return; // 没攒够，不值得跑
+  // 预算检查：afterAnswer 在回答完成后才启动，长回答后剩余窗口可能放不下一次百秒长调用——
+  // 跑到一半被平台硬杀比不跑更糟（白烧 token 且无日志），不足则留待下轮
+  const timeoutMs = Math.min(100_000, budgetMs - (Date.now() - t0) - 5_000);
+  if (timeoutMs < 20_000) { console.warn("[compress] 本轮剩余预算不足，跳过（lag=", msgs.length - until, "）"); return; }
 
   // 卡片占位标记已在 requestView 剥净：摘要绝不能把 [[recs:…]] 语法带进 system，主模型会学样输出假标记
   const part = msgs
@@ -72,9 +80,9 @@ async function compress(uid: string, sessionId: string) {
         content: `${prev ? `【已有摘要（在此基础上合并更新）】\n${prev}\n\n` : ""}【需要并入的旧对话】\n${part}`,
       },
     ],
-    // timeoutMs 100s：M3 长思考 + 3500 字摘要远超 chatOnce 默认 60s（曾导致压缩永远超时、until 停滞）；
-    // waitUntil 受 route maxDuration=120s 约束，留 20s 余量
-    { model: COMPRESS_MODEL, maxTokens: 8192, temperature: 0.3, timeoutMs: 100_000 }
+    // timeoutMs 上限 100s：M3 长思考 + 3500 字摘要远超 chatOnce 默认 60s（曾导致压缩永远超时、until 停滞）；
+    // 实际取「整请求剩余预算」与 100s 的较小者（见上方预算检查）
+    { model: COMPRESS_MODEL, maxTokens: 8192, temperature: 0.3, timeoutMs }
   );
   // 产物校验：输出被截断在思考段内时 stripThink 会剥成空串——空/过短摘要绝不能写库，
   // 否则 until 推进 + 旧摘要被覆盖 = 不可逆的上下文黑洞；不写库留待下轮重试
@@ -83,11 +91,13 @@ async function compress(uid: string, sessionId: string) {
     return;
   }
 
-  await admin
+  // 写库失败必须留痕：这条链路全程后台静默，无日志的写失败=「until 停滞」类故障的观测盲区
+  const { error: writeErr } = await admin
     .from("chat_sessions")
     .update({ compressed_history: summary.slice(0, 16000), compressed_until: cut })
     .eq("user_id", uid)
     .eq("id", sessionId);
+  if (writeErr) console.error("[compress] 写摘要失败：", writeErr);
 }
 
 // 读取某会话的压缩信息（摘要注入 System 变量⑥；until 用于裁剪请求消息——

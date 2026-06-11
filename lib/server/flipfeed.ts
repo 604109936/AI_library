@@ -71,9 +71,18 @@ async function collectSignals(uids: string[]): Promise<Map<string, UserSignal>> 
     fetchAll((f, t) => admin.from("media_progress").select("user_id,book_id,position,played").in("user_id", uids).order("user_id").order("book_id").range(f, t)),
     fetchAll((f, t) => admin.from("reviews").select("user_id,rating,title,content").in("user_id", uids).order("id").range(f, t)),
     // 画像数据（只影响排序质量）逐用户限量查询：批级共享 limit 会被单个重度用户（几百条笔记）
-    // 独占窗口，挤掉同批其他用户的信号 → 只靠笔记产生信号的用户被误判 skippedNoSignal
-    mapLimit(uids, 8, async (uid) => (await admin.from("notes").select("user_id,excerpt,note").eq("user_id", uid).order("created_at", { ascending: false }).limit(8)).data ?? []).then((rs) => rs.flat()),
-    mapLimit(uids, 8, async (uid) => (await admin.from("chat_sessions").select("user_id,messages,compressed_history").eq("user_id", uid).order("updated_at", { ascending: false }).limit(3)).data ?? []).then((rs) => rs.flat()),
+    // 独占窗口，挤掉同批其他用户的信号 → 只靠笔记产生信号的用户被误判 skippedNoSignal。
+    // error 必须抛而不是当空结果（fail-loud 与 fetchAll 同口径）：吞掉会把 DB 抖动误判成"该用户无信号"
+    mapLimit(uids, 8, async (uid) => {
+      const r = await admin.from("notes").select("user_id,excerpt,note").eq("user_id", uid).order("created_at", { ascending: false }).limit(8);
+      if (r.error) throw new Error(`notes 信号查询失败：${r.error.message}`);
+      return r.data ?? [];
+    }).then((rs) => rs.flat()),
+    mapLimit(uids, 8, async (uid) => {
+      const r = await admin.from("chat_sessions").select("user_id,messages,compressed_history").eq("user_id", uid).order("updated_at", { ascending: false }).limit(3);
+      if (r.error) throw new Error(`chat_sessions 信号查询失败：${r.error.message}`);
+      return r.data ?? [];
+    }).then((rs) => rs.flat()),
   ]);
   const map = new Map<string, UserSignal>();
   const of = (uid: string): UserSignal => {
@@ -185,8 +194,13 @@ export async function generateFlipFeeds(opts?: { force?: boolean; budgetMs?: num
     return true;
   });
 
+  // 预算闸必须细到「用户任务开工前」：单批 24 人 ÷ 4 并发 = 每 worker 串行 6 次 LLM，
+  // 每次上限 20s，批内最坏约 120s 远超 maxDuration=60——只在批间检查时，同一批每天原地
+  // 被掐零进度、永不收敛。剩余预算放不下一次 LLM（20s）+落库余量就不再开工新用户
+  const deadline = startAt + budget;
+  let overBudget = false;
   for (let off = 0; off < todo.length; off += USER_BATCH) {
-    if (Date.now() - startAt > budget) { stats.partial = true; break; } // 预算耗尽：已落库的批次都算数，下次续做
+    if (overBudget || Date.now() > deadline) { stats.partial = true; break; } // 预算耗尽：已落库的批次都算数，下次续做
     const batch = todo.slice(off, off + USER_BATCH);
     const signals = await collectSignals(batch);
     const withSignal = batch.filter((uid) => {
@@ -195,6 +209,7 @@ export async function generateFlipFeeds(opts?: { force?: boolean; budgetMs?: num
       return false;
     });
     const rows = await mapLimit(withSignal, CONCURRENCY, async (uid) => {
+      if (Date.now() > deadline - 22_000) { overBudget = true; return null; } // 开工闸：本用户留不出 20s LLM + 落库余量
       const s = signals.get(uid)!;
       try {
         const pool = candidates.filter((c) => !s.done.has(c.id)); // 排除已读完
@@ -216,9 +231,23 @@ export async function generateFlipFeeds(opts?: { force?: boolean; budgetMs?: num
     if (upserts.length) {
       // 本批立即落库：超时被掐时已写入的不会丢（注释承诺的"断点续做"由此成立）
       const { error } = await admin.from("flip_feed").upsert(upserts, { onConflict: "user_id,gen_date" });
-      if (error) throw new Error(`写入 flip_feed 失败：${error.message}`);
-      stats.generated += upserts.length;
+      if (error) {
+        // 批内单行 FK 失效（用户运行中途注销）会毒化整条批量语句：逐行降级重试跳过坏行，
+        // 不让一个注销用户拖垮同批 23 人与后续所有批次的当日 feed
+        if ((error as any).code === "23503") {
+          for (const row of upserts) {
+            const { error: e2 } = await admin.from("flip_feed").upsert(row, { onConflict: "user_id,gen_date" });
+            if (e2) stats.failed++;
+            else stats.generated++;
+          }
+        } else {
+          throw new Error(`写入 flip_feed 失败：${error.message}`);
+        }
+      } else {
+        stats.generated += upserts.length;
+      }
     }
   }
+  if (overBudget) stats.partial = true;
   return stats;
 }

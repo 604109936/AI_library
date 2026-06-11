@@ -12,6 +12,7 @@ import { getCompressed, maybeCompress } from "@/lib/server/compress";
 import { maybeUpdateMemory } from "@/lib/server/memory";
 import { makeThinkHint } from "@/lib/server/thinkhint";
 import { rateLimit, limiterKey } from "@/lib/server/ratelimit";
+import { cutSafe } from "@/lib/server/text";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -29,6 +30,12 @@ type Emit = (e: { t: "d" | "status" | "end" | "err"; v?: string } | ToolEvent) =
 
 // Agent 循环：模型流式产出 → 有工具调用则执行并回灌结果 → 直到纯文本收尾
 async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signal?: AbortSignal, compressed?: string) {
+  // 全请求统一时间预算：最坏路径 8 轮主循环 + 1 补救轮，若每次 streamChat 各吃满 120s，
+  // 总和远超 maxDuration=120——平台硬杀产生"无 end/err 的截断流"。每轮超时取剩余预算，
+  // 剩余不足时跳过新轮次/补救轮，把无声截流变成可控收尾
+  const deadline = Date.now() + 105_000;
+  const remain = () => deadline - Date.now();
+  const roundTimeout = () => Math.min(120_000, Math.max(5_000, remain()));
   const system = await buildSystem(uid, compressed);
   const convo: MMMessage[] = [{ role: "system", content: system }, ...msgs];
   // 失配监测（T3 层②兜底）：累积用户可见正文 + 记录是否出过卡片事件
@@ -47,7 +54,7 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
   for (let round = 0; ; round++) {
     let raw = ""; // 本轮原始 content（含 <think>），工具循环回灌用
     let calls: MMToolCall[] | null = null;
-    for await (const ev of streamChat(convo, { tools: AGENT_TOOLS, temperature: 0.7, signal })) {
+    for await (const ev of streamChat(convo, { tools: AGENT_TOOLS, temperature: 0.7, signal, timeoutMs: roundTimeout() })) {
       if (ev.type === "delta") { raw += ev.text; emitW({ t: "d", v: ev.text }); }
       else if (ev.type === "think") {
         // 思考原文绝不直出：规则提取成 ≤20 字过程提示（status 事件），前端以水波纹呈现（T8）
@@ -58,7 +65,7 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
     }
     lastRaw = raw;
     if (!calls?.length) break;
-    if (round >= MAX_ROUNDS) {
+    if (round >= MAX_ROUNDS || remain() < 12_000) {
       // 轮次耗尽：纯出卡工具仍执行（正文可能已承诺"为你推荐/依据如下"，卡片是用户唯一点击入口），其余丢弃
       for (const c of calls) {
         if (c.function.name === "recommend_books" || c.function.name === "cite_chapters") {
@@ -76,10 +83,12 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
       console.log(`[agent-debug] 第${round + 1}轮回灌 assistant（前240字）：${raw.slice(0, 240).replace(/\n/g, "⏎")}`);
     }
     for (const c of calls) {
-      if (c.function.name === "read_chapter") usedReadChapter = true;
       emitW({ t: "status", v: await toolStatus(c.function.name, c.function.arguments) }); // 带书名：「翻开《认知觉醒》」
       const { result, event } = await execTool(c.function.name, c.function.arguments);
       if (event) emitW(event);
+      // 细读真的拿到原文才置位：模型用幻觉章号连续失败时若仍置位，兜底会基于假前提
+      // 误触发"必须出引用卡"补救轮——白烧一轮静默延迟，卡片依然出不来
+      if (c.function.name === "read_chapter" && !result.startsWith("失败") && !result.startsWith("工具执行出错")) usedReadChapter = true;
       convo.push({ role: "tool", tool_call_id: c.id, content: result });
     }
   }
@@ -97,7 +106,9 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
       recMismatch = titles.some((t) => fullText.includes(`《${t}》`));
     }
   }
-  if (!emittedCard && (promisedCard || usedReadChapter || recMismatch) && lastRaw) {
+  if (!emittedCard && (promisedCard || usedReadChapter || recMismatch) && lastRaw && remain() > 15_000) {
+    // 正文已定格，补救轮的 M3 思考期可达十几秒——给用户一个进行中的反馈，消除"答完又卡住"的观感
+    emitW({ t: "status", v: "正在为你整理卡片" });
     convo.push({ role: "assistant", content: lastRaw });
     convo.push({
       role: "user",
@@ -107,7 +118,8 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
           ? "（系统校验：你刚才细读了章节原文来回答，但没有调用 cite_chapters 展示依据的章节卡片，用户无法跳转原文。请立即调用 cite_chapters 列出你依据的章节；只调用工具，不要输出文字。）"
           : "（系统校验：用户请你推荐书，你在正文提到了馆藏书，但没有调用 recommend_books——用户面前没有可点击的卡片，正文书名点不了。请立即调用 recommend_books 补出你提到的馆藏书；只调用工具，不要输出文字。）",
     });
-    for await (const ev of streamChat(convo, { tools: AGENT_TOOLS, temperature: 0.3, signal })) {
+    // maxTokens 收紧：补救轮只许出卡不许说话，2048 足够 think+工具参数，砍掉无效文字 token
+    for await (const ev of streamChat(convo, { tools: AGENT_TOOLS, temperature: 0.3, signal, timeoutMs: roundTimeout(), maxTokens: 2048 })) {
       if (ev.type === "tool_calls") {
         for (const c of ev.calls) {
           if (c.function.name === "recommend_books" || c.function.name === "cite_chapters") {
@@ -128,10 +140,11 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "请求体不是合法 JSON" }, { status: 400 });
   }
+  const startedAt = Date.now(); // 整请求起点：后台压缩/记忆任务按剩余预算决定是否还来得及跑
   const raw = Array.isArray(body.messages) ? body.messages : [];
   const all: MMMessage[] = raw
     .filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim())
-    .map((m) => ({ role: m.role as "user" | "assistant", content: m.content!.slice(0, MAX_CHARS) }));
+    .map((m) => ({ role: m.role as "user" | "assistant", content: cutSafe(m.content!, MAX_CHARS) }));
   const uid = await getUid(req.headers.get("authorization"));
   // 限流（T9 放宽）：登录 20 次/分 + 200 次/时（真实读者连续追问不该被打断）；
   // 游客按 IP 收紧到 8 次/分 + 40 次/时（无身份约束，防脚本滥刷烧 token）
@@ -155,8 +168,11 @@ export async function POST(req: NextRequest) {
   // waitUntil 托管防 serverless 响应关闭后实例冻结（本地 dev 无请求上下文则直接后台跑）
   const afterAnswer = () => {
     if (!uid || !sessionId) return;
-    const p = maybeCompress(uid, sessionId);
-    const m = maybeUpdateMemory(uid);
+    // 剩余预算 = maxDuration(120s) 减去回答本身耗时再留 5s 余量：长回答后预算不足时
+    // 后台任务跳过本轮（而不是跑到一半被平台硬杀，白烧一次长调用且无日志）
+    const budget = 115_000 - (Date.now() - startedAt);
+    const p = maybeCompress(uid, sessionId, budget);
+    const m = maybeUpdateMemory(uid, budget);
     try { waitUntil(p); waitUntil(m); } catch {}
   };
 

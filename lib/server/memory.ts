@@ -10,6 +10,8 @@ import { chatOnce } from "@/lib/server/minimax";
 import { requestView } from "@/lib/server/compress";
 
 const MIN_NEW = 4; // 新消息攒够 4 条（两轮）才值得跑一次模型
+const CATCH_UP = 40; // 单轮最多消化的消息数：存量长会话首跑（until=0）不限量会让 part 膨胀到必超时，
+//                      且失败不推进 → 永久死循环白烧 token；分多轮追平
 const MAX_FIELD = 300; // 单维度硬上限（防膨胀兜底）
 const MEMORY_MODEL = process.env.MINIMAX_MEMORY_MODEL || "MiniMax-M3"; // 任务书 T5：全部调用统一 M3
 
@@ -36,27 +38,37 @@ export interface UserMemory {
 // 防同一用户并发重复更新（serverless 单实例内有效；多实例最坏重复跑一次，幂等无害）
 const inflight = new Set<string>();
 
-export function maybeUpdateMemory(uid: string): Promise<void> {
+export function maybeUpdateMemory(uid: string, budgetMs = Number.POSITIVE_INFINITY): Promise<void> {
   if (inflight.has(uid)) return Promise.resolve();
   inflight.add(uid);
-  return update(uid)
+  return update(uid, budgetMs)
     .catch((e) => console.error("[memory]", e))
     .finally(() => inflight.delete(uid));
 }
 
-async function update(uid: string) {
+async function update(uid: string, budgetMs: number) {
+  const t0 = Date.now();
   // 等前端把本轮问答 persist 上云（流结束后约 1 秒内 upsert）：不等的话本轮内容要到下一轮才被消化
   await new Promise((r) => setTimeout(r, 3500));
-  const [{ data: sess }, { data: mem }] = await Promise.all([
+  const [sessR, memR] = await Promise.all([
     admin.from("chat_sessions").select("messages").eq("user_id", uid).eq("id", "main").maybeSingle(),
     admin.from("user_memory").select("*").eq("user_id", uid).maybeSingle(),
   ]);
+  // 读库错误与"无行"必须区分：瞬时 DB 错误若被当成新用户，会以空基底全量重建并覆盖现值
+  if (sessR.error || memR.error) { console.error("[memory] 读库失败：", sessR.error ?? memR.error); return; }
+  const sess = sessR.data;
+  const mem = memR.data;
   if (!sess) return;
   const view = requestView(Array.isArray(sess.messages) ? sess.messages : []);
   const until = mem?.processed_until ?? 0;
-  if (view.length - until < MIN_NEW) return; // 没攒够新对话
+  // 单轮限量追赶：只消化 [until, target)，processed_until 推进到 target 而非 view.length
+  const target = Math.min(view.length, until + CATCH_UP);
+  if (target - until < MIN_NEW) return; // 没攒够新对话
+  // 预算检查：长回答后的剩余窗口放不下一次 45s 调用时直接跳过（跑一半被硬杀=白烧且无日志）
+  const timeoutMs = Math.min(45_000, budgetMs - (Date.now() - t0) - 5_000);
+  if (timeoutMs < 15_000) { console.warn("[memory] 本轮剩余预算不足，跳过"); return; }
   const part = view
-    .slice(until)
+    .slice(until, target)
     .map((m) => `${m.role === "user" ? "读者" : "小涤"}：${m.content.slice(0, 400)}`)
     .join("\n");
 
@@ -74,7 +86,7 @@ async function update(uid: string) {
       },
       { role: "user", content: `【记忆现值】\n${current}\n\n【新对话】\n${part}\n\n输出需要更新的维度 JSON：` },
     ],
-    { model: MEMORY_MODEL, maxTokens: 4096, temperature: 0.2, timeoutMs: 45000 }
+    { model: MEMORY_MODEL, maxTokens: 4096, temperature: 0.2, timeoutMs }
   );
 
   // 解析（M3 已剥思考；取首 { 到末 } 的最大跨度防夹带）。
@@ -86,15 +98,22 @@ async function update(uid: string) {
   try { patch = JSON.parse(out.slice(a, b + 1)); } catch { return; }
   const valid: Record<string, string> = {};
   for (const [k] of MEMORY_FIELDS) {
-    if (typeof patch[k] === "string") valid[k] = (patch[k] as string).trim().slice(0, MAX_FIELD);
+    if (!(k in patch)) continue;
+    const v = patch[k];
+    if (typeof v === "string") valid[k] = v.trim().slice(0, MAX_FIELD);
+    else if (typeof v === "number" || typeof v === "boolean") valid[k] = String(v); // 偶发标量容错
+    // 维度值类型不对（null/嵌套对象）：视同解析失败整批放弃、不推进进度——
+    // 原实现静默丢弃该维度却照常推进，这批认知会被标记"已消化"而永久丢失
+    else return;
   }
 
   // 只写有效字段 + 进度（upsert 未提供的列在 UPDATE 时保持现值）：
   // 整行展开旧基底会在多实例并发时用旧值覆盖别处刚写的新记忆
-  await admin.from("user_memory").upsert(
-    { user_id: uid, ...valid, processed_until: view.length, updated_at: new Date().toISOString() },
+  const { error: upErr } = await admin.from("user_memory").upsert(
+    { user_id: uid, ...valid, processed_until: target, updated_at: new Date().toISOString() },
     { onConflict: "user_id" }
   );
+  if (upErr) console.error("[memory] 写记忆失败：", upErr); // 静默链路必须留痕（下轮会自动重试）
 }
 
 /** 读取记忆并拼成 system 注入段（无记忆返回空串） */

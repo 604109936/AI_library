@@ -17,9 +17,11 @@ export async function getUid(authHeader: string | null): Promise<string | null> 
 }
 
 /* ---------------- 变量①：图书馆书单（全馆，10 分钟缓存） ---------------- */
-let libCache: { text: string; at: number } | null = null;
-async function libraryVar(): Promise<string> {
-  if (libCache && Date.now() - libCache.at < 10 * 60 * 1000) return libCache.text;
+// 书单文本 / 书名表 / id→书名映射共用一份缓存与一趟查询：原来 libraryVar、libTitles、userVars
+// 各自全表拉一遍 books，每条消息三趟重复 IO
+let libCache: { text: string; titles: string[]; titleMap: Map<string, string>; at: number } | null = null;
+async function libraryData() {
+  if (libCache && Date.now() - libCache.at < 10 * 60 * 1000) return libCache;
   const [books, cats] = await Promise.all([
     admin.from("books").select("id,title,author,category_id,tags,ai_digest").order("id"),
     admin.from("categories").select("id,name"),
@@ -30,26 +32,39 @@ async function libraryVar(): Promise<string> {
   const lines = (books.data ?? []).map((b: any) =>
     `- [${b.id}]《${b.title}》作者：${b.author || "佚名"}｜分类：${catName.get(b.category_id) ?? b.category_id}｜标签：${(b.tags ?? []).join("/")}｜概要：${(b.ai_digest ?? "").trim() || "（暂无）"}`
   );
-  const text = `共 ${lines.length} 本：\n${lines.join("\n")}`;
-  libCache = { text, at: Date.now() };
-  return text;
+  libCache = {
+    text: `共 ${lines.length} 本：\n${lines.join("\n")}`,
+    titles: (books.data ?? []).map((b: any) => String(b.title)).filter(Boolean),
+    titleMap: new Map((books.data ?? []).map((b: any) => [b.id, b.title])),
+    at: Date.now(),
+  };
+  return libCache;
+}
+async function libraryVar(): Promise<string> {
+  return (await libraryData()).text;
 }
 
 /* ---------------- 变量②③④⑤：读者个人数据 ---------------- */
 const fmtDuration = (sec: number) => (sec >= 3600 ? `${(sec / 3600).toFixed(1)} 小时` : `${Math.max(0, Math.round(sec / 60))} 分钟`);
 
 async function userVars(uid: string): Promise<string> {
-  const [favR, noteR, revR, tpR, mpR, profR, bookR] = await Promise.all([
+  const [favR, noteR, revR, tpR, mpR, profR, lib] = await Promise.all([
     admin.from("favorites").select("book_id").eq("user_id", uid),
     admin.from("notes").select("book_id,excerpt,note").eq("user_id", uid).order("created_at", { ascending: false }).limit(60),
     admin.from("reviews").select("book_id,rating,title,content").eq("user_id", uid),
     admin.from("text_progress").select("book_id,pct,last_chapter_no").eq("user_id", uid),
     admin.from("media_progress").select("book_id,position,played").eq("user_id", uid),
     admin.from("profiles").select("nickname,read_seconds").eq("id", uid).maybeSingle(),
-    admin.from("books").select("id,title"),
+    libraryData(), // 书名映射复用书单缓存（省一趟全表查询）
   ]);
-  const title = new Map((bookR.data ?? []).map((b: any) => [b.id, b.title]));
-  const name = (id: string) => `《${title.get(id) ?? id}》`;
+  // 任一路查询失败都不能按"暂无"拼装：那会让模型向用户断言"你还没读过任何书"并据此做反事实推荐。
+  // 降级为明示模型数据暂不可用（聊天可用性优先于个性化，DB 抖动不该 502 整条回答）
+  const errs = [favR.error, noteR.error, revR.error, tpR.error, mpR.error, profR.error].filter(Boolean);
+  if (errs.length) {
+    console.error("[agent] 读者数据查询失败：", errs[0]);
+    return "读者昵称：书友（已登录）\n（读者的阅读数据本轮暂时加载失败：请勿断言读者的阅读记录/收藏情况，个性化推荐时如实说明「这会儿没看到你的阅读记录」即可。）";
+  }
+  const name = (id: string) => `《${lib.titleMap.get(id) ?? id}》`;
 
   // 读完/在读判定：文字 pct≥100 或 音视频真实覆盖≥0.9 → 已读完；有任何进度且未读完 → 在读
   const done = new Set<string>();
@@ -90,14 +105,11 @@ async function userVars(uid: string): Promise<string> {
   ].join("\n");
 }
 
-/* ---------------- 馆藏书名表（10 分钟缓存）：route 失配兜底用——判定正文是否提及馆藏书 ---------------- */
-let titleCache: { titles: string[]; at: number } | null = null;
+/* ---------------- 馆藏书名表：route 失配兜底用——判定正文是否提及馆藏书 ---------------- */
+// 复用 libraryData 缓存：查询失败会抛错（调用处自带 .catch(()=>[]) 兜底），
+// 绝不把错误产物空表写进缓存——那会让兜底信号③静默失效 10 分钟
 export async function libTitles(): Promise<string[]> {
-  if (titleCache && Date.now() - titleCache.at < 10 * 60 * 1000) return titleCache.titles;
-  const { data } = await admin.from("books").select("title");
-  const titles = (data ?? []).map((b: any) => String(b.title)).filter(Boolean);
-  titleCache = { titles, at: Date.now() };
-  return titles;
+  return (await libraryData()).titles;
 }
 
 /* ---------------- System Instruction 总装 ---------------- */
