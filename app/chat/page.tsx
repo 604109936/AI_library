@@ -12,6 +12,7 @@ import { stripCardMarkers } from "@/lib/chatMarkers";
 import { greeting, buildQuestions, buildGuestQuestions } from "@/lib/chatWelcome";
 import { supabase } from "@/lib/supabase/client";
 import { MAIN_SESSION_TITLE, useAuth, useChat, useLibrary, useUI } from "@/lib/store";
+import { useVoiceInput, voiceSupported } from "@/lib/useVoiceInput";
 import type { Book, Citation, ChatMessage as TMsg } from "@/lib/types";
 
 // 引用卡数据：T3 起服务端 cites 事件直带全部展示字段（书名/章题/snippet/封面），前端零查询直渲染——
@@ -87,6 +88,8 @@ function ChatInner() {
   const recordingRef = useRef(false);
   const [cancelArmed, setCancelArmed] = useState(false);
   const cancelArmedRef = useRef(false);
+  const voiceAborting = useRef(false); // 识别启动期间松手 → 启动完成后放弃
+  const { voice, startVoice, stopVoice } = useVoiceInput();
   const [showJump, setShowJump] = useState(false); // 用户上滑回看时浮出「回到最新」
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pressStart = useRef<{ x: number; y: number } | null>(null);
@@ -383,7 +386,8 @@ function ChatInner() {
     setTimeout(() => send(q, base), 30);
   }
 
-  // 语音输入：长按输入框触发（无单独图标）。识别能力在接入后端 minimax ASR 后启用
+  // 语音输入（T6）：长按输入框说话 → 松开识别文本回填输入框 → 上滑取消。
+  // 识别走浏览器原生 SpeechRecognition（MiniMax 无 ASR，决策见 evidence/T6）；不支持的环境降级提示
   function setRec(v: boolean) { recordingRef.current = v; setRecording(v); }
   function onRecPointerMove(e: React.PointerEvent) {
     if (!recordingRef.current || !pressStart.current) return;
@@ -394,10 +398,16 @@ function ChatInner() {
   function endRecording() {
     if (!recordingRef.current) return;
     setRec(false);
-    if (cancelArmedRef.current) {
+    const canceled = cancelArmedRef.current;
+    const text = stopVoice(canceled);
+    if (canceled) {
       toast("已取消", "info");
+    } else if (text) {
+      // 识别文本回填输入框供确认后发送（误识可改可删，比直接发送稳）
+      setInput((cur) => (cur ? cur + text : text).slice(0, 500));
+      requestAnimationFrame(() => inputRef.current?.focus());
     } else {
-      toast("语音功能快来了，先打字告诉我吧", "info");
+      toast("没听清，再试一次或打字告诉我", "info");
     }
     cancelArmedRef.current = false;
     setCancelArmed(false);
@@ -407,15 +417,35 @@ function ChatInner() {
     // 仅在输入框未聚焦时，长按才触发语音；已在编辑文本时长按交给浏览器（选字/移动光标等）
     if (document.activeElement === inputRef.current) return;
     pressStart.current = { x: e.clientX, y: e.clientY };
-    pressTimer.current = setTimeout(() => { setRec(true); inputRef.current?.blur(); }, 350);
+    // 指针捕获：录音浮层渲染后会遮住输入框，没有 capture 时鼠标指针被判定"离开"输入框 →
+    // pointerleave → endRecording → 浮层一出现就自杀。capture 后事件全程派给输入框，遮挡无影响
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch {}
+    pressTimer.current = setTimeout(async () => {
+      if (!voiceSupported()) {
+        toast("当前浏览器不支持语音输入，可以用键盘自带的语音键", "info");
+        return;
+      }
+      voiceAborting.current = false;
+      inputRef.current?.blur();
+      const okStart = await startVoice();
+      if (!okStart) {
+        toast("麦克风没打开——请在浏览器设置里允许使用麦克风", "error");
+        return;
+      }
+      if (voiceAborting.current) { stopVoice(true); return; } // 启动期间手已松开
+      setRec(true);
+    }, 350);
   }
   function onInputPointerEnd() {
     if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; }
     if (recordingRef.current) endRecording();
+    else voiceAborting.current = true; // 长按定时器已触发但识别还在启动中就松了手：启动完成后直接放弃
   }
   function onInputPointerMove(e: React.PointerEvent) {
+    // 指针已被输入框 capture：录音中的"上滑取消"判定也由这里驱动（浮层的 onPointerMove 是无 capture 环境的兜底）
+    if (recordingRef.current) { onRecPointerMove(e); return; }
     // 仅当明显滑动（>12px）才取消长按，避免触摸微抖导致语音触发失败
-    if (!pressTimer.current || recordingRef.current || !pressStart.current) return;
+    if (!pressTimer.current || !pressStart.current) return;
     if (Math.hypot(e.clientX - pressStart.current.x, e.clientY - pressStart.current.y) > 12) {
       clearTimeout(pressTimer.current);
       pressTimer.current = null;
@@ -520,17 +550,40 @@ function ChatInner() {
         </div>
       </div>
 
-      {/* 录音浮层（长按时） */}
+      {/* 录音浮层（长按说话 / 上滑取消 / 松开回填输入框）：实时识别文字 + 音量波形 + 计时 */}
       {recording && (
-        <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center bg-ink/40 backdrop-blur-sm" onPointerMove={onRecPointerMove} onPointerUp={endRecording}>
+        <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center bg-ink/45 backdrop-blur-sm" onPointerMove={onRecPointerMove} onPointerUp={endRecording}>
+          {/* 实时识别文本：边说边出，给"它在听"的确定感 */}
+          <div className="mb-6 min-h-[3.5rem] max-w-[78%] text-center">
+            {voice.text ? (
+              <p className="text-base leading-7 text-snow">{voice.text}</p>
+            ) : (
+              <p className="text-sm text-snow/55">说吧，我听着</p>
+            )}
+          </div>
           <div className="relative flex h-24 w-24 items-center justify-center">
             <span className={"absolute inset-0 animate-ping rounded-full " + (cancelArmed ? "bg-rouge/40" : "bg-celadon/40")} />
             <span className={"relative flex h-20 w-20 items-center justify-center rounded-full text-snow shadow-celadon " + (cancelArmed ? "bg-rouge" : "bg-celadon")}>
               {cancelArmed ? <X size={34} /> : <Mic size={34} />}
             </span>
           </div>
-          <p className={"mt-6 text-sm " + (cancelArmed ? "text-rouge" : "text-snow")}>
-            {cancelArmed ? "松开手指，取消发送" : "上滑取消，松开发送"}
+          {/* 音量波形（7 柱随实时音量起伏；拿不到音量流时匀速呼吸回退） */}
+          <div className="mt-5 flex h-8 items-center gap-1" aria-hidden>
+            {[0.5, 0.8, 1, 0.7, 0.95, 0.65, 0.45].map((k, i) =>
+              voice.level >= 0 ? (
+                <span
+                  key={i}
+                  className={"w-1 rounded-full transition-[height] duration-100 " + (cancelArmed ? "bg-rouge/80" : "bg-snow/85")}
+                  style={{ height: `${Math.round(6 + k * voice.level * 22)}px` }}
+                />
+              ) : (
+                <span key={i} className={"voice-bar w-1 rounded-full " + (cancelArmed ? "bg-rouge/80" : "bg-snow/85")} style={{ animationDelay: `${i * 0.12}s` }} />
+              )
+            )}
+          </div>
+          <p className="mt-2 text-xs tabular-nums text-snow/70">{`${String(Math.floor(voice.seconds / 60)).padStart(2, "0")}:${String(voice.seconds % 60).padStart(2, "0")}`}</p>
+          <p className={"mt-4 text-sm " + (cancelArmed ? "text-rouge" : "text-snow")}>
+            {cancelArmed ? "松开手指，取消这段话" : "上滑取消，松开把文字填进输入框"}
           </p>
         </div>
       )}
