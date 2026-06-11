@@ -5,6 +5,13 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/** 聊天消息 id（"u1781…-seq"/"a1781…-seq"）里的时间戳：多端消息合并时按它稳定排序；
+ *  老格式（无数字前缀）返回 0 排最前并保持相对原序 */
+export function msgIdTime(id: string): number {
+  const m = /^\D*(\d+)/.exec(id);
+  return m ? Number(m[1]) : 0;
+}
+
 export function formatCount(n: number): string {
   if (n >= 100000000) return (n / 100000000).toFixed(1).replace(/\.0$/, "") + "亿";
   if (n >= 10000) return (n / 10000).toFixed(1).replace(/\.0$/, "") + "万";

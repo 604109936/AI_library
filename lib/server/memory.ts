@@ -77,17 +77,22 @@ async function update(uid: string) {
     { model: MEMORY_MODEL, maxTokens: 4096, temperature: 0.2, timeoutMs: 45000 }
   );
 
-  // 解析（M3 已剥思考；取首 { 到末 } 的最大跨度防夹带）
-  let patch: Record<string, unknown> = {};
+  // 解析（M3 已剥思考；取首 { 到末 } 的最大跨度防夹带）。
+  // 解析失败 ≠ 模型判定无需更新（合法 {}）：失败必须直接返回不推进 processed_until，
+  // 否则这批对话被标记"已消化"、其中的记忆静默永久丢失；留待下轮带更多消息重试
   const a = out.indexOf("{"), b = out.lastIndexOf("}");
-  if (a >= 0 && b > a) { try { patch = JSON.parse(out.slice(a, b + 1)); } catch {} }
+  if (a < 0 || b <= a) return;
+  let patch: Record<string, unknown>;
+  try { patch = JSON.parse(out.slice(a, b + 1)); } catch { return; }
   const valid: Record<string, string> = {};
   for (const [k] of MEMORY_FIELDS) {
     if (typeof patch[k] === "string") valid[k] = (patch[k] as string).trim().slice(0, MAX_FIELD);
   }
 
+  // 只写有效字段 + 进度（upsert 未提供的列在 UPDATE 时保持现值）：
+  // 整行展开旧基底会在多实例并发时用旧值覆盖别处刚写的新记忆
   await admin.from("user_memory").upsert(
-    { user_id: uid, ...(mem ?? {}), ...valid, processed_until: view.length, updated_at: new Date().toISOString() },
+    { user_id: uid, ...valid, processed_until: view.length, updated_at: new Date().toISOString() },
     { onConflict: "user_id" }
   );
 }

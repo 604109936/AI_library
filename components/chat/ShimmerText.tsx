@@ -12,11 +12,13 @@
  *   全程零 paint/layout，纯 compositor 动画。动画定义见 globals.css 的 .shimmer-*。
  */
 export function ShimmerText({ text }: { text: string }) {
+  // 扫光的双层窗口数学依赖单行 nowrap：超长文案（如带长书名的提示）硬截 24 字防横向撑破视口
+  const t = text.length > 24 ? text.slice(0, 23) + "…" : text;
   return (
-    <span className="relative inline-block whitespace-nowrap align-bottom">
-      <span className="text-ink-300 dark:text-dark-text/45">{text}</span>
+    <span className="relative inline-block max-w-full overflow-hidden whitespace-nowrap align-bottom">
+      <span className="text-ink-300 dark:text-dark-text/45">{t}</span>
       <span aria-hidden className="shimmer-win pointer-events-none absolute inset-y-0 left-0 w-[36%] overflow-hidden">
-        <span className="shimmer-win-text inline-block whitespace-nowrap text-celadon-700 dark:text-celadon-300">{text}</span>
+        <span className="shimmer-win-text inline-block whitespace-nowrap text-celadon-700 dark:text-celadon-300">{t}</span>
       </span>
     </span>
   );

@@ -90,6 +90,16 @@ async function userVars(uid: string): Promise<string> {
   ].join("\n");
 }
 
+/* ---------------- 馆藏书名表（10 分钟缓存）：route 失配兜底用——判定正文是否提及馆藏书 ---------------- */
+let titleCache: { titles: string[]; at: number } | null = null;
+export async function libTitles(): Promise<string[]> {
+  if (titleCache && Date.now() - titleCache.at < 10 * 60 * 1000) return titleCache.titles;
+  const { data } = await admin.from("books").select("title");
+  const titles = (data ?? []).map((b: any) => String(b.title)).filter(Boolean);
+  titleCache = { titles, at: Date.now() };
+  return titles;
+}
+
 /* ---------------- System Instruction 总装 ---------------- */
 export async function buildSystem(uid: string | null, compressedHistory?: string): Promise<string> {
   // 变量⑦（T7）：长期记忆延迟 import（memory.ts 引用本模块的 admin，静态互引会循环依赖）

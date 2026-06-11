@@ -12,6 +12,8 @@ import { stripCardMarkers } from "@/lib/chatMarkers";
 import { greeting, buildQuestions, buildGuestQuestions } from "@/lib/chatWelcome";
 import { supabase } from "@/lib/supabase/client";
 import { MAIN_SESSION_TITLE, useAuth, useChat, useLibrary, useUI } from "@/lib/store";
+import { msgIdTime } from "@/lib/utils";
+import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useVoiceInput, voiceSupported } from "@/lib/useVoiceInput";
 import type { Book, Citation, WebSource, ChatMessage as TMsg } from "@/lib/types";
 
@@ -90,6 +92,8 @@ function ChatInner() {
   const cancelArmedRef = useRef(false);
   const voiceAborting = useRef(false); // 识别启动期间松手 → 启动完成后放弃
   const { voice, startVoice, stopVoice } = useVoiceInput();
+  // 录音期间锁页面滚动：触屏上滑取消的手势若引发页面滚动，浏览器会发 pointercancel 终止手势
+  useLockBodyScroll(recording);
   const [showJump, setShowJump] = useState(false); // 用户上滑回看时浮出「回到最新」
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pressStart = useRef<{ x: number; y: number } | null>(null);
@@ -175,7 +179,21 @@ function ChatInner() {
     // 半截消息存进本地，重开会渲染成永久"思考中"。口径与云端 cleanMsgs 对齐。
     const clean = msgs.filter((m) => !m.streaming).map((m) => (m.toolNote !== undefined ? { ...m, toolNote: undefined } : m));
     if (!clean.length) return;
-    upsertSession({ id: "main", title: MAIN_SESSION_TITLE, updatedAt: new Date().toISOString(), messages: clean });
+    // 与 store 中 main 做消息级并集（按 id 去重 + 按 id 时间戳稳定排序）后再落库：
+    // busy 期间 loadCloud 返回的完整云端历史会被水合 effect 跳过（防覆盖进行中对话），
+    // 流结束后若直接用页面短列表落库，会把云端几十条历史整段洗掉（P0：永久丢数据）
+    const main = useChat.getState().sessions.find((x) => x.id === "main");
+    let merged = clean;
+    if (main?.messages.length) {
+      const ids = new Set(clean.map((m) => m.id));
+      const missing = main.messages.filter((m) => !ids.has(m.id));
+      if (missing.length) merged = [...missing, ...clean].sort((a, b) => msgIdTime(a.id) - msgIdTime(b.id));
+    }
+    upsertSession({ id: "main", title: MAIN_SESSION_TITLE, updatedAt: new Date().toISOString(), messages: merged });
+    // 合并出了页面没有的历史：灌回页面（非 busy 时点；busy 中不会走到 merged>页面 的路径）
+    if (merged.length > msgs.length && !busyRef.current) {
+      setMessages(normalizeMsgs(merged));
+    }
   }
 
   // T2.1：答案来源 = 云函数 /api/chat（MiniMax 真实大模型，带多轮上下文）；
@@ -274,6 +292,7 @@ function ChatInner() {
           else if (ev.t === "recs" && Array.isArray(ev.v)) {
             // 预取展示数据（封面/书名/作者）后插标记；handle 在行循环里被 await，期间不会有新文字混进 acc，位置不漂移
             const books = await resolveRecBooks(ev.v as (string | { id: string; title: string })[]);
+            if (fetchCtrl.current !== ctrl) return; // await 期间被停止：卡片不再挂上已定格的消息
             if (books.length) {
               const from = recsAcc.length;
               recsAcc.push(...books);
@@ -283,6 +302,7 @@ function ChatInner() {
             }
           } else if (ev.t === "cites" && Array.isArray(ev.v)) {
             const cites = await buildCitations(ev.v as { b: string; c: number }[]);
+            if (fetchCtrl.current !== ctrl) return; // await 期间被停止：同上
             if (cites.length) {
               const from = citesAcc.length;
               citesAcc.push(...cites);
@@ -452,6 +472,20 @@ function ChatInner() {
     if (recordingRef.current) endRecording();
     else voiceAborting.current = true; // 长按定时器已触发但识别还在启动中就松了手：启动完成后直接放弃
   }
+  // 触屏滚动等系统手势抢占（pointercancel）：一律按"取消"处理——此时用户多半在上滑，
+  // 若当作"确认松手"会把半截话回填进输入框，与取消意图正好相反
+  function onInputPointerCancel() {
+    if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; }
+    if (recordingRef.current) {
+      setRec(false);
+      stopVoice(true);
+      toast("已取消", "info");
+      cancelArmedRef.current = false;
+      setCancelArmed(false);
+    } else {
+      voiceAborting.current = true;
+    }
+  }
   function onInputPointerMove(e: React.PointerEvent) {
     // 指针已被输入框 capture：录音中的"上滑取消"判定也由这里驱动（浮层的 onPointerMove 是无 capture 环境的兜底）
     if (recordingRef.current) { onRecPointerMove(e); return; }
@@ -545,6 +579,7 @@ function ChatInner() {
             onPointerDown={onInputPointerDown}
             onPointerUp={onInputPointerEnd}
             onPointerLeave={onInputPointerEnd}
+            onPointerCancel={onInputPointerCancel}
             onPointerMove={onInputPointerMove}
             rows={1}
             placeholder="想读点什么？问问小涤呗"

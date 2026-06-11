@@ -11,6 +11,7 @@ import type {
   UserProfile,
 } from "@/lib/types";
 import { supabase } from "@/lib/supabase/client";
+import { msgIdTime } from "@/lib/utils";
 import { loadUserData, loadMainSession, chatDb, db } from "@/lib/supabase/userdata";
 
 /* ---------------- Auth（接 Supabase Auth） ---------------- */
@@ -512,7 +513,11 @@ export const useChat = create<ChatState>()(
           const cloudMsgs = cloud?.messages ?? [];
           const seen = new Set(cloudMsgs.map((m) => m.id));
           const extra = localOk ? local!.messages.filter((m) => !seen.has(m.id)) : [];
-          const messages = [...cloudMsgs, ...extra];
+          // 并集后按消息 id 时间戳稳定排序：游客期较早的本地消息若一律 concat 到云端之后，
+          // transcript 会乱序并随 persist 固化喂回模型
+          const messages = extra.length
+            ? [...cloudMsgs, ...extra].sort((a, b) => msgIdTime(a.id) - msgIdTime(b.id))
+            : cloudMsgs;
           if (!messages.length) { set({ sessions: [] }); return; }
           const merged: ChatSession = {
             id: "main",

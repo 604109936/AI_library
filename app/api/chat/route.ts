@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import { streamChat, type MMMessage, type MMToolCall } from "@/lib/server/minimax";
-import { buildSystem, getUid } from "@/lib/server/agent";
+import { buildSystem, getUid, libTitles } from "@/lib/server/agent";
 import { AGENT_TOOLS, toolStatus, execTool, type ToolEvent } from "@/lib/server/tools";
 import { getCompressed, maybeCompress } from "@/lib/server/compress";
 import { maybeUpdateMemory } from "@/lib/server/memory";
@@ -36,10 +36,13 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
   let emittedCard = false;
   const emitW: Emit = (e) => {
     if (e.t === "d" && typeof e.v === "string") fullText += e.v;
-    if (e.t === "recs" || e.t === "cites") emittedCard = true;
+    if (e.t === "recs" || e.t === "cites" || e.t === "web") emittedCard = true; // web 来源卡也算卡（漏计会误触发兜底补荐书卡）
     emit(e);
   };
-  let lastRaw = ""; // 最后一轮原始 content（含 <think>）：补救轮回灌需要
+  // 最后一轮的 content：tool_calls 轮为原始全文（含 <think>），纯文本收尾轮为剥思考后的展示文本
+  // （streamChat 仅在 tool_calls 事件随附 rawContent）。补救轮回灌只需"模型看到自己说过的话"，两种口径均可。
+  let lastRaw = "";
+  let usedReadChapter = false; // 本轮细读过章节原文：按铁律回答必须出引用卡（兜底信号之一）
   const thinkHint = makeThinkHint(); // 思考包装：跨轮共用（去重状态连续，提示不重复闪现）
   for (let round = 0; ; round++) {
     let raw = ""; // 本轮原始 content（含 <think>），工具循环回灌用
@@ -73,19 +76,35 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
       console.log(`[agent-debug] 第${round + 1}轮回灌 assistant（前240字）：${raw.slice(0, 240).replace(/\n/g, "⏎")}`);
     }
     for (const c of calls) {
+      if (c.function.name === "read_chapter") usedReadChapter = true;
       emitW({ t: "status", v: await toolStatus(c.function.name, c.function.arguments) }); // 带书名：「翻开《认知觉醒》」
       const { result, event } = await execTool(c.function.name, c.function.arguments);
       if (event) emitW(event);
       convo.push({ role: "tool", tool_call_id: c.id, content: result });
     }
   }
-  // T3 层②兜底：正文承诺了卡片、全程却没有任何卡片事件（模型说了没做）→ 追加一轮"只许出卡"的
-  // 补救调用，把卡补在回答末尾。模型若仍不调或调错工具则放弃（已三层尽力，记日志供排查）。
-  if (!emittedCard && /卡片/.test(fullText) && lastRaw) {
+  // T3 层②兜底：三类失配信号都补救——① 正文承诺了卡片却没出（"承诺展示"语境正则，
+  // 泛匹配 /卡片/ 会被"卡片笔记法"等合法话题误触发）；② 细读过章节原文作答却没出引用卡；
+  // ③ 用户有推荐意图、正文也提了馆藏书名、却零卡片（模型在"此前推荐过"的历史下最易犯）。
+  // 追加一轮"只许出卡"的补救调用；模型仍不调或调错则放弃（三层已尽力，记日志供排查）。
+  const promisedCard = /(已|为你|帮你|下方|上面|这张)[^。！？\n]{0,10}卡片|卡片[^。！？\n]{0,6}(已|展示|放|在下)/.test(fullText);
+  let recMismatch = false;
+  if (!emittedCard && !promisedCard && !usedReadChapter) {
+    const lastUser = [...msgs].reverse().find((m) => m.role === "user")?.content ?? "";
+    if (/推荐|荐书|挑[^。\n]{0,6}书|选[^。\n]{0,6}书|什么书|哪本|书单|读什么|读哪/.test(lastUser)) {
+      const titles = await libTitles().catch(() => [] as string[]);
+      recMismatch = titles.some((t) => fullText.includes(`《${t}》`));
+    }
+  }
+  if (!emittedCard && (promisedCard || usedReadChapter || recMismatch) && lastRaw) {
     convo.push({ role: "assistant", content: lastRaw });
     convo.push({
       role: "user",
-      content: "（系统校验：你刚才的回答里提到了卡片，但没有真实调用卡片工具，用户面前没有任何卡片。请立即调用 recommend_books 或 cite_chapters 补出对应卡片；只调用工具，不要输出文字。）",
+      content: promisedCard
+        ? "（系统校验：你刚才的回答里提到了卡片，但没有真实调用卡片工具，用户面前没有任何卡片。请立即调用 recommend_books 或 cite_chapters 补出对应卡片；只调用工具，不要输出文字。）"
+        : usedReadChapter
+          ? "（系统校验：你刚才细读了章节原文来回答，但没有调用 cite_chapters 展示依据的章节卡片，用户无法跳转原文。请立即调用 cite_chapters 列出你依据的章节；只调用工具，不要输出文字。）"
+          : "（系统校验：用户请你推荐书，你在正文提到了馆藏书，但没有调用 recommend_books——用户面前没有可点击的卡片，正文书名点不了。请立即调用 recommend_books 补出你提到的馆藏书；只调用工具，不要输出文字。）",
     });
     for await (const ev of streamChat(convo, { tools: AGENT_TOOLS, temperature: 0.3, signal })) {
       if (ev.type === "tool_calls") {

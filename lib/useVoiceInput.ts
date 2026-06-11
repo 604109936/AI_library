@@ -40,8 +40,10 @@ export function useVoiceInput() {
   useEffect(() => () => { cleanup(); }, []); // 卸载兜底释放
 
   function cleanup() {
-    try { recRef.current?.stop(); } catch {}
+    // 先置 null 再 stop：stop 会触发 onend，置空在前才能让 onend 的"仍在录音则续录"判定不误重启
+    const rec = recRef.current;
     recRef.current = null;
+    try { rec?.stop(); } catch {}
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = 0; }
     streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -73,8 +75,49 @@ export function useVoiceInput() {
         setState((s) => (s.active ? { ...s, text: finalRef.current + interimRef.current } : s));
       };
       rec.onerror = () => {}; // no-speech 等非致命错误：不打断录音 UI，松手时按已识别文本处理
+      // 部分平台（iOS Safari 等）识别会在静音/超时后自行 end：仍在录音态则续录（finalRef 保留已定稿文本），
+      // 否则用户后面说的话全部丢失而浮层还在"假装听"。主动 stop 时 recRef 已被 cleanup 置空，不会误重启
+      rec.onend = () => {
+        if (recRef.current !== rec) return;
+        try { rec.start(); } catch { /* 无法续录：保留已识别文本，等用户松手 */ }
+      };
       rec.start();
       recRef.current = rec;
+      // 音量分析：完全异步启动，绝不 await——getUserMedia 在权限未决时会无限挂起，
+      // 阻塞会卡死整个录音浮层；拿不到流就让波形走匀速呼吸回退（level 恒 -1）。
+      // 回调必须做代际校验（recRef === rec）：权限未决期"松手→再长按"会让旧流晚到，
+      // 不校验会把旧流挂上新会话、旧 tracks 永不释放（麦克风指示灯常亮）
+      navigator.mediaDevices
+        ?.getUserMedia({ audio: true })
+        .then((stream) => {
+          if (recRef.current !== rec) { stream.getTracks().forEach((t) => t.stop()); return; }
+          streamRef.current?.getTracks().forEach((t) => t.stop()); // 防覆盖泄漏
+          ctxRef.current?.close().catch(() => {});
+          streamRef.current = stream;
+          const ctx = new AudioContext();
+          ctxRef.current = ctx;
+          const src = ctx.createMediaStreamSource(stream);
+          const analyser = ctx.createAnalyser();
+          analyser.fftSize = 256;
+          src.connect(analyser);
+          const buf = new Uint8Array(analyser.frequencyBinCount);
+          let lastSet = 0;
+          const tick = () => {
+            analyser.getByteFrequencyData(buf);
+            let sum = 0;
+            for (let i = 0; i < buf.length; i++) sum += buf[i];
+            const level = Math.min(1, sum / buf.length / 96);
+            // 节流到 ~10fps：每帧 setState 会驱动整页（含上百条消息）60fps 重渲染
+            const now = performance.now();
+            if (now - lastSet > 100) {
+              lastSet = now;
+              setState((s) => (s.active ? { ...s, level } : s));
+            }
+            rafRef.current = requestAnimationFrame(tick);
+          };
+          rafRef.current = requestAnimationFrame(tick);
+        })
+        .catch(() => { /* 无麦克风音量流：波形走匀速呼吸 */ });
     } catch {
       return false;
     }
@@ -82,31 +125,6 @@ export function useVoiceInput() {
     timerRef.current = setInterval(() => {
       setState((s) => (s.active ? { ...s, seconds: Math.floor((Date.now() - startedAt.current) / 1000) } : s));
     }, 500);
-    // 音量分析：完全异步启动，绝不 await——getUserMedia 在权限未决时会无限挂起，
-    // 阻塞会卡死整个录音浮层；拿不到流就让波形走匀速呼吸回退（level 恒 -1）
-    navigator.mediaDevices
-      ?.getUserMedia({ audio: true })
-      .then((stream) => {
-        if (!recRef.current) { stream.getTracks().forEach((t) => t.stop()); return; } // 流到达时已松手
-        streamRef.current = stream;
-        const ctx = new AudioContext();
-        ctxRef.current = ctx;
-        const src = ctx.createMediaStreamSource(stream);
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 256;
-        src.connect(analyser);
-        const buf = new Uint8Array(analyser.frequencyBinCount);
-        const tick = () => {
-          analyser.getByteFrequencyData(buf);
-          let sum = 0;
-          for (let i = 0; i < buf.length; i++) sum += buf[i];
-          const level = Math.min(1, sum / buf.length / 96);
-          setState((s) => (s.active ? { ...s, level } : s));
-          rafRef.current = requestAnimationFrame(tick);
-        };
-        rafRef.current = requestAnimationFrame(tick);
-      })
-      .catch(() => { /* 无麦克风音量流：波形走匀速呼吸 */ });
     return true;
   }
 

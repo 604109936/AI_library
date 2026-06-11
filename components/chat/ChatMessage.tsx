@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -121,8 +121,21 @@ function WebBlock({ sources }: { sources: WebSource[] }) {
     <div className="my-3 animate-fade-up space-y-2 first:mt-0 last:mb-0">
       <p className="text-[11px] text-ink-300">来源 {sources.length} 处，点击可查看</p>
       {sources.map((s, i) => {
+        // 协议白名单（纵深防御）：历史 jsonb 或上游若混入 javascript:/data: 协议，不渲染为可点链接
         let host = "";
-        try { host = new URL(s.u).hostname.replace(/^www\./, ""); } catch {}
+        let safe = false;
+        try {
+          const u = new URL(s.u);
+          host = u.hostname.replace(/^www\./, "");
+          safe = u.protocol === "http:" || u.protocol === "https:";
+        } catch {}
+        if (!safe) {
+          return (
+            <div key={i} className="rounded-xl border border-line p-2.5 text-xs text-ink-500 dark:border-white/10 dark:text-dark-text/55">
+              {s.t}
+            </div>
+          );
+        }
         return (
           <a
             key={i}
@@ -149,7 +162,9 @@ function WebBlock({ sources }: { sources: WebSource[] }) {
   );
 }
 
-export function ChatMessage({
+// memo：打字机 16ms 一拍 setMessages 时只有目标消息换了引用，其余（最多 120 条）跳过
+// ReactMarkdown 全量重解析——长会话流式/录音音量刷新下的卡顿大头
+export const ChatMessage = memo(function ChatMessage({
   msg,
   onRegenerate,
   onFeedback,
@@ -339,4 +354,4 @@ export function ChatMessage({
       )}
     </div>
   );
-}
+});

@@ -24,9 +24,10 @@ export interface MMTool {
   function: { name: string; description: string; parameters: Record<string, unknown> };
 }
 
-// M 系推理模型会把思考过程包在 <think>…</think> 里输出，展示前剥掉
+// M 系推理模型会把思考过程包在 <think>…</think> 里输出，展示前剥掉。
+// (<\/think>|$) 兼容"输出被 max_tokens 截断在思考段内"的未闭合形态（任意位置开始都剥到结尾）
 export function stripThink(s: string): string {
-  return s.replace(/<think>[\s\S]*?<\/think>/g, "").replace(/^<think>[\s\S]*/g, "").trim();
+  return s.replace(/<think>[\s\S]*?(<\/think>|$)/g, "").trim();
 }
 
 // 流式版思考过滤器：跨 chunk 也能正确切分 <think>…</think>（标签可能被块边界拆开）。

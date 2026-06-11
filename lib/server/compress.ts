@@ -72,8 +72,16 @@ async function compress(uid: string, sessionId: string) {
         content: `${prev ? `【已有摘要（在此基础上合并更新）】\n${prev}\n\n` : ""}【需要并入的旧对话】\n${part}`,
       },
     ],
-    { model: COMPRESS_MODEL, maxTokens: 8192, temperature: 0.3 }
+    // timeoutMs 100s：M3 长思考 + 3500 字摘要远超 chatOnce 默认 60s（曾导致压缩永远超时、until 停滞）；
+    // waitUntil 受 route maxDuration=120s 约束，留 20s 余量
+    { model: COMPRESS_MODEL, maxTokens: 8192, temperature: 0.3, timeoutMs: 100_000 }
   );
+  // 产物校验：输出被截断在思考段内时 stripThink 会剥成空串——空/过短摘要绝不能写库，
+  // 否则 until 推进 + 旧摘要被覆盖 = 不可逆的上下文黑洞；不写库留待下轮重试
+  if (summary.trim().length < 50) {
+    console.warn("[compress] 摘要产物异常（过短），本轮放弃：", summary.slice(0, 40));
+    return;
+  }
 
   await admin
     .from("chat_sessions")
