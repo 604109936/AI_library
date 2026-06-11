@@ -10,6 +10,7 @@ import { Motif } from "@/components/ui/Motif";
 import { useAuth, useUI, useReader, type Theme, type ReaderBg } from "@/lib/store";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { supabase } from "@/lib/supabase/client";
+import { DEMO_EMAIL } from "@/lib/utils";
 
 const THEMES: { key: Theme; label: string }[] = [
   { key: "light", label: "浅色" },
@@ -28,6 +29,8 @@ export default function SettingsPage() {
   const reader = useReader();
   const [sheet, setSheet] = useState<Sheet>(null);
   useLockBodyScroll(sheet !== null); // 弹层打开时锁定背景滚动
+  // 共享体验账号禁止改密/注销：一次误触/恶意操作会让所有人的「一键体验」瘫痪（Review P0；服务端删号另有 403 兜底）
+  const isDemo = user?.email === DEMO_EMAIL;
 
   const [oldPwd, setOldPwd] = useState("");
   const [newPwd, setNewPwd] = useState("");
@@ -120,7 +123,7 @@ export default function SettingsPage() {
             </button>
             <Item label="昵称" value={user?.nickname} onClick={() => router.push("/me/settings/profile")} />
             <Item label="简介" value={user?.bio} onClick={() => router.push("/me/settings/profile")} />
-            <Item label="修改密码" onClick={() => setSheet("password")} />
+            <Item label="修改密码" onClick={() => (isDemo ? toast("体验账号是大家共用的，不能改密码——注册一个自己的账号吧", "info") : setSheet("password"))} />
           </Group>
 
           {/* 阅读偏好 */}
@@ -149,7 +152,7 @@ export default function SettingsPage() {
 
           {/* 隐私与数据 */}
           <Group title="隐私与数据">
-            <Item label="注销账号" danger onClick={() => setSheet("deactivate")} />
+            <Item label="注销账号" danger onClick={() => (isDemo ? toast("体验账号是大家共用的，不能注销——注册一个自己的账号吧", "info") : setSheet("deactivate"))} />
           </Group>
 
           {/* 关于 */}

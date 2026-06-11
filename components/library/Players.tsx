@@ -116,6 +116,14 @@ function VideoStage({ book }: { book: Book }) {
   useReadingClock(playing); // 观看时长计入「我的-总时长」
   useReadCountBump(book.id.split("__")[0], playing); // 「一次阅读」计数（真实播放满30秒记一次）
 
+  // 卸载/切台必须停声：脱离文档的媒体元素会继续播放音频且播放中不被回收——
+  // 返回上页或切到音频 Tab 后声音在后台响、全 App 无任何 UI 能停（Review P0）。
+  // removeAttribute+load 同时释放下载/解码资源；进度落盘由 useHistoryReporter 的卸载 flush 先行完成
+  useEffect(() => {
+    const m = ref.current;
+    return () => { if (m) { m.pause(); m.removeAttribute("src"); m.load(); } };
+  }, []);
+
   useEffect(() => { if (ref.current) ref.current.playbackRate = speed; }, [speed]);
   // 自绘全屏：锁滚动 + 接管系统返回（压入一条历史，返回手势只退全屏不退页面）
   const fsPushed = useRef(false);
@@ -255,6 +263,12 @@ function AudioStage({ book }: { book: Book }) {
   const { report, flush, trackPlayed, primePlayed, seekReset } = useHistoryReporter(book, "audio");
   useReadingClock(playing); // 收听时长计入「我的-总时长」
   useReadCountBump(book.id.split("__")[0], playing); // 「一次阅读」计数（真实播放满30秒记一次）
+
+  // 卸载/切台停声 + 释放资源（与 VideoStage 同口径，Review P0）
+  useEffect(() => {
+    const m = ref.current;
+    return () => { if (m) { m.pause(); m.removeAttribute("src"); m.load(); } };
+  }, []);
 
   useEffect(() => { if (ref.current) ref.current.playbackRate = speed; }, [speed]);
 

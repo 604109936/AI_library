@@ -11,7 +11,7 @@ import type {
   UserProfile,
 } from "@/lib/types";
 import { supabase } from "@/lib/supabase/client";
-import { msgIdTime } from "@/lib/utils";
+import { msgIdTime, DEMO_EMAIL } from "@/lib/utils";
 import { loadUserData, loadMainSession, chatDb, db } from "@/lib/supabase/userdata";
 
 /* ---------------- Auth（接 Supabase Auth） ---------------- */
@@ -28,6 +28,26 @@ async function loadProfile(authUser: any): Promise<UserProfile> {
     avatarUrl: data?.avatar_url ?? undefined,
     stats: { hours: 0, read: 0, notes: 0, reviews: 0 },
   };
+}
+
+// 登录后的全量加载链（资料 → 书库数据 → 对话云端）。
+// signInWithPassword 会同步广播 SIGNED_IN，login()/register() 与 onAuthStateChange 处理器会双触发——
+// 按 uid 合并在途加载保证整链只跑一次：重复跑既双倍打库，也会放大「user 已置位、数据未就绪」的空基线窗口
+let signInLoading: { uid: string; p: Promise<void> } | null = null;
+function signInLoad(authUser: { id: string }): Promise<void> {
+  if (signInLoading?.uid === authUser.id) return signInLoading.p;
+  const p = (async () => {
+    try {
+      const prof = await loadProfile(authUser);
+      useAuth.setState({ user: prof });
+      await useLibrary.getState().load(prof);
+      await useChat.getState().loadCloud(prof.id);
+    } finally {
+      signInLoading = null;
+    }
+  })();
+  signInLoading = { uid: authUser.id, p };
+  return p;
 }
 
 interface AuthState {
@@ -48,10 +68,7 @@ export const useAuth = create<AuthState>()((set, get) => ({
     const { data } = await supabase.auth.getSession();
     if (data.session?.user) {
       try {
-        const p = await loadProfile(data.session.user);
-        set({ user: p });
-        await useLibrary.getState().load(p);
-        await useChat.getState().loadCloud(p.id);
+        await signInLoad(data.session.user);
       } catch {}
     } else {
       useLibrary.getState().setHydrated();
@@ -65,18 +82,17 @@ export const useAuth = create<AuthState>()((set, get) => ({
           set({ user: null });
           useLibrary.getState().reset();
           useChat.getState().resetLocal();
+          useUI.getState().clearRecent(); // 搜索历史属账号痕迹：登出即清，防换号/游客可见上一账号搜过什么（Review P0）
         } else if (sess?.user && (event === "SIGNED_IN" || event === "USER_UPDATED" || event === "TOKEN_REFRESHED")) {
-          const firstSignIn = !get().user; // 该标签页此前未登录（跨标签登录/延迟恢复会话）
-          loadProfile(sess.user)
-            .then(async (p) => {
-              set({ user: p });
-              // 必须补 load：否则 user 已置位但本地数据全空，useReadingClock 等会以空基线写穿透洗掉云端（Review P1）
-              if (firstSignIn) {
-                await useLibrary.getState().load(p);
-                await useChat.getState().loadCloud(p.id);
-              }
-            })
-            .catch(() => {});
+          if (!get().user) {
+            // 该标签页此前未登录（跨标签登录/延迟恢复会话）：走完整加载链。
+            // 必须补 load：否则 user 已置位但本地数据全空，useReadingClock 等会以空基线写穿透洗掉云端（Review P1）；
+            // 与 login()/register() 的双触发由 signInLoad 在途去重
+            signInLoad(sess.user).catch(() => {});
+          } else {
+            // 已登录态的资料刷新（USER_UPDATED/TOKEN_REFRESHED）：只刷 profile，不重拉数据
+            loadProfile(sess.user).then((p) => set({ user: p })).catch(() => {});
+          }
         }
       });
     }
@@ -84,12 +100,7 @@ export const useAuth = create<AuthState>()((set, get) => ({
   login: async (email, password) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
     if (error) return { error: error.message };
-    if (data.user) {
-      const p = await loadProfile(data.user);
-      set({ user: p });
-      await useLibrary.getState().load(p);
-      await useChat.getState().loadCloud(p.id);
-    }
+    if (data.user) await signInLoad(data.user);
     return {};
   },
   register: async (email, password, nickname) => {
@@ -110,10 +121,7 @@ export const useAuth = create<AuthState>()((set, get) => ({
       await supabase.from("profiles").update({ nickname: nick }).eq("id", u.id);
     }
     if (!data.session) return { needConfirm: true }; // 邮箱验证未关闭时无会话
-    const p = await loadProfile(u);
-    set({ user: p });
-    await useLibrary.getState().load(p);
-    await useChat.getState().loadCloud(p.id);
+    await signInLoad(u);
     return {};
   },
   logout: async () => {
@@ -121,6 +129,7 @@ export const useAuth = create<AuthState>()((set, get) => ({
     set({ user: null });
     useLibrary.getState().reset();
     useChat.getState().resetLocal(); // 对话只清本地，云端永久保留
+    useUI.getState().clearRecent(); // 搜索历史随登出清空（防跨账号残留）
   },
   updateProfile: async (patch) => {
     const u = get().user;
@@ -300,6 +309,10 @@ export const useLibrary = create<LibState>()((set, get) => {
     ...EMPTY,
     setHydrated: () => set({ hydrated: true }),
     load: async (user) => {
+      // 进入加载先关写穿透门禁：登录/换号路径下 hydrated 可能仍是上一世代（游客/旧号）的 true，
+      // 不归零的话，加载完成前阅读器/播放器的自动上报会以空基线把云端 read_chapter_ids、
+      // reading_history 等洗掉（Review P0：reset() 落点 hydrated=true + 游客路径 setHydrated 都会留下残留 true）
+      set({ hydrated: false });
       // 失败重试一次；仍失败则保持 hydrated=false——绝不能"假装水合成功"放行写穿透，
       // 空基线会把云端真实进度洗成 0（loadUserData 已逐路检查 error，失败必 throw）
       for (let attempt = 0; attempt < 2; attempt++) {
@@ -474,6 +487,7 @@ export const MAIN_SESSION_TITLE = "与小涤的对话";
 interface ChatState {
   sessions: ChatSession[];
   hiddenSamples: string[]; // 被用户隐藏的欢迎页示例 id（持久化，刷新后不再复现）
+  cloudLoaded: string | null; // 已成功拉取过云端 main 的 uid（不持久化）：拉取成功前禁止整段覆盖上云
   upsertSession: (s: ChatSession) => void;
   hideSample: (id: string) => void;
   hideAllSamples: (ids: string[]) => void;
@@ -488,55 +502,78 @@ const chatSync = (q: PromiseLike<{ error: unknown }>) => {
     () => {}
   );
 };
+let chatCloudLoading: string | null = null; // loadCloud 在途去重（persist 重试 + 登录链可能并发触发）
 export const useChat = create<ChatState>()(
   persist(
     (set, get) => ({
       sessions: [],
       hiddenSamples: [],
+      cloudLoaded: null,
       upsertSession: (s) => {
         const stamped = { ...s, ownerUid: chatUid() ?? "guest" }; // 标记归属，换号时据此辨别"谁的会话"
         set({ sessions: [stamped] }); // 单一会话：永远只有这一条
         const u = chatUid();
-        if (u) chatSync(chatDb.upsert(u, stamped));
+        if (!u) return;
+        // 【云端门禁——Review P0】chatDb.upsert 是整段 jsonb 覆盖写：云端历史尚未成功拉到本地
+        // （loadCloud 失败/未完成）时绝不能上云，否则一条新发言就把几百条历史洗成本地短列表。
+        // 改为补拉一次：loadCloud 成功后会把本地新增按 id 并入并自动回传
+        if (get().cloudLoaded === u) chatSync(chatDb.upsert(u, stamped));
+        else void get().loadCloud(u);
       },
       hideSample: (id) => set({ hiddenSamples: Array.from(new Set([...get().hiddenSamples, id])) }),
       hideAllSamples: (ids) => set({ hiddenSamples: Array.from(new Set([...get().hiddenSamples, ...ids])) }),
       loadCloud: async (uid) => {
+        if (chatCloudLoading === uid) return; // 同账号已在拉取中
+        chatCloudLoading = uid;
         try {
-          const cloud = await loadMainSession(uid);
-          // 世代校验：加载期间已退出/换号 → 晚到数据不回写、不上传（防把 A 的会话灌进 B 的账号）
+          // 失败重试一次（与书库 load 同口径）：loadCloud 静默失败曾是"覆盖云端历史"P0 的根源
+          for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+              const cloud = await loadMainSession(uid);
+              // 世代校验：加载期间已退出/换号 → 晚到数据不回写、不上传（防把 A 的会话灌进 B 的账号）
+              if (useAuth.getState().user?.id !== uid) return;
+              const local = get().sessions.find((s) => s.id === "main");
+              // 共享体验账号只读云端（任何设备的本地残留都不上传）；普通账号仅并入"真·游客/本人"的消息，legacy/他人残留丢弃
+              const isSharedDemo = useAuth.getState().user?.email === DEMO_EMAIL;
+              const localOk = !isSharedDemo && local && (!local.ownerUid || local.ownerUid === "guest" || local.ownerUid === uid);
+              const cloudMsgs = cloud?.messages ?? [];
+              const seen = new Set(cloudMsgs.map((m) => m.id));
+              const extra = localOk ? local!.messages.filter((m) => !seen.has(m.id)) : [];
+              // 并集后按消息 id 时间戳稳定排序：游客期较早的本地消息若一律 concat 到云端之后，
+              // transcript 会乱序并随 persist 固化喂回模型
+              const messages = extra.length
+                ? [...cloudMsgs, ...extra].sort((a, b) => msgIdTime(a.id) - msgIdTime(b.id))
+                : cloudMsgs;
+              if (!messages.length) { set({ sessions: [], cloudLoaded: uid }); return; }
+              const merged: ChatSession = {
+                id: "main",
+                title: MAIN_SESSION_TITLE,
+                // 没有本地新增时沿用云端时间，不无故刷新
+                updatedAt: extra.length ? new Date().toISOString() : cloud?.updatedAt ?? new Date().toISOString(),
+                messages,
+                ownerUid: uid,
+              };
+              if (extra.length) chatSync(chatDb.upsert(uid, merged)); // 游客期攒下的消息回传云端
+              set({ sessions: [merged], cloudLoaded: uid });
+              return;
+            } catch {
+              if (attempt === 0) await new Promise((r) => setTimeout(r, 800));
+            }
+          }
           if (useAuth.getState().user?.id !== uid) return;
-          const local = get().sessions.find((s) => s.id === "main");
-          // 共享体验账号只读云端（任何设备的本地残留都不上传）；普通账号仅并入"真·游客/本人"的消息，legacy/他人残留丢弃
-          const isSharedDemo = useAuth.getState().user?.email === "demo@ailibrary.app";
-          const localOk = !isSharedDemo && local && (!local.ownerUid || local.ownerUid === "guest" || local.ownerUid === uid);
-          const cloudMsgs = cloud?.messages ?? [];
-          const seen = new Set(cloudMsgs.map((m) => m.id));
-          const extra = localOk ? local!.messages.filter((m) => !seen.has(m.id)) : [];
-          // 并集后按消息 id 时间戳稳定排序：游客期较早的本地消息若一律 concat 到云端之后，
-          // transcript 会乱序并随 persist 固化喂回模型
-          const messages = extra.length
-            ? [...cloudMsgs, ...extra].sort((a, b) => msgIdTime(a.id) - msgIdTime(b.id))
-            : cloudMsgs;
-          if (!messages.length) { set({ sessions: [] }); return; }
-          const merged: ChatSession = {
-            id: "main",
-            title: MAIN_SESSION_TITLE,
-            // 没有本地新增时沿用云端时间，不无故刷新
-            updatedAt: extra.length ? new Date().toISOString() : cloud?.updatedAt ?? new Date().toISOString(),
-            messages,
-            ownerUid: uid,
-          };
-          if (extra.length) chatSync(chatDb.upsert(uid, merged)); // 游客期攒下的消息回传云端
-          set({ sessions: [merged] });
-        } catch {}
+          useUI.getState().toast("对话历史没加载出来，新消息先存本机稍后自动同步", "error");
+        } finally {
+          chatCloudLoading = null;
+        }
       },
-      resetLocal: () => set({ sessions: [] }),
+      resetLocal: () => set({ sessions: [], cloudLoaded: null }),
       purgeForeign: () => set({ sessions: get().sessions.filter((s) => !s.ownerUid || s.ownerUid === "guest") }),
     }),
     {
       name: "ail-chat",
       version: 2,
+      // cloudLoaded 是会话期内存标记，绝不能持久化：否则刷新后带着旧 uid 复活，门禁形同虚设
+      partialize: (s) => ({ sessions: s.sessions, hiddenSamples: s.hiddenSamples }) as any,
       migrate: (state: any, version: number) => {
         // v1：旧版（ownerUid 字段之前）的存量会话可能属于此前登录过的任意账号——打 legacy 标记防串档上传
         if (version < 1 && Array.isArray(state?.sessions)) {

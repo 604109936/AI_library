@@ -5,9 +5,9 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useAuth, useUI } from "@/lib/store";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { Mail, Lock, Eye, EyeOff, BookHeart, User } from "lucide-react";
+import { DEMO_EMAIL } from "@/lib/utils";
 
 // 体验账号（真实 Supabase 用户，由 scripts/create-demo-user.mjs 建）
-const DEMO_EMAIL = "demo@ailibrary.app";
 const DEMO_PWD = "123456";
 
 // Supabase 英文报错 → 中文

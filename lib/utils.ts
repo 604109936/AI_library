@@ -5,6 +5,9 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/** 共享体验账号邮箱（前后端同源口径）：该账号禁止改密/注销，对话只读云端 */
+export const DEMO_EMAIL = "demo@ailibrary.app";
+
 /** 聊天消息 id（"u1781…-seq"/"a1781…-seq"）里的时间戳：多端消息合并时按它稳定排序；
  *  老格式（无数字前缀）返回 0 排最前并保持相对原序 */
 export function msgIdTime(id: string): number {
