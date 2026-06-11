@@ -87,11 +87,12 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
   // 泛匹配 /卡片/ 会被"卡片笔记法"等合法话题误触发）；② 细读过章节原文作答却没出引用卡；
   // ③ 用户有推荐意图、正文也提了馆藏书名、却零卡片（模型在"此前推荐过"的历史下最易犯）。
   // 追加一轮"只许出卡"的补救调用；模型仍不调或调错则放弃（三层已尽力，记日志供排查）。
-  const promisedCard = /(已|为你|帮你|下方|上面|这张)[^。！？\n]{0,10}卡片|卡片[^。！？\n]{0,6}(已|展示|放|在下)/.test(fullText);
+  const promisedCard = /(已|为你|帮你|下方|下面|上面|这张)[^。！？\n]{0,10}卡片|卡片[^。！？\n]{0,6}(已|展示|放|在下)/.test(fullText);
   let recMismatch = false;
   if (!emittedCard && !promisedCard && !usedReadChapter) {
     const lastUser = [...msgs].reverse().find((m) => m.role === "user")?.content ?? "";
-    if (/推荐|荐书|挑[^。\n]{0,6}书|选[^。\n]{0,6}书|什么书|哪本|书单|读什么|读哪/.test(lastUser)) {
+    // 意图距离放宽到 12 字：「挑两本适合我现在读的书」这类自然表达中动词与"书"隔了 9 字（曾漏判）
+    if (/推荐|荐书|[挑选找推][^。！？\n]{0,12}书|给我[^。！？\n]{0,12}书|什么书|哪本|书单|读什么|读哪|适合我[^。！？\n]{0,8}(读|看|听)/.test(lastUser)) {
       const titles = await libTitles().catch(() => [] as string[]);
       recMismatch = titles.some((t) => fullText.includes(`《${t}》`));
     }
