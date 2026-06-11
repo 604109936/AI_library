@@ -10,7 +10,7 @@ import { stripCardMarkers } from "@/lib/chatMarkers";
 
 const KEEP = 40; // 最近 20 轮（40 条）不压缩
 const BATCH_MIN = 8; // 新增未压缩消息攒够这个数才值得跑一次压缩
-const COMPRESS_MODEL = process.env.MINIMAX_COMPRESS_MODEL || "MiniMax-Text-01"; // 压缩走便宜快的模型
+const COMPRESS_MODEL = process.env.MINIMAX_COMPRESS_MODEL || "MiniMax-M3"; // 任务书 T5：全部调用统一 M3
 
 // 「请求口径」视图：与前端组装上下文的过滤规则完全一致（剔除 error 占位 → 剥卡片标记 → 滤空）。
 // compressed_until 必须按这套口径计数：若按 DB 原始数组下标计数，前端请求数组比 DB 短 k 条
@@ -56,6 +56,8 @@ async function compress(uid: string, sessionId: string) {
     .join("\n");
   const prev = (row.compressed_history ?? "").trim();
 
+  // 压缩口径（任务书 T5 放宽）：触发维持「条数代理 500K」，产物放宽到约 5K tokens（中文约 3500 字）——
+  // 1500 tokens 压得太猛会丢偏好细节。maxTokens 给 8192：M3 的 <think> 思考也消耗输出预算，必须留足余量
   const summary = await chatOnce(
     [
       {
@@ -63,19 +65,19 @@ async function compress(uid: string, sessionId: string) {
         content:
           "你是对话压缩器。把读者与 AI 读书伙伴的旧对话压缩成接续摘要，供 AI 后续对话时回忆上下文。" +
           "保留：读者的阅读偏好与个人情况、讨论过的书与章节、给过的建议与结论、未完成的话题。" +
-          "去掉：寒暄、重复、格式装饰。直接输出摘要正文（不要任何前后缀），800 字以内。",
+          "去掉：寒暄、重复、格式装饰。直接输出摘要正文（不要任何前后缀），3500 字以内。",
       },
       {
         role: "user",
         content: `${prev ? `【已有摘要（在此基础上合并更新）】\n${prev}\n\n` : ""}【需要并入的旧对话】\n${part}`,
       },
     ],
-    { model: COMPRESS_MODEL, maxTokens: 1500, temperature: 0.3 }
+    { model: COMPRESS_MODEL, maxTokens: 8192, temperature: 0.3 }
   );
 
   await admin
     .from("chat_sessions")
-    .update({ compressed_history: summary.slice(0, 4000), compressed_until: cut })
+    .update({ compressed_history: summary.slice(0, 16000), compressed_until: cut })
     .eq("user_id", uid)
     .eq("id", sessionId);
 }

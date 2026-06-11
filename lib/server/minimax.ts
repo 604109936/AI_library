@@ -1,11 +1,12 @@
 // MiniMax 服务端客户端（仅云函数使用，密钥绝不进前端）。
-// 探测结论（scripts/test-minimax.mjs，2026-06-11）：TokenPlan 订阅 key 只认国内域名 api.minimaxi.com；
-// OpenAI 兼容端点 /v1/chat/completions 可用；可用模型 MiniMax-M2（带 <think> 思考段）/ MiniMax-Text-01（干净、4M 上下文）。
+// 探测结论（scripts/probe-m3-format.mjs，2026-06-11）：TokenPlan 订阅 key 只认国内域名 api.minimaxi.com；
+// OpenAI 兼容端点 /v1/chat/completions 可用；MiniMax-M3 思考段为 content 内联 <think>…</think>（无独立字段），
+// 工具循环回灌历史时 assistant content 必须完整保留 <think>（interleaved thinking，官方要求，否则每轮"失忆"）。
 import "server-only";
 
 const BASE = process.env.MINIMAX_BASE_URL || "https://api.minimaxi.com";
-// 默认 Text-01：响应快、输出干净、超长上下文适合塞整馆书单；要换 M2 只需在 .env.local 设 MINIMAX_MODEL=MiniMax-M2
-const MODEL = process.env.MINIMAX_MODEL || "MiniMax-Text-01";
+// 默认 M3：MiniMax 最新旗舰，agentic 多步规划强（任务书 T5 全量切换，2026-06-11 实测 ID 可用）
+const MODEL = process.env.MINIMAX_MODEL || "MiniMax-M3";
 
 export interface MMToolCall {
   id: string;
@@ -28,17 +29,26 @@ export function stripThink(s: string): string {
   return s.replace(/<think>[\s\S]*?<\/think>/g, "").replace(/^<think>[\s\S]*/g, "").trim();
 }
 
-// 流式版思考过滤器：跨 chunk 也能正确剥 <think>…</think>（标签可能被块边界拆开）
+// 流式版思考过滤器：跨 chunk 也能正确切分 <think>…</think>（标签可能被块边界拆开）。
+// 两路输出：out=面向用户的正文增量（剥净思考）；think=思考文本增量（T8 包装成过程提示，绝不直出给用户）
 export function makeThinkFilter() {
   let pend = "";
   let inThink = false;
-  return (chunk: string, flush = false): string => {
+  return (chunk: string, flush = false): { out: string; think: string } => {
     pend += chunk;
     let out = "";
+    let think = "";
     for (;;) {
       if (inThink) {
         const i = pend.indexOf("</think>");
-        if (i === -1) { pend = pend.slice(-9); break; } // 思考内容直接丢弃，只留尾巴防拆标签
+        if (i === -1) {
+          // 思考内容产出到 think 路，只留尾巴防拆标签
+          const keep = Math.min(9, pend.length);
+          think += pend.slice(0, pend.length - keep);
+          pend = pend.slice(pend.length - keep);
+          break;
+        }
+        think += pend.slice(0, i);
         pend = pend.slice(i + 8);
         inThink = false;
       } else {
@@ -55,17 +65,28 @@ export function makeThinkFilter() {
         break;
       }
     }
-    if (flush && !inThink) { out += pend; pend = ""; }
-    return out;
+    if (flush) {
+      if (inThink) think += pend; // 未闭合的思考段（max_tokens 烧尽等）整体归思考，不漏给用户
+      else out += pend;
+      pend = "";
+    }
+    return { out, think };
   };
 }
 
-// 流式对话（SSE）。产出两类事件：文本增量（已剥思考）/ 完整组装好的工具调用组。
+// 流式对话（SSE）。产出三类事件：
+//   delta=用户可见正文增量（已剥思考）；think=思考文本增量（供过程提示包装，不直出）；
+//   tool_calls=完整组装好的工具调用组 + rawContent（本轮原始 content 含 <think>，回灌历史必须用它——
+//   M 系 interleaved thinking 官方要求完整保留思考，否则每轮工具调用都"失忆"降智）。
 // 工具调用增量按 OpenAI 规范以 index 聚合（id/name 先到，arguments 分片续传）。
 export async function* streamChat(
   messages: MMMessage[],
   opts?: { maxTokens?: number; temperature?: number; tools?: MMTool[]; signal?: AbortSignal }
-): AsyncGenerator<{ type: "delta"; text: string } | { type: "tool_calls"; calls: MMToolCall[] }> {
+): AsyncGenerator<
+  | { type: "delta"; text: string }
+  | { type: "think"; text: string }
+  | { type: "tool_calls"; calls: MMToolCall[]; rawContent: string }
+> {
   const key = process.env.MINIMAX_API_KEY;
   if (!key) throw new Error("服务端未配置 MINIMAX_API_KEY");
   const r = await fetch(`${BASE}/v1/chat/completions`, {
@@ -88,6 +109,7 @@ export async function* streamChat(
   }
   const filter = makeThinkFilter();
   const calls: { id: string; name: string; args: string }[] = [];
+  let raw = ""; // 本轮完整原始 content（含 <think>）：tool_calls 事件随附，供回灌
   const reader = r.body.getReader();
   const dec = new TextDecoder();
   let buf = "";
@@ -111,8 +133,10 @@ export async function* streamChat(
         if (!ch) continue;
         const d = ch.delta ?? {};
         if (typeof d.content === "string" && d.content) {
-          const text = filter(d.content);
-          if (text) yield { type: "delta", text };
+          raw += d.content;
+          const { out, think } = filter(d.content);
+          if (out) yield { type: "delta", text: out };
+          if (think) yield { type: "think", text: think };
         }
         if (Array.isArray(d.tool_calls)) {
           for (const tc of d.tool_calls) {
@@ -130,10 +154,15 @@ export async function* streamChat(
     reader.cancel().catch(() => {});
   }
   const tail = filter("", true);
-  if (tail) yield { type: "delta", text: tail };
+  if (tail.out) yield { type: "delta", text: tail.out };
+  if (tail.think) yield { type: "think", text: tail.think };
   const valid = calls.filter((c) => c.name);
   if (valid.length) {
-    yield { type: "tool_calls", calls: valid.map((c, i) => ({ id: c.id || `call_${i}`, type: "function" as const, function: { name: c.name, arguments: c.args || "{}" } })) };
+    yield {
+      type: "tool_calls",
+      calls: valid.map((c, i) => ({ id: c.id || `call_${i}`, type: "function" as const, function: { name: c.name, arguments: c.args || "{}" } })),
+      rawContent: raw,
+    };
   }
 }
 

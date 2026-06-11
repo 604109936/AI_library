@@ -12,7 +12,7 @@ if (!KEY) { console.log("❌ .env.local 缺 MINIMAX_API_KEY"); process.exit(1); 
 
 const tries = [];
 for (const base of ["https://api.minimaxi.com", "https://api.minimax.io"]) {
-  for (const model of ["MiniMax-M2", "MiniMax-Text-01"]) {
+  for (const model of ["MiniMax-M3"]) {
     tries.push({
       name: `${base} chatcompletion_v2 ${model}`,
       url: `${base}/v1/text/chatcompletion_v2`,
@@ -27,10 +27,10 @@ for (const base of ["https://api.minimaxi.com", "https://api.minimax.io"]) {
     });
   }
   tries.push({
-    name: `${base} anthropic/v1/messages MiniMax-M2`,
+    name: `${base} anthropic/v1/messages MiniMax-M3`,
     url: `${base}/anthropic/v1/messages`,
     anthropic: true,
-    body: { model: "MiniMax-M2", max_tokens: 16, messages: [{ role: "user", content: "只回两个字：连通" }] },
+    body: { model: "MiniMax-M3", max_tokens: 16, messages: [{ role: "user", content: "只回两个字：连通" }] },
     pick: (j) => j?.content?.map?.((c) => c.text).join(""),
   });
 }

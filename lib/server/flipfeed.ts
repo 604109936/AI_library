@@ -9,8 +9,8 @@ import "server-only";
 import { admin } from "@/lib/server/agent";
 import { chatOnce } from "@/lib/server/minimax";
 
-// 排序走便宜快的模型（与压缩同款思路）；要换模型只需在 .env.local 设 MINIMAX_FEED_MODEL
-const FEED_MODEL = process.env.MINIMAX_FEED_MODEL || "MiniMax-Text-01";
+// 任务书 T5：全部调用统一 M3；要换模型只需在 .env.local 设 MINIMAX_FEED_MODEL
+const FEED_MODEL = process.env.MINIMAX_FEED_MODEL || "MiniMax-M3";
 const FEED_SIZE = 50;
 const USER_BATCH = 24;      // 每批处理的用户数（信号查询 + LLM + 落库 以批为单位）
 const CONCURRENCY = 4;      // 批内同时跑几个 LLM 排序（防 MiniMax 限流）

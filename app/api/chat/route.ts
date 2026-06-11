@@ -19,7 +19,9 @@ export const maxDuration = 120;
 const MAX_TURNS = 40;
 const HARD_CAP = 64; // 绝对上限（防异常超长请求）
 const MAX_CHARS = 4000; // 单条消息长度护栏
-const MAX_ROUNDS = 5; // 工具循环上限（防失控）
+// 工具循环上限：M3 多步规划能力强（toc→多章细读→出卡是常态），联网搜索(T10)上线后还会再叠轮次；
+// 5 轮经常掐在半路，上调到 8（仍是防失控护栏，正常对话远用不满）
+const MAX_ROUNDS = 8;
 
 type Emit = (e: { t: "d" | "status" | "end" | "err"; v?: string } | ToolEvent) => void;
 
@@ -28,11 +30,12 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
   const system = await buildSystem(uid, compressed);
   const convo: MMMessage[] = [{ role: "system", content: system }, ...msgs];
   for (let round = 0; ; round++) {
-    let text = "";
+    let raw = ""; // 本轮原始 content（含 <think>），工具循环回灌用
     let calls: MMToolCall[] | null = null;
     for await (const ev of streamChat(convo, { tools: AGENT_TOOLS, temperature: 0.7, signal })) {
-      if (ev.type === "delta") { text += ev.text; emit({ t: "d", v: ev.text }); }
-      else calls = ev.calls;
+      if (ev.type === "delta") emit({ t: "d", v: ev.text });
+      else if (ev.type === "think") { /* 思考增量不直出；T8 在此接包装提示 */ }
+      else { calls = ev.calls; raw = ev.rawContent; }
     }
     if (!calls?.length) break;
     if (round >= MAX_ROUNDS) {
@@ -45,7 +48,13 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
       }
       break;
     }
-    convo.push({ role: "assistant", content: text, tool_calls: calls });
+    // 思考链回灌（M 系 interleaved thinking 官方要求）：assistant 历史用原始 content（完整保留 <think>），
+    // 而不是剥过思考的展示文本——否则模型每轮工具调用都丢掉上一轮的推理，显著降智。
+    // 实测见 docs/delivery/evidence/T5/m3-format-probe.md（原样回灌被 API 接受）。
+    convo.push({ role: "assistant", content: raw, tool_calls: calls });
+    if (process.env.AGENT_DEBUG === "1") {
+      console.log(`[agent-debug] 第${round + 1}轮回灌 assistant（前240字）：${raw.slice(0, 240).replace(/\n/g, "⏎")}`);
+    }
     for (const c of calls) {
       emit({ t: "status", v: await toolStatus(c.function.name, c.function.arguments) }); // 带书名：「翻开《认知觉醒》…」
       const { result, event } = await execTool(c.function.name, c.function.arguments);
