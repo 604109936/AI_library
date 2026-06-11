@@ -1,5 +1,5 @@
 "use client";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { Send, Square, Sparkles, Mic, X, ArrowDown } from "lucide-react";
@@ -110,8 +110,11 @@ function ChatInner() {
   const limitWarned = useRef(false); // 500 字截断只提醒一次
   const upsertSession = useChat((s) => s.upsertSession);
 
+  // 最新消息引用：稳定回调（setFeedback 等）与卸载兜底从这里取值，避免陈旧闭包
+  const messagesRef = useRef<TMsg[]>(messages);
   // 会话续存：消息变化即回写模块缓存（流式中间态也存，回来还能看到完整画面）
   useEffect(() => {
+    messagesRef.current = messages;
     if (messages.length) chatLive = { messages, uid: chatLiveUid() };
   }, [messages]);
 
@@ -122,6 +125,13 @@ function ChatInner() {
     const c = fetchCtrl.current; // 先置空再中断：避免 catch 误判为"运行中的请求出错"而在新页面弹错误 toast
     fetchCtrl.current = null;
     c?.abort();
+    // 流式中离开页面：本轮问答此前只存在内存级 chatLive 里（persist 只在 busy 边沿触发），
+    // 此刻硬刷新/杀进程会让刚发的提问凭空消失——离开时把画面快照（半截回答转完成态）落一次库
+    const snap = messagesRef.current;
+    if (busyRef.current && snap.some((m) => m.streaming)) {
+      busyRef.current = false;
+      persist(normalizeMsgs(snap));
+    }
   }, []);
 
   // 贴底检测：离底 < 80px 视为"在底部"，自动跟随；上滑回看即停止跟随
@@ -206,7 +216,10 @@ function ChatInner() {
     if (inputRef.current) inputRef.current.style.height = "auto"; // 多行输入框复位
     if (timer.current) { clearInterval(timer.current); timer.current = null; } // 兜底清残留打字机
     stick.current = true; // 发新问题必然想看回答：恢复贴底跟随
-    const n = `${Date.now()}-${seq.current++}`;
+    // 消息 id 时间戳单调化：persist 合并按 msgIdTime 排序，本机时钟回拨/多端钟差时
+    // 新消息若拿到更小时间戳会被排进历史中部（页面追加序与落库序分叉）
+    const lastT = (base ?? messages).reduce((mx, m) => Math.max(mx, msgIdTime(m.id)), 0);
+    const n = `${Math.max(Date.now(), lastT + 1)}-${seq.current++}`;
     const userMsg: TMsg = { id: "u" + n, role: "user", content: q };
     const aId = "a" + n;
     const aMsg: TMsg = { id: aId, role: "assistant", content: "", streaming: true };
@@ -267,7 +280,10 @@ function ChatInner() {
           timer.current = setInterval(() => {
             if (fetchCtrl.current !== ctrl && !ended) return; // stop() 已接管收尾
             if (shown < acc.length) {
-              shown = Math.min(acc.length, shown + Math.max(2, Math.ceil((acc.length - shown) / 25)));
+              // 后台标签页 interval 被节流到约 1Hz，追赶公式在 1Hz 下追完长回答要几十秒——
+              // 不可见时直接全量上屏，切回来即是完整回答而不是"还在慢慢爬"
+              if (document.hidden) shown = acc.length;
+              else shown = Math.min(acc.length, shown + Math.max(2, Math.ceil((acc.length - shown) / 25)));
               for (const [s, e] of markerSpans) if (shown > s && shown < e) shown = e; // 不停在标记中间
               apply({ content: acc.slice(0, shown) }); // 不动 toolNote：工具状态由事件自己管理
             } else if (ended) {
@@ -285,10 +301,17 @@ function ChatInner() {
             }
           }, 16);
         };
+        // 事件去重再 apply：每个 delta 都清一次 toolNote / 同值 status 重复写，都会给目标消息
+        // 换引用触发整列表 setMessages——只有真的变化才动状态
+        let noteShown: string | undefined;
         const handle = async (ev: { t: string; v?: unknown }) => {
           if (fetchCtrl.current !== ctrl) return; // 停止/被新请求取代后不再消费缓冲区残留事件（防 await 窗口期复活僵尸打字机）
-          if (ev.t === "d" && typeof ev.v === "string") { acc += ev.v; apply({ toolNote: undefined }); smooth(); } // 新文字到达才清工具状态
-          else if (ev.t === "status" && typeof ev.v === "string") apply({ toolNote: ev.v });
+          if (ev.t === "d" && typeof ev.v === "string") {
+            acc += ev.v;
+            if (noteShown !== undefined) { noteShown = undefined; apply({ toolNote: undefined }); } // 新文字到达才清工具状态
+            smooth();
+          }
+          else if (ev.t === "status" && typeof ev.v === "string") { if (noteShown !== ev.v) { noteShown = ev.v; apply({ toolNote: ev.v }); } }
           else if (ev.t === "recs" && Array.isArray(ev.v)) {
             // 预取展示数据（封面/书名/作者）后插标记；handle 在行循环里被 await，期间不会有新文字混进 acc，位置不漂移
             const books = await resolveRecBooks(ev.v as (string | { id: string; title: string })[]);
@@ -343,6 +366,7 @@ function ChatInner() {
             await handleLine(line);
           }
         }
+        buf += dec.decode(); // 冲洗解码器内部残留的半截多字节序列（流在中文字符中间被截断时少 1 字会让末行 JSON 解析失败）
         await handleLine(buf.trim()); // 末行可能没有换行符（代理缓冲截断）：不 flush 会整行丢事件
         if (fetchCtrl.current !== ctrl) return; // 已被停止/新请求取代
         fetchCtrl.current = null;
@@ -362,7 +386,7 @@ function ChatInner() {
           setMessages((prev) => prev.map((m) => (m.id === aId ? { ...m, content: acc + "\n\n（后面断线了，回答可能不完整——可以点重新生成补全）", streaming: false, toolNote: undefined } : m)));
         } else {
           // 零内容失败：错误占位，并清掉可能已挂上的卡片数组（错误气泡不该出现"为你挑的书"）
-          setMessages((prev) => prev.map((m) => (m.id === aId ? { ...m, content: msg, streaming: false, error: true, toolNote: undefined, recommendations: undefined, citations: undefined } : m)));
+          setMessages((prev) => prev.map((m) => (m.id === aId ? { ...m, content: msg, streaming: false, error: true, toolNote: undefined, recommendations: undefined, citations: undefined, webSources: undefined } : m)));
         }
         busyRef.current = false;
         setBusy(false);
@@ -387,20 +411,25 @@ function ChatInner() {
     setShowJump(false);
   }
 
-  function setFeedback(id: string, v: "up" | "down" | null) {
-    const next = messages.map((m) => (m.id === id ? { ...m, feedback: v ?? undefined } : m));
+  // 反馈回调必须是稳定引用（useCallback + 子组件回传 id）：内联箭头函数每次渲染都换引用，
+  // ChatMessage 的 memo 浅比较对每条消息都失败——打字机 16ms 一拍时 120 条 ReactMarkdown
+  // 全量重解析，正是注释承诺"其余跳过"却从未发生的卡顿大头。取值走 messagesRef 防陈旧闭包
+  const setFeedback = useCallback((id: string, v: "up" | "down" | null) => {
+    const next = messagesRef.current.map((m) => (m.id === id ? { ...m, feedback: v ?? undefined } : m));
     setMessages(next);
     persist(next);
-  }
+    // eslint-disable-next-line
+  }, []);
 
   // 踩反馈原因随消息落库（T2.5：persist 会写穿透 chat_sessions）
-  function setFeedbackDetail(id: string, reasons: string[], text: string) {
-    const next = messages.map((m) =>
+  const setFeedbackDetail = useCallback((id: string, reasons: string[], text: string) => {
+    const next = messagesRef.current.map((m) =>
       m.id === id ? { ...m, feedbackReasons: reasons.length ? reasons : undefined, feedbackText: text || undefined } : m
     );
     setMessages(next);
     persist(next);
-  }
+    // eslint-disable-next-line
+  }, []);
 
   function regenerate() {
     if (busy) return;
@@ -430,13 +459,16 @@ function ChatInner() {
     if (!recordingRef.current) return;
     setRec(false);
     const canceled = cancelArmedRef.current;
-    const text = stopVoice(canceled);
+    const { text, fatal } = stopVoice(canceled);
     if (canceled) {
       toast("已取消", "info");
     } else if (text) {
       // 识别文本回填输入框供确认后发送（误识可改可删，比直接发送稳）
       setInput((cur) => (cur ? cur + text : text).slice(0, 500));
       requestAnimationFrame(() => inputRef.current?.focus());
+    } else if (fatal) {
+      // 权限被拒/无麦克风：识别器异步报 not-allowed（start 本身不抛错），原"没听清"文案是三重误导
+      toast("麦克风没打开——请在浏览器设置里允许使用麦克风", "error");
     } else {
       toast("没听清，再试一次或打字告诉我", "info");
     }
@@ -445,6 +477,9 @@ function ChatInner() {
   }
   function onInputPointerDown(e: React.PointerEvent) {
     if (busy) return;
+    // 录音中/长按窗口内第二根手指（掌缘误触）再落下：忽略——否则两个定时器都会触发 startVoice，
+    // 双识别器并存会清掉已识别文本且旧识别器占着麦克风不放
+    if (recordingRef.current || pressTimer.current) return;
     // 仅在输入框未聚焦时，长按才触发语音；已在编辑文本时长按交给浏览器（选字/移动光标等）
     if (document.activeElement === inputRef.current) return;
     pressStart.current = { x: e.clientX, y: e.clientY };
@@ -452,6 +487,7 @@ function ChatInner() {
     // pointerleave → endRecording → 浮层一出现就自杀。capture 后事件全程派给输入框，遮挡无影响
     try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch {}
     pressTimer.current = setTimeout(async () => {
+      if (recordingRef.current) return; // 竞态兜底：已在录音绝不再起一个识别器
       if (!voiceSupported()) {
         toast("当前浏览器不支持语音输入，可以用键盘自带的语音键", "info");
         return;
@@ -517,7 +553,9 @@ function ChatInner() {
   const hiddenCount = messages.length - visible.length;
 
   return (
-    <main className="min-h-[100dvh] pb-[150px]">
+    // 全部底部锚定都要计入 env(safe-area-inset-bottom)：BottomNav 实际高度=58px+inset，
+    // 固定 58px 会让输入条在 iOS PWA/手势导航机型上与导航条重叠、下沿被盖住误触 Tab
+    <main className="min-h-[100dvh] pb-[calc(150px+env(safe-area-inset-bottom))]">
       <header className="sticky top-0 z-30 flex h-14 items-center justify-center bg-moon/90 px-3 backdrop-blur dark:bg-dark-bg/90">
         <span className="font-serif text-lg text-ink dark:text-dark-text">智学</span>
       </header>
@@ -537,12 +575,12 @@ function ChatInner() {
                 <ChatMessage
                   msg={m}
                   onRegenerate={!busy && m.role === "assistant" && i === visible.length - 1 ? regenerate : undefined}
-                  onFeedback={(v) => setFeedback(m.id, v)}
-                  onFeedbackDetail={(reasons, text) => setFeedbackDetail(m.id, reasons, text)}
+                  onFeedback={setFeedback}
+                  onFeedbackDetail={setFeedbackDetail}
                 />
               </div>
             ))}
-            <div ref={bottomRef} className="h-0 scroll-mb-[150px]" />
+            <div ref={bottomRef} className="h-0 scroll-mb-[calc(150px+env(safe-area-inset-bottom))]" />
           </div>
         )}
       </div>
@@ -551,14 +589,14 @@ function ChatInner() {
       {showJump && (
         <button
           onClick={() => { stick.current = true; setShowJump(false); bottomRef.current?.scrollIntoView({ block: "end", behavior: "smooth" }); }}
-          className="fixed bottom-[170px] left-1/2 z-40 flex -translate-x-1/2 animate-fade-up items-center gap-1 rounded-full border border-line bg-snow/95 px-3.5 py-1.5 text-xs text-ink-700 shadow-md backdrop-blur dark:border-white/10 dark:bg-dark-card/95 dark:text-dark-text"
+          className="fixed bottom-[calc(170px+env(safe-area-inset-bottom))] left-1/2 z-40 flex -translate-x-1/2 animate-fade-up items-center gap-1 rounded-full border border-line bg-snow/95 px-3.5 py-1.5 text-xs text-ink-700 shadow-md backdrop-blur dark:border-white/10 dark:bg-dark-card/95 dark:text-dark-text"
         >
           <ArrowDown size={13} className="text-celadon" /> 回到最新
         </button>
       )}
 
       {/* 输入区：长按输入框即可语音输入（无单独麦克风入口） */}
-      <div className="app-width fixed bottom-[58px] left-1/2 z-40 -translate-x-1/2 border-t border-line bg-moon/95 px-3 py-2.5 backdrop-blur dark:border-white/5 dark:bg-dark-bg/95">
+      <div className="app-width fixed bottom-[calc(58px+env(safe-area-inset-bottom))] left-1/2 z-40 -translate-x-1/2 border-t border-line bg-moon/95 px-3 py-2.5 backdrop-blur dark:border-white/5 dark:bg-dark-bg/95">
         {busy && (
           <button onClick={stop} className="mx-auto mb-2 flex items-center gap-1 rounded-full border border-line bg-snow px-3 py-1 text-xs text-ink-500 dark:border-white/10 dark:bg-dark-card dark:text-dark-text/70">
             <Square size={12} /> 停止生成
@@ -598,9 +636,9 @@ function ChatInner() {
 
       {/* 录音浮层（长按说话 / 上滑取消 / 松开回填输入框）：实时识别文字 + 音量波形 + 计时 */}
       {recording && (
-        <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center bg-ink/45 backdrop-blur-sm" onPointerMove={onRecPointerMove} onPointerUp={endRecording}>
-          {/* 实时识别文本：边说边出，给"它在听"的确定感 */}
-          <div className="mb-6 min-h-[3.5rem] max-w-[78%] text-center">
+        <div role="alertdialog" aria-label="语音输入中" className="fixed inset-0 z-[60] flex flex-col items-center justify-center bg-ink/45 backdrop-blur-sm" onPointerMove={onRecPointerMove} onPointerUp={endRecording}>
+          {/* 实时识别文本：边说边出，给"它在听"的确定感；aria-live 让读屏用户也知道在听 */}
+          <div className="mb-6 min-h-[3.5rem] max-w-[78%] text-center" aria-live="polite">
             {voice.text ? (
               <p className="text-base leading-7 text-snow">{voice.text}</p>
             ) : (

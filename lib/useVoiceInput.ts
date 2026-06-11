@@ -36,6 +36,7 @@ export function useVoiceInput() {
   const finalRef = useRef("");
   const interimRef = useRef("");
   const startedAt = useRef(0);
+  const fatalRef = useRef(false); // 权限被拒/无麦克风等致命错误：停止续录，松手时给正确引导而非"没听清"
 
   useEffect(() => () => { cleanup(); }, []); // 卸载兜底释放
 
@@ -56,8 +57,10 @@ export function useVoiceInput() {
   async function start(): Promise<boolean> {
     const SR = getSR();
     if (!SR) return false;
+    cleanup(); // 防御：上一会话未正常结束（双指竞态等）时先停旧识别器/旧流，绝不双识别器并存
     finalRef.current = "";
     interimRef.current = "";
+    fatalRef.current = false;
     startedAt.current = Date.now();
     try {
       const rec = new SR();
@@ -74,11 +77,18 @@ export function useVoiceInput() {
         interimRef.current = interim;
         setState((s) => (s.active ? { ...s, text: finalRef.current + interimRef.current } : s));
       };
-      rec.onerror = () => {}; // no-speech 等非致命错误：不打断录音 UI，松手时按已识别文本处理
+      // no-speech 等非致命错误：不打断录音 UI，松手时按已识别文本处理。
+      // 但 not-allowed（权限拒绝是异步报错，rec.start() 不抛）/audio-capture（无麦克风）是致命错误：
+      // 必须置 fatal 阻断 onend 续录——否则 start→error→end→start 无限空转，浮层还在"假装听"
+      rec.onerror = (e: any) => {
+        if (e?.error === "not-allowed" || e?.error === "service-not-allowed" || e?.error === "audio-capture") {
+          fatalRef.current = true;
+        }
+      };
       // 部分平台（iOS Safari 等）识别会在静音/超时后自行 end：仍在录音态则续录（finalRef 保留已定稿文本），
       // 否则用户后面说的话全部丢失而浮层还在"假装听"。主动 stop 时 recRef 已被 cleanup 置空，不会误重启
       rec.onend = () => {
-        if (recRef.current !== rec) return;
+        if (recRef.current !== rec || fatalRef.current) return;
         try { rec.start(); } catch { /* 无法续录：保留已识别文本，等用户松手 */ }
       };
       rec.start();
@@ -128,12 +138,13 @@ export function useVoiceInput() {
     return true;
   }
 
-  /** 结束录音。cancel=true 丢弃；否则返回识别文本（定稿 + 残余候选） */
-  function stop(cancel: boolean): string {
+  /** 结束录音。cancel=true 丢弃；fatal=true 表示本段录音遇到权限拒绝/无麦克风（调用方给正确引导） */
+  function stop(cancel: boolean): { text: string; fatal: boolean } {
     const text = cancel ? "" : (finalRef.current + interimRef.current).trim();
+    const fatal = fatalRef.current;
     cleanup();
     setState(IDLE);
-    return text;
+    return { text, fatal };
   }
 
   return { voice: state, startVoice: start, stopVoice: stop };

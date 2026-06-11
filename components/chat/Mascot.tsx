@@ -19,7 +19,8 @@ export function Mascot({ size = 40, className }: { size?: number; className?: st
         <img src="/mascot.webp" alt="小涤" onError={() => setOk(false)} className="h-full w-full object-cover" />
       ) : (
         <>
-          <span className="absolute rounded-md border border-current/40" style={{ inset: size * 0.16 }} />
+          {/* border-current/40 在 Tailwind v3 对 currentColor 不编译（类不生成，边框色落到 preflight 灰）：拆成 border-current + opacity */}
+          <span className="absolute rounded-md border border-current opacity-40" style={{ inset: size * 0.16 }} />
           <UserRound size={size * 0.46} strokeWidth={1.7} />
         </>
       )}

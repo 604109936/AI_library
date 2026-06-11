@@ -44,6 +44,13 @@ function recBadge(bookId: string, fav: boolean, pct: number, played: number): { 
 // 表格在手机气泡里必然挤爆（用户明确不要表格）：System 已禁止小涤输出表格，
 // 这里再做渲染兜底——万一漏出表格语法，降级为紧凑的行式列表而非 <table>
 const MD_COMPONENTS: Components = {
+  // 联网搜索（T10）后正文出现链接是常态：默认 <a> 无样式不可发现、同页跳转会把整段会话画面替换掉。
+  // 新开页 + 青瓷色下划线，与 WebBlock 来源卡的外链行为对齐（危险协议由 react-markdown 默认 urlTransform 过滤）
+  a: ({ href, children }) => (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="text-celadon-700 underline decoration-celadon/40 underline-offset-2 dark:text-celadon-300">
+      {children}
+    </a>
+  ),
   table: ({ children }) => <div className="my-2 space-y-1.5 text-sm">{children}</div>,
   thead: ({ children }) => <div className="pb-1 font-medium text-ink dark:text-dark-text">{children}</div>,
   tbody: ({ children }) => <div className="space-y-1.5">{children}</div>,
@@ -163,7 +170,8 @@ function WebBlock({ sources }: { sources: WebSource[] }) {
 }
 
 // memo：打字机 16ms 一拍 setMessages 时只有目标消息换了引用，其余（最多 120 条）跳过
-// ReactMarkdown 全量重解析——长会话流式/录音音量刷新下的卡顿大头
+// ReactMarkdown 全量重解析——长会话流式/录音音量刷新下的卡顿大头。
+// 回调按 (id, …) 签名设计且必须由父组件以稳定引用传入：内联箭头函数会让浅比较永远失败、memo 形同虚设
 export const ChatMessage = memo(function ChatMessage({
   msg,
   onRegenerate,
@@ -172,8 +180,8 @@ export const ChatMessage = memo(function ChatMessage({
 }: {
   msg: TMsg;
   onRegenerate?: () => void;
-  onFeedback?: (value: "up" | "down" | null) => void;
-  onFeedbackDetail?: (reasons: string[], text: string) => void; // 踩原因随消息落库（T2.5）
+  onFeedback?: (id: string, value: "up" | "down" | null) => void;
+  onFeedbackDetail?: (id: string, reasons: string[], text: string) => void; // 踩原因随消息落库（T2.5）
 }) {
   const toast = useUI((s) => s.toast);
   const [fb, setFb] = useState<"up" | "down" | null>(msg.feedback ?? null);
@@ -201,7 +209,7 @@ export const ChatMessage = memo(function ChatMessage({
   const webInFlow = hasCardMarker(msg.content, "web");
 
   function submitFeedback() {
-    onFeedbackDetail?.(picked, picked.includes("其它") ? other.trim() : "");
+    onFeedbackDetail?.(msg.id, picked, picked.includes("其它") ? other.trim() : "");
     setShowFb(false);
     setOther("");
     toast("收到啦，下次我注意");
@@ -266,7 +274,7 @@ export const ChatMessage = memo(function ChatMessage({
               const v = fb === "up" ? null : "up";
               setFb(v);
               setShowFb(false);
-              onFeedback?.(v);
+              onFeedback?.(msg.id, v);
               if (v) toast("记住了，你喜欢这样的讲法");
             }}
           >
@@ -281,7 +289,7 @@ export const ChatMessage = memo(function ChatMessage({
               setFb(v);
               setShowFb(v === "down");
               if (v === "down" && msg.feedbackReasons?.length) setPicked(msg.feedbackReasons);
-              onFeedback?.(v);
+              onFeedback?.(msg.id, v);
             }}
           >
             <ThumbsDown size={15} className={fb === "down" ? "text-celadon" : ""} />
