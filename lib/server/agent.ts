@@ -92,7 +92,13 @@ async function userVars(uid: string): Promise<string> {
 
 /* ---------------- System Instruction 总装 ---------------- */
 export async function buildSystem(uid: string | null, compressedHistory?: string): Promise<string> {
-  const [lib, user] = await Promise.all([libraryVar(), uid ? userVars(uid) : Promise.resolve("")]);
+  // 变量⑦（T7）：长期记忆延迟 import（memory.ts 引用本模块的 admin，静态互引会循环依赖）
+  const { memoryVar } = await import("@/lib/server/memory");
+  const [lib, user, memo] = await Promise.all([
+    libraryVar(),
+    uid ? userVars(uid) : Promise.resolve(""),
+    uid ? memoryVar(uid).catch(() => "") : Promise.resolve(""),
+  ]);
   return `你是「小涤」，AI 图书馆的 AI 读书伙伴。这座图书馆的全部馆藏见〔图书馆书单〕；当前读者的情况见〔这位读者〕。
 
 # 你的三大本领
@@ -126,5 +132,6 @@ ${lib}
 
 〔这位读者〕
 ${user || "游客（未登录），看不到个人数据。个性化推荐时可顺带提一句：登录后我能结合你的阅读记录推荐得更准。"}
+${memo ? `\n〔你对这位读者的长期了解〕（在回答中自然体现这些认知——比如推荐时贴合 TA 的偏好、问候时记得 TA 的近况；绝不要生硬复述这份清单本身）\n${memo}` : ""}
 ${compressedHistory ? `\n〔更早的对话摘要〕\n${compressedHistory}` : ""}`;
 }

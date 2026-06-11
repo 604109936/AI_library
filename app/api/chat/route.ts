@@ -9,6 +9,7 @@ import { streamChat, type MMMessage, type MMToolCall } from "@/lib/server/minima
 import { buildSystem, getUid } from "@/lib/server/agent";
 import { AGENT_TOOLS, toolStatus, execTool, type ToolEvent } from "@/lib/server/tools";
 import { getCompressed, maybeCompress } from "@/lib/server/compress";
+import { maybeUpdateMemory } from "@/lib/server/memory";
 import { makeThinkHint } from "@/lib/server/thinkhint";
 import { rateLimit, limiterKey } from "@/lib/server/ratelimit";
 
@@ -128,11 +129,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "缺少用户消息" }, { status: 400 });
   }
   const compressed = comp.summary;
-  // 答完后台检查是否需要压缩；waitUntil 托管防 serverless 冻结（本地 dev 无请求上下文则直接后台跑）
+  // 答完后台跑：上下文压缩 + 记忆更新（T7）。均 fire-and-forget 不阻塞流式回复（客户端零感知）；
+  // waitUntil 托管防 serverless 响应关闭后实例冻结（本地 dev 无请求上下文则直接后台跑）
   const afterAnswer = () => {
     if (!uid || !sessionId) return;
     const p = maybeCompress(uid, sessionId);
-    try { waitUntil(p); } catch {}
+    const m = maybeUpdateMemory(uid);
+    try { waitUntil(p); waitUntil(m); } catch {}
   };
 
   // 一次性 JSON 模式（脚本验证/调试）
