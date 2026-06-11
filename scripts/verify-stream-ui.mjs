@@ -1,5 +1,8 @@
-// 验证三处流式 UI 修复：①无"杵着的竖线"光标 ②工具调用文案可见（有正文时显示在气泡下方）
-// ③卡片不在吐字中途插入（只随收尾出现）
+// 验证流式 UI（2026-06 现行口径）：
+//   ① 无"杵着的竖线"旧光标
+//   ② 工具状态文案可见（T8 新文案，无省略号）
+//   ③ 卡片交错渲染：流式中即在真实位置出现（旧口径"只随收尾出现"已废弃——T3/T4 起卡片按工具调用位置插入）
+//   ④ 全程无占位标记泄漏
 import { chromium } from "playwright";
 const BASE = process.env.E2E_BASE || "http://127.0.0.1:3000";
 const browser = await chromium.launch();
@@ -9,33 +12,41 @@ await page.waitForTimeout(1200);
 await page.fill("textarea", "《认知觉醒》第2章讲了什么？顺便再推荐一本相关的书");
 await page.keyboard.press("Enter");
 
-let sawCursor = false; // 旧竖线光标（h-4 w-0.5 animate-pulse）
-let sawToolNote = ""; // 工具文案
-let cardWhileTyping = false; // 吐字中途出卡
+const TOOL_TEXTS = ["在书架间为你找书", "翻开", "细读", "整理原文出处", "正在网上帮你查", "正在为你整理卡片"];
+let sawCursor = false;
+let sawToolNote = "";
+let cardWhileStreaming = false;
 let cardAtEnd = false;
+let markerLeak = false;
 let done = false;
 for (let i = 0; i < 150 && !done; i++) {
   await page.waitForTimeout(400);
-  const st = await page.evaluate(() => {
+  const st = await page.evaluate((toolTexts) => {
     const cursor = !!document.querySelector(".prose-cn .animate-pulse");
-    const body = document.body.textContent || "";
-    const note = ["查找书籍…", "翻阅图书…", "章节浏览…"].find((t) => body.includes(t)) ?? "";
+    const main = document.querySelector("main");
+    const body = main ? main.innerText : "";
+    const note = toolTexts.find((t) => body.includes(t)) ?? "";
     const cards = document.querySelectorAll('a[href^="/library/book/"]').length;
-    const prose = document.querySelectorAll(".prose-cn");
-    const txt = prose.length ? prose[prose.length - 1].textContent || "" : "";
-    const streaming = !!document.querySelector(".animate-bounce") || note !== "";
-    // 操作栏出现 = 收尾完成
+    const leak = body.includes("[[recs") || body.includes("[[cites") || body.includes("[[web");
     const finished = body.includes("重新生成");
-    return { cursor, note, cards, len: txt.length, streaming, finished };
-  });
+    return { cursor, note, cards, leak, finished };
+  }, TOOL_TEXTS);
   if (st.cursor) sawCursor = true;
   if (st.note) sawToolNote = st.note;
-  if (st.cards > 0 && !st.finished) cardWhileTyping = true;
+  if (st.leak) markerLeak = true;
+  if (st.cards > 0 && !st.finished) cardWhileStreaming = true;
   if (st.finished) { cardAtEnd = st.cards > 0; done = true; }
 }
-console.log(`① 旧竖线光标出现过：${sawCursor ? "❌ 是" : "✅ 否"}`);
-console.log(`② 工具调用文案见到：${sawToolNote ? `✅「${sawToolNote}」` : "⚠️ 未捕捉到（工具窗口期短，需真机肉眼复核）"}`);
-console.log(`③ 吐字中途插卡：${cardWhileTyping ? "❌ 有" : "✅ 无"}；收尾后卡片出现：${cardAtEnd ? "✅" : "⚠️ 本问未触发卡片"}`);
+let pass = 0, fail = 0;
+const ok = (cond, name) => { console.log(`${cond ? "✅" : "❌"} ${name}`); cond ? pass++ : fail++; };
+ok(!sawCursor, "无旧竖线光标");
+console.log(`${sawToolNote ? "✅" : "ℹ️"} 工具状态文案${sawToolNote ? `可见「${sawToolNote}」` : "未捕捉到（窗口期短，软提示）"}`);
+if (sawToolNote) pass++;
+ok(cardWhileStreaming || cardAtEnd, "卡片已渲染（交错或收尾位置）");
+console.log(`${cardWhileStreaming ? "✅" : "ℹ️"} 卡片${cardWhileStreaming ? "在流式中按位置交错出现" : "仅收尾出现（本问可能只在末尾出卡，软提示）"}`);
+if (cardWhileStreaming) pass++;
+ok(!markerLeak, "全程无占位标记泄漏");
 await page.screenshot({ path: ".e2e/chat-stream-ui.png" });
 await browser.close();
-console.log(!sawCursor && !cardWhileTyping ? "\n✅ 流式 UI 三处修复验证通过" : "\n⚠️ 有项未通过");
+console.log(`\n结果：${pass} 通过 / ${fail} 失败`);
+process.exit(fail ? 1 : 0);

@@ -31,6 +31,22 @@
 - 交付物：docs/delivery/{APP功能清单.md, 验收清单.md, 决策记录.md} + evidence/ 按任务分目录
 - 待人工真机复核 2 项：语音真机触感（V6-2）、记忆体感（V7-2），步骤见验收清单
 
+## 新一轮全面 Review（2026-06-12，压缩后指令）
+
+> 指令：①全面 review 改掉前后端所有 bug（要细致）②所有功能优化到大师水平。
+
+| 批次 | 内容 | commit | 回归 |
+|------|------|--------|------|
+| 1 | 5 项 P0：聊天云端门禁/hydrated 写穿透/搜索历史残留/播放器卸载停声/demo 账号防护 | dbd7061 | tsc |
+| 2 | 服务端 13 项：推荐卡顺序/usedReadChapter/统一时间预算/userVars 降级/thinkhint/websearch/cutSafe/compress+memory 追赶限量+预算/flipfeed 预算闸+FK 降级/ratelimit 节流/删号幂等 | 3a4d328 | m3-agent 6/6 |
+| 3 | 聊天前端 13 项：memo 生效/语音致命错误+双识别器/safe-area 四处/离开落库/id 单调/decode flush/后台追平/事件去重/MD 链接/aria | 08ae8f1 | voice 8/8 + shimmer 7/7 + chat-cards 10/10 |
+| 4 | 阅读器+书库 14 项：幽灵笔记三重根治/gotoChapter 清选区/时长批量上报/播放器错误反馈+onPlay 落账+视频 scrub+区间并集/Media Session/搜索正确性/分页 tie-breaker/分类 404/前言统一/IME maxLength | bc229e5 | highlight-full 4/4 + reader-md |
+| 5+6 | 壳/我的 12 项 + 大师级优化：flip 续拉/me 三态/注册已存邮箱/LoginSheet 三处/删除撤销/历史口径/划线合并扩展/flip preload/滚动降频/AudioContext resume | ac87223 | flip-ui 2/2 + t3t4 8/8 + chat-sync |
+| 7 | 全量回归 + build + 部署 + 线上冒烟 + 交付记录（本节） | 本 commit | 全套见下 |
+
+全量回归（本地 dev）：m3-agent 6/6、chat-cards 10/10、chat-sync ✅、voice-t6 8/8、shimmer-t8 7/7、reader-md ✅、highlight-full 6/6（新增合并扩展断言）、flip-feed-ui 2/2、t3t4-ui 8/8、stream-ui 5/5（口径升级）、chapter-read ✅、flip-windowing ✅、websearch-t10 6/6、t1-security 7/7、memory-t7 7/7、compress-m3 ✅、agent-context 3/3（脚本补 stream:false）、agent-tools ✅、ratelimit-t9（隔离窗口跑）。
+决策记录新增 26~32（方法论/demo 防护边界/播放覆盖口径/删除撤销/划线合并/旧脚本升级/延后项）。
+
 ## 决策记录（随做随记，最终汇入 docs/delivery/决策记录.md）
 
 1. **T5 模型 ID**：实测确认 `MiniMax-M3` 可用（probe-models.mjs + /v1/models 双重确认）。证据：evidence/T5/m3-format-probe.md

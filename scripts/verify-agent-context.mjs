@@ -11,7 +11,7 @@ async function ask(q, token) {
   const r = await fetch(`${BASE}/api/chat`, {
     method: "POST",
     headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
-    body: JSON.stringify({ messages: [{ role: "user", content: q }] }),
+    body: JSON.stringify({ stream: false, messages: [{ role: "user", content: q }] }), // API 现默认 NDJSON 流式，脚本走一次性 JSON 口径
     signal: AbortSignal.timeout(90000),
   });
   const j = await r.json();

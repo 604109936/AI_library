@@ -3,13 +3,13 @@
   "after": {
     "user_id": "431ccb0c-12d7-4edd-889f-014a367c3ba7",
     "identity": "小学语文老师",
-    "reading_pref": "喜欢读历史和教育类书籍",
-    "interests": "历史、教育",
+    "reading_pref": "偏好读历史、教育类书籍",
+    "interests": "关注历史与教育领域",
     "chat_style": "",
     "facts": "养了一只猫，名叫年糕",
-    "recent_focus": "正在为班级准备阅读课，寻找适合用在课堂上的素材",
-    "follow_ups": "答应帮读者留意适合小学阅读课使用的素材",
+    "recent_focus": "正在为小学班级阅读课准备可用素材",
+    "follow_ups": "读者期待适合小学阅读课的素材推荐",
     "processed_until": 4,
-    "updated_at": "2026-06-11T07:21:24.943+00:00"
+    "updated_at": "2026-06-11T17:17:02.299+00:00"
   }
 }
