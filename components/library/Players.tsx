@@ -17,9 +17,28 @@ function useHistoryReporter(book: Book, mode: "video" | "audio") {
   const last = useRef(0);
   const latest = useRef({ cur: 0, dur: 0 });
   const lastT = useRef<number | null>(null);
-  const playedSec = useRef(0);
+  // 真实播放发生前不落任何账：音频 onMeta 的续播定位 seek 会触发 timeupdate，
+  // 不设闸的话"打开详情页什么都不点"也会刷新历史排序、改写 lastAt 并触发 DB 写
+  const armed = useRef(false);
+  const arm = () => { armed.current = true; };
+  // 本次会话真实播放过的区间并集：重听同一段不重复计入（原"累计秒数"口径下反复重听
+  // 前 10% 十遍即被判"已读完"）；跨会话以已存覆盖为基线只增
+  const regions = useRef<[number, number][]>([]);
+  const base = useRef(0);
+  const addRegion = (a: number, b: number) => {
+    const rs = regions.current;
+    rs.push([a, b]);
+    rs.sort((x, y) => x[0] - y[0]);
+    const out: [number, number][] = [];
+    for (const r of rs) {
+      const tail = out[out.length - 1];
+      if (tail && r[0] <= tail[1] + 0.05) tail[1] = Math.max(tail[1], r[1]);
+      else out.push([r[0], r[1]]);
+    }
+    regions.current = out;
+  };
   const write = (cur: number, dur: number) => {
-    if (dur <= 0) return;
+    if (dur <= 0 || !armed.current) return;
     // 进度=真实播放覆盖（≥90% 记 100）。音视频不写 progress（progress 专给文字稿续读/章节态，避免跨模式互相覆盖）
     const played = useLibrary.getState().mediaPlayed[realId] ?? 0;
     const prog = played >= 0.9 ? 100 : Math.round(played * 100);
@@ -27,6 +46,7 @@ function useHistoryReporter(book: Book, mode: "video" | "audio") {
     setMediaProgress(realId, cur / dur);
   };
   const report = (cur: number, dur: number) => {
+    if (!armed.current) return;
     latest.current = { cur, dur };
     const now = Date.now();
     if (now - last.current < 5000) return;
@@ -37,20 +57,24 @@ function useHistoryReporter(book: Book, mode: "video" | "audio") {
   const flushRef = useRef(flush);
   flushRef.current = flush;
   useEffect(() => () => flushRef.current(), []);
-  // 续播：把已存覆盖作为基线，使新会话能在旧覆盖上继续累计（否则只增设计会"卡住"到不了 100%）
+  // 续播：把已存覆盖作为只增基线（否则只增设计会"卡住"到不了 100%）
   const primePlayed = (dur: number) => {
-    if (dur > 0) playedSec.current = (useLibrary.getState().mediaPlayed[realId] ?? 0) * dur;
+    if (dur > 0) base.current = useLibrary.getState().mediaPlayed[realId] ?? 0;
   };
-  // 真实播放累计：仅连续正常推进（增量 0~1.5s）计入，拖动/快进的大跳变不计 → 排除「拖到结尾」
+  // 真实播放：仅连续正常推进（增量 0~1.5s）计入区间并集，拖动/快进的大跳变不计 → 排除「拖到结尾」
   const trackPlayed = (cur: number, dur: number) => {
     if (dur > 0 && lastT.current !== null) {
       const d = cur - lastT.current;
-      if (d > 0 && d < 1.5) { playedSec.current += d; setMediaPlayed(realId, playedSec.current / dur); }
+      if (d > 0 && d < 1.5) {
+        addRegion(lastT.current, cur);
+        const union = regions.current.reduce((s, r) => s + (r[1] - r[0]), 0);
+        setMediaPlayed(realId, Math.min(1, base.current + union / dur));
+      }
     }
     lastT.current = cur;
   };
   const seekReset = () => { lastT.current = null; }; // 拖动/快进后重置基准，避免把跳变误计为真实播放
-  return { report, flush, trackPlayed, primePlayed, seekReset };
+  return { report, flush, trackPlayed, primePlayed, seekReset, arm };
 }
 
 /* ============================ 详情页顶部媒体台 ============================ */
@@ -111,8 +135,11 @@ function VideoStage({ book }: { book: Book }) {
   const [fs, setFs] = useState(false);
   const [cur, setCur] = useState(0);
   const [dur, setDur] = useState(0);
+  const [scrub, setScrub] = useState<number | null>(null); // 拖动中的临时位置（松手才真正定位，不与 timeupdate 抢值）
+  const [vErr, setVErr] = useState(false); // 加载/解码失败：给错误占位与重试（原来静默吞掉，看起来像 App 坏了）
+  const [waiting, setWaiting] = useState(false); // 缓冲中转圈
   const resumed = useRef(false);
-  const { report, flush, trackPlayed, primePlayed, seekReset } = useHistoryReporter(book, "video");
+  const { report, flush, trackPlayed, primePlayed, seekReset, arm } = useHistoryReporter(book, "video");
   useReadingClock(playing); // 观看时长计入「我的-总时长」
   useReadCountBump(book.id.split("__")[0], playing); // 「一次阅读」计数（真实播放满30秒记一次）
 
@@ -162,10 +189,21 @@ function VideoStage({ book }: { book: Book }) {
     const i = SPEEDS.indexOf(speed);
     setSpeed(SPEEDS[(i + 1) % SPEEDS.length]);
   }
-  function seek(t: number) {
-    seekReset(); // 拖动后重置基准，避免把跳变算成真实播放
-    setCur(t); // 即时更新进度，拖动跟手
+  // 拖动只移滑块，松手才定位（与音频同方案）：原来边拖边 seek，seek 完成有延迟，
+  // 拖动间隙到达的旧位置 timeupdate 会把滑块抢回去
+  function commitSeek(t: number) {
+    seekReset(); // 重置基准，避免把跳变算成真实播放
+    setCur(t);
     if (ref.current) ref.current.currentTime = t;
+    setScrub(null);
+  }
+  function retryLoad() {
+    setVErr(false);
+    setWaiting(false);
+    const v = ref.current;
+    if (!v) return;
+    v.load();
+    if (started) v.play().catch(() => {});
   }
   function onMeta(e: React.SyntheticEvent<HTMLVideoElement>) {
     const d = e.currentTarget.duration || 0;
@@ -187,14 +225,30 @@ function VideoStage({ book }: { book: Book }) {
         src={book.videoUrl}
         poster={book.cover}
         playsInline
+        preload="metadata"
         muted={muted}
         className="h-full w-full object-cover"
         onClick={toggle}
-        onPlay={() => setPlaying(true)}
+        onPlay={() => { arm(); setVErr(false); setPlaying(true); }}
         onPause={() => { setPlaying(false); flush(); }}
         onTimeUpdate={(e) => { const c = e.currentTarget.currentTime; const d = e.currentTarget.duration || 0; setCur(c); report(c, d); trackPlayed(c, d); }}
         onLoadedMetadata={onMeta}
+        onWaiting={() => setWaiting(true)}
+        onPlaying={() => setWaiting(false)}
+        onError={() => { setVErr(true); setWaiting(false); setPlaying(false); }}
       />
+
+      {/* 缓冲转圈：弱网断流时给"在加载"反馈（原来画面冻住零提示） */}
+      {started && waiting && !vErr && (
+        <span aria-hidden className="pointer-events-none absolute left-1/2 top-1/2 h-9 w-9 -translate-x-1/2 -translate-y-1/2 animate-spin rounded-full border-[2.5px] border-white/30 border-t-white" />
+      )}
+      {/* 加载失败占位 + 重试 */}
+      {vErr && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black/60 text-snow">
+          <p className="text-sm">视频加载失败</p>
+          <button onClick={retryLoad} className="rounded-full bg-celadon px-5 py-2 text-xs text-snow active:scale-95">重试</button>
+        </div>
+      )}
 
       {!started && (
         <button onClick={toggle} aria-label="播放视频解读" className="absolute inset-0 flex items-center justify-center">
@@ -239,8 +293,21 @@ function VideoStage({ book }: { book: Book }) {
           <button onClick={toggle} aria-label={playing ? "暂停" : "播放"} className="-m-3 shrink-0 p-3">
             {playing ? <Pause size={fs ? 20 : 16} /> : <Play size={fs ? 20 : 16} />}
           </button>
-          <span className={"shrink-0 tabular-nums " + (fs ? "w-10 text-xs" : "w-8 text-[10px]")}>{formatTime(cur)}</span>
-          <input type="range" min={0} max={dur || 1} step="any" value={cur} aria-label="播放进度" onChange={(e) => seek(+e.target.value)} className="h-1 flex-1 accent-celadon" />
+          <span className={"shrink-0 tabular-nums " + (fs ? "w-10 text-xs" : "w-8 text-[10px]")}>{formatTime(scrub ?? cur)}</span>
+          <input
+            type="range"
+            min={0}
+            max={dur || 1}
+            step="any"
+            value={scrub ?? cur}
+            aria-label="播放进度"
+            onChange={(e) => setScrub(+e.target.value)}
+            onPointerUp={() => { if (scrub !== null) commitSeek(scrub); }}
+            onLostPointerCapture={() => { if (scrub !== null) commitSeek(scrub); }}
+            onKeyUp={() => { if (scrub !== null) commitSeek(scrub); }}
+            onPointerCancel={() => setScrub(null)}
+            className="h-1 flex-1 accent-celadon"
+          />
           <span className={"shrink-0 tabular-nums " + (fs ? "w-10 text-xs" : "w-8 text-[10px]")}>{formatTime(dur)}</span>
           <button onClick={cycleSpeed} aria-label="倍速" className={"shrink-0 font-medium tabular-nums " + (fs ? "w-9 text-xs" : "w-7 text-[10px]")}>{speed}x</button>
         </div>
@@ -259,8 +326,10 @@ function AudioStage({ book }: { book: Book }) {
   const [speed, setSpeed] = useState(1);
   const [coverOk, setCoverOk] = useState(true);
   const [scrub, setScrub] = useState<number | null>(null); // 拖动中的临时位置（松手才真正定位）
+  const [aErr, setAErr] = useState(false); // 加载失败提示（原来 play().catch(()=>{}) 彻底吞掉，点了没反应像 App 坏了）
+  const [waiting, setWaiting] = useState(false);
   const resumed = useRef(false);
-  const { report, flush, trackPlayed, primePlayed, seekReset } = useHistoryReporter(book, "audio");
+  const { report, flush, trackPlayed, primePlayed, seekReset, arm } = useHistoryReporter(book, "audio");
   useReadingClock(playing); // 收听时长计入「我的-总时长」
   useReadCountBump(book.id.split("__")[0], playing); // 「一次阅读」计数（真实播放满30秒记一次）
 
@@ -272,10 +341,36 @@ function AudioStage({ book }: { book: Book }) {
 
   useEffect(() => { if (ref.current) ref.current.playbackRate = speed; }, [speed]);
 
+  // Media Session：锁屏/控制中心显示书名封面并可播放/暂停/±15s（音频伴读是核心场景，
+  // 原来息屏后想暂停只能解锁回页面）。±15s 复用 skipBy（含真实播放基准重置）
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    const ms = navigator.mediaSession;
+    try {
+      ms.metadata = new MediaMetadata({
+        title: book.title,
+        artist: book.author || "AI 图书馆",
+        album: "AI 图书馆 · 全本朗读",
+        artwork: book.cover ? [{ src: book.cover }] : [],
+      });
+      ms.setActionHandler("play", () => ref.current?.play().catch(() => {}));
+      ms.setActionHandler("pause", () => ref.current?.pause());
+      ms.setActionHandler("seekbackward", () => skipBy(-15));
+      ms.setActionHandler("seekforward", () => skipBy(15));
+    } catch {}
+    return () => {
+      try {
+        ms.metadata = null;
+        for (const a of ["play", "pause", "seekbackward", "seekforward"] as MediaSessionAction[]) ms.setActionHandler(a, null);
+      } catch {}
+    };
+    // eslint-disable-next-line
+  }, [book.id]);
+
   function toggle() {
     const a = ref.current;
     if (!a) return;
-    if (a.paused) a.play().catch(() => {}); else a.pause();
+    if (a.paused) a.play().catch(() => setAErr(true)); else a.pause();
   }
   function seek(t: number) {
     setCur(t);
@@ -318,10 +413,14 @@ function AudioStage({ book }: { book: Book }) {
       <audio
         ref={ref}
         src={book.audioUrl}
-        onPlay={() => setPlaying(true)}
+        preload="metadata"
+        onPlay={() => { arm(); setAErr(false); setPlaying(true); }}
         onPause={() => { setPlaying(false); flush(); }}
         onTimeUpdate={(e) => { const c = e.currentTarget.currentTime; const d = e.currentTarget.duration || 0; setCur(c); report(c, d); trackPlayed(c, d); }}
         onLoadedMetadata={onMeta}
+        onWaiting={() => setWaiting(true)}
+        onPlaying={() => setWaiting(false)}
+        onError={() => { setAErr(true); setWaiting(false); setPlaying(false); }}
       />
 
       {/* 唱片台座（圆盘封面用书本封面） */}
@@ -343,6 +442,12 @@ function AudioStage({ book }: { book: Book }) {
 
       <h3 className="mt-3 font-serif text-lg text-ink dark:text-dark-text">{book.title}</h3>
       <p className="text-xs text-ink-500 dark:text-dark-text/55">{book.author} · 全本朗读</p>
+      {aErr && (
+        <p className="mt-1.5 text-xs text-rouge">
+          音频加载失败{" "}
+          <button onClick={() => { setAErr(false); const a = ref.current; if (a) { a.load(); a.play().catch(() => setAErr(true)); } }} className="underline underline-offset-2">重试</button>
+        </p>
+      )}
 
       {/* 进度条（自定义可视轨道 + 透明原生 range；拖动只移滑块、松手才定位，丝滑不卡） */}
       <div className="mt-4 flex w-full max-w-[320px] items-center gap-2.5">
@@ -404,7 +509,13 @@ function AudioStage({ book }: { book: Book }) {
             <circle cx="40" cy="40" r={R} fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="text-celadon" strokeDasharray={C} strokeDashoffset={C * (1 - pct)} />
           </svg>
           <span className="flex h-14 w-14 items-center justify-center rounded-full bg-celadon text-snow shadow-celadon active:scale-95">
-            {playing ? <Pause size={24} /> : <Play size={24} className="ml-0.5" />}
+            {playing && waiting ? (
+              <span aria-hidden className="h-6 w-6 animate-spin rounded-full border-2 border-snow/40 border-t-snow" />
+            ) : playing ? (
+              <Pause size={24} />
+            ) : (
+              <Play size={24} className="ml-0.5" />
+            )}
           </span>
         </button>
         <button

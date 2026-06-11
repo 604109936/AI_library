@@ -140,7 +140,9 @@ function ReviewForm({ id }: { id: string }) {
         <div className="relative">
           <input
             value={title}
-            onChange={(e) => setTitle(e.target.value.slice(0, 30))}
+            maxLength={30}
+            // 原生 maxLength 对 IME 友好：onChange 里 slice 回写会在拼音组合越过上限时强行打断组词
+            onChange={(e) => setTitle(e.target.value)}
             placeholder="给你的书评起个标题（选填）"
             className="w-full rounded-2xl border border-line bg-snow px-3.5 py-3 pr-14 text-sm text-ink outline-none focus:border-celadon dark:border-white/10 dark:bg-dark-card dark:text-dark-text"
           />
@@ -150,7 +152,8 @@ function ReviewForm({ id }: { id: string }) {
         <div className="rounded-2xl border border-line bg-snow p-3 focus-within:border-celadon dark:border-white/10 dark:bg-dark-card">
           <textarea
             value={content}
-            onChange={(e) => setContent(e.target.value.slice(0, MAX))}
+            maxLength={MAX}
+            onChange={(e) => setContent(e.target.value)}
             placeholder="写下你的想法（至少 10 字）"
             className="h-44 w-full resize-none bg-transparent text-sm text-ink outline-none dark:text-dark-text"
           />

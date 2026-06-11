@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { ChevronDown, Check } from "lucide-react";
 import { Header } from "@/components/shell/Header";
@@ -41,7 +42,10 @@ export default function CategoryPage({ params }: { params: { id: string } }) {
     getNextPageParam: (last) => last.nextCursor,
   });
 
-  const items = q.data?.pages.flatMap((p) => p.items) ?? [];
+  // 按 id 去重兜底：offset 分页在"分页期间入库新书/同时间戳排序"下可能跨页重复，重复项会撞 React key
+  const rawItems = q.data?.pages.flatMap((p) => p.items) ?? [];
+  const seenIds = new Set<string>();
+  const items = rawItems.filter((b) => (seenIds.has(b.id) ? false : (seenIds.add(b.id), true)));
   const filtered = items.filter((b) => {
     if (status === "all") return true;
     // 按「当前阅读类型」的进度判断状态：音视频看 mediaProgress、文字稿看 progress（二者分开统计）
@@ -102,6 +106,19 @@ export default function CategoryPage({ params }: { params: { id: string } }) {
   }
 
   const stillLoading = q.isLoading || (filtered.length === 0 && q.hasNextPage);
+
+  // 非法/失效的分类链接：明确告知而不是伪装成"这里还没有书"的正常空页（与书籍详情页 404 口径一致）
+  if (catsQ.isSuccess && !cat)
+    return (
+      <main className="min-h-[100dvh]">
+        <Header title="分类" />
+        <div className="flex flex-col items-center gap-4 px-8 pt-32 text-center">
+          <p className="font-serif text-lg text-ink dark:text-dark-text">没有这个分区</p>
+          <p className="text-sm text-ink-500 dark:text-dark-text/55">链接可能已失效，回泡馆逛逛吧</p>
+          <Link href="/library" className="rounded-full bg-celadon px-6 py-2.5 text-sm text-snow active:scale-95">回到泡馆</Link>
+        </div>
+      </main>
+    );
 
   return (
     <main className="min-h-[100dvh] pb-10">

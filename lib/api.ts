@@ -109,7 +109,9 @@ export async function getBooks(opts: {
   cursor?: number;
 }): Promise<Paged<Book>> {
   const cursor = opts.cursor ?? 0;
-  let q = supabase.from("books").select(BOOK_SELECT, { count: "exact" }).order("shelved_at", { ascending: false });
+  // 第二排序键 id 兜底：shelved_at 同值（批量导入）时 Postgres 行序在分页间不稳定，
+  // offset 分页会跨页重复/漏书（重复项还会撞 React key）
+  let q = supabase.from("books").select(BOOK_SELECT, { count: "exact" }).order("shelved_at", { ascending: false }).order("id");
   if (opts.categoryId) q = q.eq("category_id", opts.categoryId);
   if (opts.readingType === "av") q = q.or("has_video.eq.true,has_audio.eq.true");
   else if (opts.readingType === "text") q = q.eq("has_text", true);
@@ -180,7 +182,7 @@ async function flipPool(): Promise<{ books: Book[]; owner: string }> {
     }
   }
   if (!books.length) {
-    const { data, error } = await supabase.from("books").select(BOOK_SELECT).eq("has_video", true).order("shelved_at", { ascending: false }).limit(50);
+    const { data, error } = await supabase.from("books").select(BOOK_SELECT).eq("has_video", true).order("shelved_at", { ascending: false }).order("id").limit(50);
     if (error) throw error;
     books = (data ?? []).map(toBook).filter((b) => b.videoUrl);
   }
@@ -219,13 +221,14 @@ export interface SearchResult {
 export async function search(q: string): Promise<SearchResult> {
   // 仅按 书名 / 作者 / 标签 模糊匹配。当前取全部书前端过滤（与 mock 行为一致，含标签子串）；
   // 数据量增大后改服务端 ilike + tags GIN/trgm（见建库 SQL「按需索引」）。
-  const kw = q.trim();
+  // 大小写不敏感：英文书名/作者用小写搜不到（"atomic" 搜不到 "Atomic Habits"）是正确性问题
+  const kw = q.trim().toLowerCase();
   if (!kw) return { books: [] };
   const { data, error } = await supabase.from("books").select(BOOK_SELECT);
   if (error) throw error;
   const all = (data ?? []).map(toBook);
   const bk = all.filter(
-    (b) => b.title.includes(kw) || b.author.includes(kw) || b.tags.some((t) => t.includes(kw))
+    (b) => b.title.toLowerCase().includes(kw) || b.author.toLowerCase().includes(kw) || b.tags.some((t) => t.toLowerCase().includes(kw))
   );
   return { books: bk };
 }

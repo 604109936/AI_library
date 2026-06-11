@@ -7,7 +7,8 @@ import { bumpReadCount } from "@/lib/supabase/userdata";
  * 阅读/收听计时：当 active 且页面可见时，按墙钟秒数累加到 useLibrary.readSeconds。
  * - 文字阅读：进入阅读器即 active。
  * - 音视频：仅在播放时 active。
- * 每累计 3 秒写一次（减少 store 写入），切后台/停止/卸载时把零头补写，尽量不丢时长。
+ * 每累计 30 秒写一次：addReadSeconds 每次都会触发一次云端增量 RPC，原 3 秒一写=
+ * 读 30 分钟约 600 次请求（耗电+烧配额）；增量 RPC 天然可合并，切后台/停止/卸载补写零头，丢失上限即窗口零头。
  */
 export function useReadingClock(active: boolean) {
   useEffect(() => {
@@ -22,7 +23,7 @@ export function useReadingClock(active: boolean) {
     const id = setInterval(() => {
       if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
       acc += 1;
-      if (acc >= 3) flush();
+      if (acc >= 30) flush();
     }, 1000);
     // 切后台时立即落账，避免页面被回收导致零头丢失
     const onVis = () => { if (document.visibilityState !== "visible") flush(); };

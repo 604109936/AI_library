@@ -341,10 +341,13 @@ function ReaderInner({ id }: { id: string }) {
       createdAt: new Date().toISOString(),
     };
   }
-  // P1-3：新划线与本章已有划线求交（按 applyHighlights 同款 locate 解析实际落位），重叠则不落库，杜绝幽灵笔记
+  // P1-3：新划线与本章已有划线求交（按 applyHighlights 同款 locate 解析实际落位），重叠则不落库，杜绝幽灵笔记。
+  // 必须读 getState() 最新值而非渲染闭包：未登录时本地 notes 为空、校验形同虚设，
+  // 登录成功后挂起回调执行时云端划线已同步回来——基于最新数据再查一次才真正堵住重叠落库
   function overlapsExisting(start: number, end: number): boolean {
     const full = contentRef.current?.textContent ?? "";
-    return chapterNotes.some((n) => {
+    const ns = useLibrary.getState().notes.filter((n) => n.bookId === realId && n.chapterId === cur?.id);
+    return ns.some((n) => {
       if (!n.excerpt) return false;
       const s = locate(full, n.excerpt, typeof n.start === "number" ? n.start : 0);
       return s >= 0 && start < s + n.excerpt.length && end > s;
@@ -362,7 +365,12 @@ function ReaderInner({ id }: { id: string }) {
     setMenu(null);
     window.getSelection()?.removeAllRanges();
     if (overlapsExisting(start, end)) { toast("这段已有划线，点击原划线可修改"); return; }
-    requireLogin(() => { addNote(makeNote(text, "", color, start)); rememberColor(color); toast("已划线"); });
+    // 登录回调内必须复查：游客选中的可能恰是云端已划过的段落（游客看不到既有高亮），
+    // 登录同步回数据后不复查就落库 = 重叠划线 → 正文渲染被去重跳过的"幽灵笔记"
+    requireLogin(() => {
+      if (overlapsExisting(start, end)) { toast("这段已有划线，点击原划线可修改"); return; }
+      addNote(makeNote(text, "", color, start)); rememberColor(color); toast("已划线");
+    });
   }
   function openNote() {
     if (!menu) return;
@@ -371,6 +379,7 @@ function ReaderInner({ id }: { id: string }) {
     if (overlapsExisting(m.start, m.end)) { window.getSelection()?.removeAllRanges(); toast("这段已有划线，点击原划线可修改"); return; }
     // 与「划线」一致：先校验登录，避免未登录写完笔记点保存才弹登录、输入被清空
     requireLogin(() => {
+      if (overlapsExisting(m.start, m.end)) { window.getSelection()?.removeAllRanges(); toast("这段已有划线，点击原划线可修改"); return; }
       setNotePanel({ excerpt: m.text, color: lastColor, start: m.start });
       setNoteText("");
     });
@@ -420,7 +429,14 @@ function ReaderInner({ id }: { id: string }) {
       // 编辑已有划线的想法：只更新 note 文本（划线/颜色不动）
       requireLogin(() => { updateNote(p.editId!, text); toast("笔记已更新"); });
     } else {
-      requireLogin(() => { addNote(makeNote(p.excerpt, text, p.color, p.start)); rememberColor(p.color); toast("笔记已保存"); });
+      requireLogin(() => {
+        // 会话过期重登路径的兜底复查（与 doHighlight 同理：登录后才看得到云端既有划线）
+        if (typeof p.start === "number" && p.start >= 0 && overlapsExisting(p.start, p.start + p.excerpt.length)) {
+          toast("这段已有划线，点击原划线可修改");
+          return;
+        }
+        addNote(makeNote(p.excerpt, text, p.color, p.start)); rememberColor(p.color); toast("笔记已保存");
+      });
     }
     setNotePanel(null);
     window.getSelection()?.removeAllRanges();
@@ -429,6 +445,10 @@ function ReaderInner({ id }: { id: string }) {
   // 仅在用户点上一/下一章与目录时调用——续读/深链初始化不动 URL，与既有逻辑不打架；顺带丢掉残留的 ?mark
   function gotoChapter(cid: string) {
     if (cid === cur?.id) return;
+    // 同步清掉旧章的划线菜单与选区：menu 里缓存的 text/start/end 基于旧章 textContent，
+    // 等 selectionchange 防抖链路（约 130ms）去收会留窗口——窗口内点颜色会以旧偏移在新章落幽灵笔记
+    setMenu(null);
+    window.getSelection()?.removeAllRanges();
     setCurId(cid);
     try { window.history.replaceState(null, "", "?ch=" + cid); } catch {}
   }
@@ -801,9 +821,14 @@ function applyHighlights(root: HTMLElement, notes: NoteItem[], onClick: (n: Note
     if (i >= 0) ranges.push({ start: i, end: i + n.excerpt.length, note: n });
   });
   ranges.sort((a, b) => a.start - b.start);
+  // 重叠区间从「整条丢弃」改为「裁剪后渲染剩余段」：历史存量/多设备并发产生的重叠划线
+  // 至少在正文可见可点（原策略整条跳过 = 列表里有、正文里无的幽灵笔记）；完全被包含的才无段可渲染
   const clean: typeof ranges = [];
   let lastEnd = 0;
-  for (const r of ranges) if (r.start >= lastEnd) { clean.push(r); lastEnd = r.end; }
+  for (const r of ranges) {
+    const s = Math.max(r.start, lastEnd);
+    if (s < r.end) { clean.push({ start: s, end: r.end, note: r.note }); lastEnd = r.end; }
+  }
   clean.forEach((r) => wrapRange(root, r, onClick, dark));
 }
 

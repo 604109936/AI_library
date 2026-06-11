@@ -43,8 +43,9 @@ export default function SearchPage() {
   // 不污染热门聚合；停下来真正看结果的词才算一次有效搜索
   useEffect(() => {
     if (!(q && hasResult) || isPlaceholderData) return;
-    addRecent(q);
-    const t = setTimeout(() => logSearch(q), 1200);
+    // addRecent 与 logSearch 共用 1.2s 延迟：打"认知觉醒"中途停顿出的前缀词"认知"若即时写入，
+    // 5 条容量的「最近搜过」很快被中间态挤满；继续输入即取消，停下来真正看结果的词才记录
+    const t = setTimeout(() => { addRecent(q); logSearch(q); }, 1200);
     return () => clearTimeout(t);
   }, [q, hasResult, isPlaceholderData, addRecent]);
 
@@ -94,7 +95,8 @@ export default function SearchPage() {
                   {recent.map((t) => (
                     <span key={t} className="flex items-center gap-1 rounded-full bg-snow px-3 py-1.5 text-xs text-ink-700 dark:bg-dark-card dark:text-dark-text">
                       <button onClick={() => submit(t)}>{t}</button>
-                      <button aria-label="移除" onClick={() => removeRecent(t)} className="-m-3.5 p-3.5">
+                      {/* 触区只向右/上下外扩：向左外扩会压住词条末字（后绘者赢命中，点词尾变成误删） */}
+                      <button aria-label="移除" onClick={() => removeRecent(t)} className="-my-3.5 -mr-3.5 py-3.5 pr-3.5 pl-1">
                         <X size={12} className="text-ink-300" />
                       </button>
                     </span>

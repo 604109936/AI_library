@@ -3,7 +3,6 @@ import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import type { Book } from "@/lib/types";
 import { BookCover } from "@/components/ui/BookCover";
-import { formatCount } from "@/lib/utils";
 
 /** 列表行卡片（分类列表/搜索/推荐）。本期：书籍评分、在读人数不在 UI 展示（数据库仍存储） */
 export function BookRow({ book, progress, statusLabel }: { book: Book; progress?: number; statusLabel?: "已读" | "未读" }) {
@@ -52,8 +51,4 @@ export function BookGridCard({ book, sub }: { book: Book; sub?: string }) {
       <p className="truncate text-xs text-ink-300">{sub ?? book.author}</p>
     </Link>
   );
-}
-
-export function BookReadersText({ book }: { book: Book }) {
-  return <span>{formatCount(book.readers)}人在读</span>;
 }

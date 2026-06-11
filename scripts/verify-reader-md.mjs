@@ -43,7 +43,8 @@ const sel = await page.evaluate(() => {
 await page.waitForTimeout(400);
 const menuShown = await page.evaluate(() => {
   const menus = Array.from(document.querySelectorAll("div.fixed.z-50"));
-  return menus.some((m) => m.querySelector('button[aria-label="高亮"]'));
+  // 色块按钮 aria-label 现为「划线·青瓷」等（旧断言"高亮"已过期）
+  return menus.some((m) => m.querySelector('button[aria-label^="划线"]'));
 });
 
 await page.screenshot({ path: ".e2e/reader-md.png" });
