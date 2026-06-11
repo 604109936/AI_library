@@ -92,12 +92,21 @@ export const useAuth = create<AuthState>()((set, get) => ({
     return {};
   },
   register: async (email, password, nickname) => {
-    const { data, error } = await supabase.auth.signUp({ email: email.trim(), password });
+    // 昵称随 signUp 进 user_metadata：建 profiles 的 handle_new_user 触发器读 raw_user_meta_data 写入。
+    // 旧实现 signUp 后直接 update profiles——邮箱确认开启时无会话（anon 角色），RLS 让 update 静默命中
+    // 0 行，昵称永久丢失落回邮箱前缀
+    const nick = nickname?.trim() || "";
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      ...(nick ? { options: { data: { nickname: nick } } } : {}),
+    });
     if (error) return { error: error.message };
     const u = data.user;
     if (!u) return { error: "注册失败，请重试" };
-    if (nickname?.trim()) {
-      await supabase.from("profiles").update({ nickname: nickname.trim() }).eq("id", u.id);
+    if (nick && data.session) {
+      // 有会话时再直写一次作双保险（老触发器未更新前也能生效）；error 不致命（触发器已写过）
+      await supabase.from("profiles").update({ nickname: nick }).eq("id", u.id);
     }
     if (!data.session) return { needConfirm: true }; // 邮箱验证未关闭时无会话
     const p = await loadProfile(u);
@@ -290,14 +299,21 @@ export const useLibrary = create<LibState>()((set, get) => {
     ...EMPTY,
     setHydrated: () => set({ hydrated: true }),
     load: async (user) => {
-      try {
-        const d = await loadUserData(user);
-        // 世代校验：加载期间已退出/换号 → 晚到的数据不回写（防串号）
-        if (useAuth.getState().user?.id !== user.id) return;
-        set({ ...d, hydrated: true });
-      } catch {
-        set({ hydrated: true });
+      // 失败重试一次；仍失败则保持 hydrated=false——绝不能"假装水合成功"放行写穿透，
+      // 空基线会把云端真实进度洗成 0（loadUserData 已逐路检查 error，失败必 throw）
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const d = await loadUserData(user);
+          // 世代校验：加载期间已退出/换号 → 晚到的数据不回写（防串号）
+          if (useAuth.getState().user?.id !== user.id) return;
+          set({ ...d, hydrated: true });
+          return;
+        } catch {
+          if (attempt === 0) await new Promise((r) => setTimeout(r, 800));
+        }
       }
+      if (useAuth.getState().user?.id !== user.id) return;
+      useUI.getState().toast("云端数据没加载出来，进度同步先暂停了——刷新一下试试", "error");
     },
     reset: () => {
       // 清掉在途的媒体节流定时器：否则退出后旧闭包还会发一次"空数据写库"（被 RLS 拒→莫名报错 toast）
@@ -342,8 +358,9 @@ export const useLibrary = create<LibState>()((set, get) => {
       const top = get().history[0];
       if (top && top.bookId === id && histCat(top.mode) === histCat(h.mode) && top.progress === h.progress) return; // 已在最前且进度未变 → 不重复 set/写库
       set({ history: [{ ...h, bookId: id }, ...get().history.filter((x) => !(x.bookId === id && histCat(x.mode) === histCat(h.mode)))].slice(0, 50) });
-      const u = uid();
-      if (u) sync(db.pushHistory(u, id, h.mode, h.progress, h.lastAt), "历史");
+      // 必须过 canSync（uid + hydrated 双门禁）：pushHistory 由阅读器/播放器挂载自动触发，
+      // 登录后 load() 未完成的窗口期上报会用空基线 progress=0 直接覆盖云端 reading_history
+      if (canSync()) sync(db.pushHistory(uid()!, id, h.mode, h.progress, h.lastAt), "历史");
     },
     clearHistory: () => {
       set({ history: [] });
@@ -521,7 +538,18 @@ export const useChat = create<ChatState>()(
       resetLocal: () => set({ sessions: [] }),
       purgeForeign: () => set({ sessions: get().sessions.filter((s) => !s.ownerUid || s.ownerUid === "guest") }),
     }),
-    { name: "ail-chat" }
+    {
+      name: "ail-chat",
+      version: 1,
+      // 旧版（ownerUid 字段之前）的存量会话可能属于此前登录过的任意账号：打 legacy 标记，
+      // 不再被 loadCloud 当作"真·游客会话"合并上传到下一个登录账号（隐私串档）
+      migrate: (state: any, version: number) => {
+        if (version < 1 && Array.isArray(state?.sessions)) {
+          state.sessions = state.sessions.map((s: any) => (s.ownerUid ? s : { ...s, ownerUid: "legacy" }));
+        }
+        return state;
+      },
+    }
   )
 );
 

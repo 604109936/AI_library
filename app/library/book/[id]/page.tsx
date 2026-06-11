@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { ChevronLeft, Heart, ChevronRight, ChevronDown, PenLine, Check, BookOpen, Play } from "lucide-react";
-import { getBook, getChapters } from "@/lib/api";
+import { getBook, getChapterList } from "@/lib/api";
 import { BookCover } from "@/components/ui/BookCover";
 import { Stars } from "@/components/ui/Stars";
 import { Avatar } from "@/components/ui/Avatar";
@@ -31,7 +31,8 @@ export default function BookDetail({ params }: { params: { id: string } }) {
   const progress = useLibrary((s) => s.progress);
 
   const bookQ = useQuery({ queryKey: ["book", id], queryFn: () => getBook(id) });
-  const chQ = useQuery({ queryKey: ["chapters", id], queryFn: () => getChapters(id) });
+  // 轻量目录查询（无正文），且纯音视频书不发起（hasText 为 false 时目录区根本不渲染）
+  const chQ = useQuery({ queryKey: ["chapterList", id], queryFn: () => getChapterList(id), enabled: !!bookQ.data?.hasText });
 
   const book = bookQ.data;
   const fav = book && user ? isFav(book.id) : false;

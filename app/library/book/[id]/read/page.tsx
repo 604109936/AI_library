@@ -123,6 +123,9 @@ function ReaderInner({ id }: { id: string }) {
   const [pct, setPct] = useState(0);
   const pctRef = useRef(0);
   const resumed = useRef(false);
+  // 续读决议完成才放行进度上报：否则进入瞬间会以默认第 1 章抢跑一轮 report——
+  // 覆写 ail-chpos 精确位置、向云端写错章进度（刷新场景下水合晚于章节数据时必现）
+  const [resolved, setResolved] = useState(false);
   const pendingPct = useRef<{ ch: string; pct: number } | null>(null); // P2-8 续读待恢复的章内滚动比例
   useEffect(() => {
     try {
@@ -167,32 +170,37 @@ function ReaderInner({ id }: { id: string }) {
   useEffect(() => {
     if (resumed.current || !chapters.length || !libHydrated) return;
     resumed.current = true;
-    if (curId || sp.get("ch")) return;
-    const saved = useLibrary.getState().progress[id.split("__")[0]];
-    if (!saved?.chapterId || !chapters.some((c) => c.id === saved.chapterId)) return;
-    setCurId(saved.chapterId);
-    // P2-8 续读恢复章内位置：优先本机记录的「章内滚动百分比」（report 时落 localStorage，精确）；
-    // 没有则用全书进度反解章内比例兜底（全书 pct 取整有误差，仅作近似）。有 ?mark 时让位给标记定位。
-    if (sp.get("mark")) return;
-    let p = -1;
+    // resolved 置位放 finally：所有决议路径（带 ?ch 直达、无保存进度、正常恢复）都要放行进度上报
     try {
-      const raw = localStorage.getItem("ail-chpos-" + realId);
-      if (raw) {
-        const v = JSON.parse(raw);
-        if (v?.ch === saved.chapterId && typeof v.pct === "number") p = v.pct;
+      if (curId || sp.get("ch")) return;
+      const saved = useLibrary.getState().progress[id.split("__")[0]];
+      if (!saved?.chapterId || !chapters.some((c) => c.id === saved.chapterId)) return;
+      setCurId(saved.chapterId);
+      // P2-8 续读恢复章内位置：优先本机记录的「章内滚动百分比」（report 时落 localStorage，精确）；
+      // 没有则用全书进度反解章内比例兜底（全书 pct 取整有误差，仅作近似）。有 ?mark 时让位给标记定位。
+      if (sp.get("mark")) return;
+      let p = -1;
+      try {
+        const raw = localStorage.getItem("ail-chpos-" + realId);
+        if (raw) {
+          const v = JSON.parse(raw);
+          if (v?.ch === saved.chapterId && typeof v.pct === "number") p = v.pct;
+        }
+      } catch {}
+      if (p < 0 && typeof saved.pct === "number") {
+        const total = chapters.length || 1;
+        const done = (useLibrary.getState().readChapters[realId] ?? []).length;
+        p = Math.max(0, Math.min(1, (saved.pct / 100) * total - done)) * 100;
       }
-    } catch {}
-    if (p < 0 && typeof saved.pct === "number") {
-      const total = chapters.length || 1;
-      const done = (useLibrary.getState().readChapters[realId] ?? []).length;
-      p = Math.max(0, Math.min(1, (saved.pct / 100) * total - done)) * 100;
+      if (p > 0) pendingPct.current = { ch: saved.chapterId, pct: Math.min(100, p) };
+    } finally {
+      setResolved(true);
     }
-    if (p > 0) pendingPct.current = { ch: saved.chapterId, pct: Math.min(100, p) };
     // eslint-disable-next-line
   }, [chapters, curId, sp, id, libHydrated]);
 
   useEffect(() => {
-    if (!bookQ.data || !cur) return;
+    if (!bookQ.data || !cur || !resolved) return; // 续读未决议前不上报（防默认第 1 章抢跑写脏进度）
     // 切章/进入：先回顶再重置本章进度，原子一致（旧章进度已由上一次 cleanup 写入，不受本次影响）
     scrollRef.current?.scrollTo(0, 0);
     pctRef.current = 0;
@@ -208,8 +216,9 @@ function ReaderInner({ id }: { id: string }) {
         const max = el.scrollHeight - el.clientHeight;
         if (pctRef.current >= 95 || max <= 4) markChapterRead(rid, cur.id);
       }
-      // P2-8：本机另存「当前章 + 章内滚动百分比」，续读时精确恢复章内位置（不动 store 结构）
-      try { localStorage.setItem("ail-chpos-" + rid, JSON.stringify({ ch: cur.id, pct: Math.round(pctRef.current * 10) / 10 })); } catch {}
+      // P2-8：本机另存「当前章 + 章内滚动百分比」，续读时精确恢复章内位置（不动 store 结构）。
+      // 待恢复的精确位置还没应用时（恢复 effect 晚于本 effect 跑）不写：会把它覆盖成 pct=0
+      if (!pendingPct.current) try { localStorage.setItem("ail-chpos-" + rid, JSON.stringify({ ch: cur.id, pct: Math.round(pctRef.current * 10) / 10 })); } catch {}
       const readNow = useLibrary.getState().readChapters[rid] ?? [];
       const N = chapters.length || 1;
       // 进度 =（已读完章节数 + 当前章滚动比例）/ 总章数：章内滚动也前进，全部读完才 100
@@ -224,7 +233,7 @@ function ReaderInner({ id }: { id: string }) {
     const t = setInterval(() => report(true), 5000); // 读毕只由「活着的」路径判定：此定时器 + onScroll
     return () => { report(false); clearInterval(t); }; // 退出/切章：只落进度，不判读毕（防误打√）
     // eslint-disable-next-line
-  }, [cur?.id, bookQ.data?.id]);
+  }, [cur?.id, bookQ.data?.id, resolved]);
 
   // P2-8：内容渲染后按保存的章内百分比恢复滚动（仅续读路径、仅一次）。
   // 必须声明在上面的进度 effect 之后：同一轮提交里先 scrollTo(0,0) 再恢复位置，不被回顶冲掉
@@ -506,6 +515,8 @@ function ReaderInner({ id }: { id: string }) {
         style={{ filter: `brightness(${reader.brightness})` }}
       >
         <div
+          key={cur.id} // 按章整棵重挂载：高亮 wrapRange 对 React 托管文本节点做过 splitText/包 mark，
+          // 切章若让 React 原地 diff 被命令式改动过的 DOM，会抛 NotFoundError 白屏或残留上一章文字碎片
           ref={contentRef}
           onContextMenu={(e) => e.preventDefault()}
           className="mx-auto max-w-[680px] break-words text-justify font-serif leading-[1.9]"

@@ -70,9 +70,10 @@ async function collectSignals(uids: string[]): Promise<Map<string, UserSignal>> 
     fetchAll((f, t) => admin.from("text_progress").select("user_id,book_id,pct,last_chapter_no").in("user_id", uids).order("user_id").order("book_id").range(f, t)),
     fetchAll((f, t) => admin.from("media_progress").select("user_id,book_id,position,played").in("user_id", uids).order("user_id").order("book_id").range(f, t)),
     fetchAll((f, t) => admin.from("reviews").select("user_id,rating,title,content").in("user_id", uids).order("id").range(f, t)),
-    // 画像数据（只影响排序质量）取最近 N 条即可，每用户上限在下面 JS 里卡
-    admin.from("notes").select("user_id,excerpt,note").in("user_id", uids).order("created_at", { ascending: false }).limit(uids.length * 16).then((r) => r.data ?? []),
-    admin.from("chat_sessions").select("user_id,messages,compressed_history").in("user_id", uids).order("updated_at", { ascending: false }).limit(uids.length * 3).then((r) => r.data ?? []),
+    // 画像数据（只影响排序质量）逐用户限量查询：批级共享 limit 会被单个重度用户（几百条笔记）
+    // 独占窗口，挤掉同批其他用户的信号 → 只靠笔记产生信号的用户被误判 skippedNoSignal
+    mapLimit(uids, 8, async (uid) => (await admin.from("notes").select("user_id,excerpt,note").eq("user_id", uid).order("created_at", { ascending: false }).limit(8)).data ?? []).then((rs) => rs.flat()),
+    mapLimit(uids, 8, async (uid) => (await admin.from("chat_sessions").select("user_id,messages,compressed_history").eq("user_id", uid).order("updated_at", { ascending: false }).limit(3)).data ?? []).then((rs) => rs.flat()),
   ]);
   const map = new Map<string, UserSignal>();
   const of = (uid: string): UserSignal => {
@@ -130,7 +131,9 @@ async function rankByLLM(candidates: Candidate[], s: UserSignal, bookTitle: (id:
         { role: "system", content: "你是图书推荐排序引擎。把候选书按「这位读者会感兴趣的程度」从高到低排序。只输出 JSON 字符串数组（候选书的 id），不要输出任何其他文字。只能使用候选列表中出现的 id，不要遗漏、不要编造。" },
         { role: "user", content: `[读者画像]\n${profile}\n\n[候选书列表]\n${list}\n\n输出排序后的 id 数组：` },
       ],
-      { model: FEED_MODEL, temperature: 0.3, maxTokens: 4096 }
+      // 超时必须收紧到 20s：默认 60s 大于本函数 50s 预算，MiniMax 挂起时会被 Vercel 掐死在
+      // catch 之前 → 当前批全部白做且断点永远卡在同一批（「LLM 失败退默认序」兜底链失效）
+      { model: FEED_MODEL, temperature: 0.3, maxTokens: 4096, timeoutMs: 20_000 }
     );
     // 两步解析：先取首 [ 到末 ] 的最大跨度；失败再试第一段不含嵌套的 [...]（防 LLM 夹带解释文字打穿）
     let parsed: unknown = null;

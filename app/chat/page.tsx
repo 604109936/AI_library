@@ -133,7 +133,13 @@ function ChatInner() {
     if (found && found.messages.length) {
       appliedSid.current = sid;
       sessionId.current = found.id;
-      setMessages(found.messages);
+      // 还原时归一化流式中间态：历史数据若曾被污染（旧版本 persist 存过 streaming:true），
+      // 不修复会渲染成永久"思考中"。空内容的转错误占位，给重新生成出路
+      setMessages(found.messages.map((m) =>
+        m.streaming || m.toolNote !== undefined
+          ? { ...m, streaming: false, toolNote: undefined, ...(m.content ? {} : { content: "这条回答没有生成完，点「重新生成」再试一次吧", error: true }) }
+          : m
+      ));
       pendingLocate.current = mid ? { type: "id", id: mid } : qparam ? { type: "q", q: qparam } : { type: "end" };
     }
   }, [sp, sessions]);
@@ -167,15 +173,23 @@ function ChatInner() {
     if (stick.current) bottomRef.current?.scrollIntoView({ block: "end", behavior: "auto" });
   }, [messages]);
 
+  // 仅在 busy true→false 边沿持久化：mount 时（切 Tab 回来、chatLive 恢复）busy 恒为 false，
+  // 不跳过首跑会把会话 updatedAt 无故刷成"现在"并多写一次云端
+  const busySeen = useRef(false);
   useEffect(() => {
-    if (!busy && messages.length) persist(messages);
+    if (busy) { busySeen.current = true; return; }
+    if (busySeen.current && messages.length) persist(messages);
     // eslint-disable-next-line
   }, [busy]);
 
   function persist(msgs: TMsg[]) {
     const firstUser = msgs.find((m) => m.role === "user");
     if (!firstUser) return;
-    upsertSession({ id: sessionId.current, title: firstUser.content.slice(0, 20), updatedAt: new Date().toISOString(), messages: msgs });
+    // 流式中间态绝不落持久层：busy 期间给更早消息点赞也会走到这里，若把 streaming:true 的
+    // 半截消息存进本地，历史重开该会话会渲染成永久"思考中"。口径与云端 cleanMsgs 对齐。
+    const clean = msgs.filter((m) => !m.streaming).map((m) => (m.toolNote !== undefined ? { ...m, toolNote: undefined } : m));
+    if (!clean.length) return;
+    upsertSession({ id: sessionId.current, title: firstUser.content.slice(0, 20), updatedAt: new Date().toISOString(), messages: clean });
   }
 
   // T2.1：答案来源 = 云函数 /api/chat（MiniMax 真实大模型，带多轮上下文）；
@@ -206,6 +220,8 @@ function ChatInner() {
 
     const ctrl = new AbortController();
     fetchCtrl.current = ctrl;
+    // acc 提升到 send 作用域：catch 需要据此判断「中途失败但已有正文」，保留内容而非整体替换为错误文案
+    let acc = "";
     // 登录态附带 Supabase token：云函数据此注入「这位读者」的个人数据（游客则无）
     supabase.auth
       .getSession()
@@ -228,7 +244,6 @@ function ChatInner() {
         // T2.4 真流式：逐行消费 NDJSON 事件（文本增量/工具状态/卡片信号）。
         // MiniMax 上游以大块推送，前端用「追赶打字机」平滑渐显：落后越多追越快，体感连续。
         const apply = (patch: Partial<TMsg>) => setMessages((prev) => prev.map((m) => (m.id === aId ? { ...m, ...patch } : m)));
-        let acc = "";
         let shown = 0;
         let ended = false;
         // 卡片交错渲染：工具事件到达时把占位标记插进 acc 当前位置（正好在两轮模型文字之间），
@@ -253,7 +268,12 @@ function ChatInner() {
             } else if (ended) {
               if (timer.current) clearInterval(timer.current);
               timer.current = null;
-              apply({ content: acc, streaming: false, toolNote: undefined });
+              // 流正常 end 但全程零文字零卡片（如 max_tokens 烧尽在思考段）：给错误占位而非空气泡
+              if (!acc.trim() && !recsAcc.length && !citesAcc.length) {
+                apply({ content: "这次没说出话来，点「重新生成」再试一次吧", streaming: false, toolNote: undefined, error: true });
+              } else {
+                apply({ content: acc, streaming: false, toolNote: undefined });
+              }
               busyRef.current = false;
               setBusy(false);
               setShowJump(false);
@@ -261,6 +281,7 @@ function ChatInner() {
           }, 16);
         };
         const handle = async (ev: { t: string; v?: unknown }) => {
+          if (fetchCtrl.current !== ctrl) return; // 停止/被新请求取代后不再消费缓冲区残留事件（防 await 窗口期复活僵尸打字机）
           if (ev.t === "d" && typeof ev.v === "string") { acc += ev.v; apply({ toolNote: undefined }); smooth(); } // 新文字到达才清工具状态
           else if (ev.t === "status" && typeof ev.v === "string") apply({ toolNote: ev.v });
           else if (ev.t === "recs" && Array.isArray(ev.v)) {
@@ -310,8 +331,14 @@ function ChatInner() {
         // 必须清掉打字机 interval：否则残留空转的旧 interval 会让下一次提问永远渲染不出字（P0）
         if (timer.current) { clearInterval(timer.current); timer.current = null; }
         const msg = e instanceof Error && e.message && e.message !== "Failed to fetch" ? e.message : "网络有点不稳，缓一缓再问我一次吧";
-        // 错误进气泡即可（带重新生成按钮），不再叠一个 toast 双重打扰；error 标记防止进上下文
-        setMessages((prev) => prev.map((m) => (m.id === aId ? { ...m, content: msg, streaming: false, error: true } : m)));
+        if (acc.trim()) {
+          // 中途失败但已流出正文（多轮工具循环后段挂掉）：保留已有内容 + 尾注说明，不打 error 标记
+          // （正文与已出的卡片真实有效，整体替换成报错会让内容凭空消失、错误气泡里挂着推荐卡观感矛盾）
+          setMessages((prev) => prev.map((m) => (m.id === aId ? { ...m, content: acc + "\n\n（后面断线了，回答可能不完整——可以点重新生成补全）", streaming: false, toolNote: undefined } : m)));
+        } else {
+          // 零内容失败：错误占位，并清掉可能已挂上的卡片数组（错误气泡不该出现"为你挑的书"）
+          setMessages((prev) => prev.map((m) => (m.id === aId ? { ...m, content: msg, streaming: false, error: true, toolNote: undefined, recommendations: undefined, citations: undefined } : m)));
+        }
         busyRef.current = false;
         setBusy(false);
       });
@@ -320,7 +347,7 @@ function ChatInner() {
   function stop() {
     if (fetchCtrl.current) { fetchCtrl.current.abort(); fetchCtrl.current = null; }
     if (thinkTimer.current) clearTimeout(thinkTimer.current);
-    if (timer.current) clearInterval(timer.current);
+    if (timer.current) { clearInterval(timer.current); timer.current = null; } // 必须置 null：陈旧 id 残留会让下次 smooth() 误判"已有打字机"
     // 卡片数据在事件到达时已挂上消息：内容里有标记按标记位置渲染，标记没吐到则回退末尾渲染，不会丢卡
     setMessages((prev) =>
       prev.map((m) => {

@@ -34,6 +34,10 @@ export async function loadUserData(user: { id: string; nickname: string; avatarS
     supabase.from("profiles").select("read_seconds").eq("id", uid).maybeSingle(),
     supabase.from("review_likes").select("review_id").eq("user_id", uid),
   ]);
+  // 任何一路失败必须抛错：supabase-js 失败不 reject 而是 resolve {error}，静默吞掉会变成
+  // 「空基线 + hydrated=true」——写穿透门禁被合法打开，空数据反向洗掉云端真实进度
+  const failed = [favR, noteR, revR, histR, tpR, mpR, profR, likeR].find((r) => (r as { error?: unknown }).error);
+  if (failed) throw new Error(`用户数据加载失败：${String((failed as { error?: { message?: string } }).error?.message ?? "未知错误")}`);
 
   const noteRows = (noteR.data ?? []) as any[];
   const revRows = (revR.data ?? []) as any[];
@@ -50,6 +54,8 @@ export async function loadUserData(user: { id: string; nickname: string; avatarS
       ? supabase.from("chapters").select("id,title").in("id", chapIds)
       : Promise.resolve({ data: [] as any[] }),
   ]);
+  const failed2 = [booksR, chapsR].find((r) => (r as { error?: unknown }).error);
+  if (failed2) throw new Error(`用户数据加载失败：${String((failed2 as { error?: { message?: string } }).error?.message ?? "未知错误")}`);
   const bookMap = new Map((booksR.data ?? []).map((b: any) => [b.id, b]));
   const chapMap = new Map((chapsR.data ?? []).map((c: any) => [c.id, c]));
 

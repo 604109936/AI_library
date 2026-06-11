@@ -6,10 +6,21 @@
 import "server-only";
 import { admin } from "@/lib/server/agent";
 import { chatOnce } from "@/lib/server/minimax";
+import { stripCardMarkers } from "@/lib/chatMarkers";
 
 const KEEP = 40; // 最近 20 轮（40 条）不压缩
 const BATCH_MIN = 8; // 新增未压缩消息攒够这个数才值得跑一次压缩
 const COMPRESS_MODEL = process.env.MINIMAX_COMPRESS_MODEL || "MiniMax-Text-01"; // 压缩走便宜快的模型
+
+// 「请求口径」视图：与前端组装上下文的过滤规则完全一致（剔除 error 占位 → 剥卡片标记 → 滤空）。
+// compressed_until 必须按这套口径计数：若按 DB 原始数组下标计数，前端请求数组比 DB 短 k 条
+// （k=被剔除的 error/空消息数），all.slice(until) 会让边界附近 k 条真实消息「既不在摘要也不在请求」。
+export function requestView(msgs: { role?: string; content?: unknown; error?: boolean }[]): { role: string; content: string }[] {
+  return msgs
+    .filter((m) => !m.error)
+    .map((m) => ({ role: String(m.role ?? ""), content: stripCardMarkers(String(m.content ?? "")) }))
+    .filter((m) => m.content.trim());
+}
 
 // 防同一会话并发重复压缩（serverless 单实例内有效，多实例最坏重复压一次，幂等无害）
 const inflight = new Set<string>();
@@ -32,14 +43,16 @@ async function compress(uid: string, sessionId: string) {
     .eq("id", sessionId)
     .maybeSingle();
   if (!row) return;
-  const msgs: { role: string; content: string }[] = Array.isArray(row.messages) ? row.messages : [];
+  // 统一按「请求口径」计数与切片（详见 requestView 注释）：摘要覆盖范围与请求裁剪范围严格互补
+  const msgs = requestView(Array.isArray(row.messages) ? row.messages : []);
   const until = row.compressed_until ?? 0;
   const cut = msgs.length - KEEP; // 压到这条为止（保住最近 20 轮）
   if (cut - until < BATCH_MIN) return; // 没攒够，不值得跑
 
+  // 卡片占位标记已在 requestView 剥净：摘要绝不能把 [[recs:…]] 语法带进 system，主模型会学样输出假标记
   const part = msgs
     .slice(until, cut)
-    .map((m) => `${m.role === "user" ? "读者" : "小涤"}：${String(m.content ?? "").slice(0, 600)}`)
+    .map((m) => `${m.role === "user" ? "读者" : "小涤"}：${m.content.slice(0, 600)}`)
     .join("\n");
   const prev = (row.compressed_history ?? "").trim();
 

@@ -46,6 +46,8 @@ function ReviewForm({ id }: { id: string }) {
   const [leaveOpen, setLeaveOpen] = useState(false);
   const initial = useRef({ rating: existing?.rating ?? 0, title: existing?.title ?? "", content: existing?.content ?? "" });
   const dirty = rating !== initial.current.rating || title !== initial.current.title || content !== initial.current.content;
+  // 深链直开（分享链接/新标签）时 history 栈长 1，router.back() 无处可退会定格在表单页：兜底回详情页
+  const goBack = () => { if (window.history.length > 1) router.back(); else router.replace(`/library/book/${real}`); };
 
   const isEdit = !!existing;
   const canPublish = rating > 0 && content.trim().length >= 10;
@@ -75,7 +77,7 @@ function ReviewForm({ id }: { id: string }) {
       mine: true,
     });
     toast(isEdit ? "书评已更新" : "书评已发布");
-    router.back();
+    goBack();
   }
   function publish() {
     if (submitLock.current) return;
@@ -92,7 +94,7 @@ function ReviewForm({ id }: { id: string }) {
       setLeaveOpen(true);
       return;
     }
-    router.back();
+    goBack();
   }
 
   const nearLimit = content.length > MAX * 0.9;
@@ -171,7 +173,7 @@ function ReviewForm({ id }: { id: string }) {
               <p className="text-center text-sm text-ink dark:text-dark-text">书评尚未发布，确定离开？</p>
               <div className="mt-4 flex gap-3">
                 <button onClick={() => setLeaveOpen(false)} className="flex-1 rounded-2xl bg-moon py-3 text-sm text-ink-700 dark:bg-dark-bg dark:text-dark-text/80">留下</button>
-                <button onClick={() => router.back()} className="flex-1 rounded-2xl bg-celadon py-3 text-sm text-snow">离开</button>
+                <button onClick={goBack} className="flex-1 rounded-2xl bg-celadon py-3 text-sm text-snow">离开</button>
               </div>
             </motion.div>
           </motion.div>

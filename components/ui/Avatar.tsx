@@ -34,6 +34,10 @@ export function Avatar({
   const ch = name?.trim()?.[0] ?? "读";
   // 默认按 seed 映射到一组真实头像图，缺图时回退首字母色块
   const file = src ?? `/avatars/a${((seed - 1 + AVATAR_COUNT) % AVATAR_COUNT) + 1}.webp`;
+  // 失败态必须随 src 变化复位：否则一次 404 后组件实例被复用时（换头像、列表复用），
+  // 新的有效地址连尝试加载的机会都没有，用户怎么换头像都"不生效"
+  const [lastFile, setLastFile] = useState(file);
+  if (file !== lastFile) { setLastFile(file); setOk(true); }
   return (
     <div
       role="img"

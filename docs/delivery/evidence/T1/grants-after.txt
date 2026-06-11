@@ -1,0 +1,17 @@
+┌─────────┬─────────────────┬─────────────────┬───────────────────────────────┐
+│ (index) │ table_name      │ grantee         │ privs                         │
+├─────────┼─────────────────┼─────────────────┼───────────────────────────────┤
+│ 0       │ 'books'         │ 'anon'          │ 'SELECT'                      │
+│ 1       │ 'books'         │ 'authenticated' │ 'SELECT'                      │
+│ 2       │ 'chat_sessions' │ 'anon'          │ 'SELECT'                      │
+│ 3       │ 'chat_sessions' │ 'authenticated' │ 'DELETE,INSERT,SELECT,UPDATE' │
+│ 4       │ 'favorites'     │ 'anon'          │ 'SELECT'                      │
+│ 5       │ 'favorites'     │ 'authenticated' │ 'DELETE,INSERT,SELECT,UPDATE' │
+│ 6       │ 'notes'         │ 'anon'          │ 'SELECT'                      │
+│ 7       │ 'notes'         │ 'authenticated' │ 'DELETE,INSERT,SELECT,UPDATE' │
+│ 8       │ 'profiles'      │ 'anon'          │ 'SELECT'                      │
+│ 9       │ 'profiles'      │ 'authenticated' │ 'DELETE,INSERT,SELECT'        │
+│ 10      │ 'search_logs'   │ 'anon'          │ 'INSERT,SELECT'               │
+│ 11      │ 'search_logs'   │ 'authenticated' │ 'INSERT,SELECT'               │
+└─────────┴─────────────────┴─────────────────┴───────────────────────────────┘
+✅ 执行完成

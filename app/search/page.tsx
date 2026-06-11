@@ -24,7 +24,7 @@ export default function SearchPage() {
     return () => clearTimeout(t);
   }, [input]);
 
-  const { data, isLoading, isError, isFetching, refetch } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch, isPlaceholderData } = useQuery({
     queryKey: ["search", q],
     queryFn: () => search(q),
     enabled: q.length > 0,
@@ -37,14 +37,16 @@ export default function SearchPage() {
   const hasResult = !!data && data.books.length > 0;
 
   // 仅“有结果”时写入历史（提交/点击只切换 q，由此 effect 统一记录，避免零结果词污染最近搜索）。
+  // 必须排除 placeholder 态：换词瞬间 data 还是旧词的结果，不排除会把"旧词有结果"当成"新词有结果"，
+  // 零结果新词照样进最近搜索、慢请求时还误报 search_logs。
   // search_logs 上报延后 1.2s：连续输入的中间态前缀词（打“认知觉醒”停顿出的“认”）会被 q 变化取消，
   // 不污染热门聚合；停下来真正看结果的词才算一次有效搜索
   useEffect(() => {
-    if (!(q && hasResult)) return;
+    if (!(q && hasResult) || isPlaceholderData) return;
     addRecent(q);
     const t = setTimeout(() => logSearch(q), 1200);
     return () => clearTimeout(t);
-  }, [q, hasResult, addRecent]);
+  }, [q, hasResult, isPlaceholderData, addRecent]);
 
   function submit(term: string) {
     setInput(term);

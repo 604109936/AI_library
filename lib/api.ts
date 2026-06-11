@@ -144,6 +144,15 @@ export async function getChapters(bookId: string): Promise<Chapter[]> {
   return (data ?? []).map(toChapter);
 }
 
+// 章节目录（轻量版）：不取 content 正文。详情页目录只渲染 序号/标题，select(*) 会把整本书
+// 正文（数百 KB～MB）拉到手机上白白浪费；阅读器才需要全量 getChapters。
+export async function getChapterList(bookId: string): Promise<Chapter[]> {
+  const real = bookId.split("__")[0];
+  const { data, error } = await supabase.from("chapters").select("id,book_id,no,title,audio_start").eq("book_id", real).order("no");
+  if (error) throw error;
+  return (data ?? []).map(toChapter);
+}
+
 export async function getChapter(bookId: string, chapterId: string): Promise<Chapter | null> {
   // 必须校验章节确属此书：否则拼错的深链会静默取到别本书的正文，进而把进度/笔记写错书
   const { data, error } = await supabase.from("chapters").select("*").eq("id", chapterId).eq("book_id", bookId.split("__")[0]).maybeSingle();

@@ -44,3 +44,4 @@ Thumbs.db
 .e2e/
 
 .vercel
+docs/minimax-websearch/__pycache__/

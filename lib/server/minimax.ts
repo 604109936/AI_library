@@ -137,7 +137,7 @@ export async function* streamChat(
   }
 }
 
-export async function chatOnce(messages: MMMessage[], opts?: { maxTokens?: number; temperature?: number; model?: string }): Promise<string> {
+export async function chatOnce(messages: MMMessage[], opts?: { maxTokens?: number; temperature?: number; model?: string; timeoutMs?: number }): Promise<string> {
   const key = process.env.MINIMAX_API_KEY;
   if (!key) throw new Error("服务端未配置 MINIMAX_API_KEY");
   const r = await fetch(`${BASE}/v1/chat/completions`, {
@@ -149,7 +149,8 @@ export async function chatOnce(messages: MMMessage[], opts?: { maxTokens?: numbe
       max_tokens: opts?.maxTokens ?? 2048,
       temperature: opts?.temperature ?? 0.8,
     }),
-    signal: AbortSignal.timeout(60000),
+    // 默认 60s 是给长回答留的；时间预算紧的调用方（如 feed 排序）必须传更紧的 timeoutMs
+    signal: AbortSignal.timeout(opts?.timeoutMs ?? 60000),
   });
   const text = await r.text();
   let j: any = null;

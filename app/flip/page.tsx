@@ -117,7 +117,12 @@ export default function FlipPage() {
     if (!v || userPausedRef.current) return;
     v.muted = !soundOnRef.current;
     setMutedNow(v.muted);
-    v.play().then(() => setMutedNow(v.muted)).catch(() => {
+    // 异步回调守卫：play() Promise 落定时用户可能已快滑切条（pause 旧槽会让 pending play 以
+    // AbortError 拒绝）。不带守卫会复活旧槽后台播放、污染全局静音图标、误烧静音提示、
+    // 把旧槽的源错误盖到新条上——四个症状一锅端。
+    const stillActive = () => slotOf(activeIdxRef.current) === aSlot;
+    v.play().then(() => { if (stillActive()) setMutedNow(v.muted); }).catch(() => {
+      if (!stillActive()) return;
       v.muted = true;
       setMutedNow(true);
       // 静音兜底首次触发：提示「轻点开启声音」，4 秒自隐（每次会话仅一次）
@@ -126,7 +131,7 @@ export default function FlipPage() {
         setMutedHint(true);
         setTimeout(() => setMutedHint(false), 4000);
       }
-      v.play().catch(() => { if (v.error) setVErr(true); }); // 静音兜底也播不动且源已坏 → 走错误兜底而非一直转圈
+      v.play().catch(() => { if (stillActive() && v.error) setVErr(true); }); // 静音兜底也播不动且源已坏 → 走错误兜底而非一直转圈
     });
   }, []);
 
