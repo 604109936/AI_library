@@ -11,7 +11,7 @@ import type {
   UserProfile,
 } from "@/lib/types";
 import { supabase } from "@/lib/supabase/client";
-import { loadUserData, loadChatSessions, chatDb, db } from "@/lib/supabase/userdata";
+import { loadUserData, loadMainSession, chatDb, db } from "@/lib/supabase/userdata";
 
 /* ---------------- Auth（接 Supabase Auth） ---------------- */
 // profiles + auth.users.email → UserProfile。stats 由前端各页实时计算，这里置 0（不用 user.stats）。
@@ -466,13 +466,14 @@ export const useReader = create<ReaderState>()(
 );
 
 /* ---------------- Chat ---------------- */
-// T2.5 云同步：本地乐观更新 + 登录态写穿透 chat_sessions；登录时云端为主、本地未上云的会话合并上传；退出只清本地、云端永久保留。
+// T4 全局单一会话：每用户唯一一条持续会话流（id='main'），跨设备跨登录连续。
+// sessions 数组形态保留（持久化兼容），但恒最多一条 main。本地乐观更新 + 登录态写穿透；
+// 登录时云端为主、本地（游客期）多出的消息按 id 去重追加并回传云端；退出只清本地、云端永久保留。
+export const MAIN_SESSION_TITLE = "与小涤的对话";
 interface ChatState {
   sessions: ChatSession[];
-  hiddenSamples: string[]; // 被用户删除/清空的示例会话 id（持久化，刷新后不再复现）
+  hiddenSamples: string[]; // 被用户隐藏的欢迎页示例 id（持久化，刷新后不再复现）
   upsertSession: (s: ChatSession) => void;
-  removeSession: (id: string) => void;
-  clearSessions: () => void;
   hideSample: (id: string) => void;
   hideAllSamples: (ids: string[]) => void;
   loadCloud: (uid: string) => Promise<void>;
@@ -493,46 +494,36 @@ export const useChat = create<ChatState>()(
       hiddenSamples: [],
       upsertSession: (s) => {
         const stamped = { ...s, ownerUid: chatUid() ?? "guest" }; // 标记归属，换号时据此辨别"谁的会话"
-        set({
-          sessions: [stamped, ...get().sessions.filter((x) => x.id !== s.id)].sort(
-            (a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt)
-          ),
-        });
+        set({ sessions: [stamped] }); // 单一会话：永远只有这一条
         const u = chatUid();
         if (u) chatSync(chatDb.upsert(u, stamped));
-      },
-      removeSession: (id) => {
-        set({ sessions: get().sessions.filter((x) => x.id !== id) });
-        const u = chatUid();
-        if (u) chatSync(chatDb.remove(u, id));
-      },
-      clearSessions: () => {
-        set({ sessions: [] });
-        const u = chatUid();
-        if (u) chatSync(chatDb.clear(u));
       },
       hideSample: (id) => set({ hiddenSamples: Array.from(new Set([...get().hiddenSamples, id])) }),
       hideAllSamples: (ids) => set({ hiddenSamples: Array.from(new Set([...get().hiddenSamples, ...ids])) }),
       loadCloud: async (uid) => {
         try {
-          const cloud = (await loadChatSessions(uid)).map((s) => ({ ...s, ownerUid: uid }));
+          const cloud = await loadMainSession(uid);
           // 世代校验：加载期间已退出/换号 → 晚到数据不回写、不上传（防把 A 的会话灌进 B 的账号）
           if (useAuth.getState().user?.id !== uid) return;
-          const cloudIds = new Set(cloud.map((s) => s.id));
-          // 共享体验账号不做合并上传：任何设备的本地旧会话在登录 demo 时都会整批灌进云端（脏数据源头），只读云端即可
+          const local = get().sessions.find((s) => s.id === "main");
+          // 共享体验账号只读云端（任何设备的本地残留都不上传）；普通账号仅并入"真·游客/本人"的消息，legacy/他人残留丢弃
           const isSharedDemo = useAuth.getState().user?.email === "demo@ailibrary.app";
-          // 仅"真·游客会话或本人会话"合并上传；其它账号残留一律丢弃
-          const localOnly = isSharedDemo
-            ? []
-            : get().sessions.filter(
-                (s) => !cloudIds.has(s.id) && (!s.ownerUid || s.ownerUid === "guest" || s.ownerUid === uid)
-              );
-          for (const s of localOnly) chatSync(chatDb.upsert(uid, s));
-          set({
-            sessions: [...cloud, ...localOnly.map((s) => ({ ...s, ownerUid: uid }))].sort(
-              (a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt)
-            ),
-          });
+          const localOk = !isSharedDemo && local && (!local.ownerUid || local.ownerUid === "guest" || local.ownerUid === uid);
+          const cloudMsgs = cloud?.messages ?? [];
+          const seen = new Set(cloudMsgs.map((m) => m.id));
+          const extra = localOk ? local!.messages.filter((m) => !seen.has(m.id)) : [];
+          const messages = [...cloudMsgs, ...extra];
+          if (!messages.length) { set({ sessions: [] }); return; }
+          const merged: ChatSession = {
+            id: "main",
+            title: MAIN_SESSION_TITLE,
+            // 没有本地新增时沿用云端时间，不无故刷新
+            updatedAt: extra.length ? new Date().toISOString() : cloud?.updatedAt ?? new Date().toISOString(),
+            messages,
+            ownerUid: uid,
+          };
+          if (extra.length) chatSync(chatDb.upsert(uid, merged)); // 游客期攒下的消息回传云端
+          set({ sessions: [merged] });
         } catch {}
       },
       resetLocal: () => set({ sessions: [] }),
@@ -540,12 +531,21 @@ export const useChat = create<ChatState>()(
     }),
     {
       name: "ail-chat",
-      version: 1,
-      // 旧版（ownerUid 字段之前）的存量会话可能属于此前登录过的任意账号：打 legacy 标记，
-      // 不再被 loadCloud 当作"真·游客会话"合并上传到下一个登录账号（隐私串档）
+      version: 2,
       migrate: (state: any, version: number) => {
+        // v1：旧版（ownerUid 字段之前）的存量会话可能属于此前登录过的任意账号——打 legacy 标记防串档上传
         if (version < 1 && Array.isArray(state?.sessions)) {
           state.sessions = state.sessions.map((s: any) => (s.ownerUid ? s : { ...s, ownerUid: "legacy" }));
+        }
+        // v2（T4 单一会话）：本地多会话按时间升序合并为一条 main；legacy（归属不明）不并入直接丢弃
+        if (version < 2 && Array.isArray(state?.sessions) && state.sessions.length) {
+          const usable = state.sessions.filter((s: any) => s.ownerUid !== "legacy");
+          const sorted = [...usable].sort((a: any, b: any) => +new Date(a.updatedAt) - +new Date(b.updatedAt));
+          const msgs = sorted.flatMap((s: any) => (Array.isArray(s.messages) ? s.messages : []));
+          const last = sorted[sorted.length - 1];
+          state.sessions = msgs.length
+            ? [{ id: "main", title: MAIN_SESSION_TITLE, updatedAt: last.updatedAt, messages: msgs, ownerUid: last.ownerUid }]
+            : [];
         }
         return state;
       },

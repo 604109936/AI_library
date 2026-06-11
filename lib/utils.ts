@@ -27,20 +27,6 @@ export function formatDate(iso: string): string {
   return `${d.getMonth() + 1}月${d.getDate()}日`;
 }
 
-/** 对话历史时间：今天 HH:mm / 昨天 HH:mm / 周X / 上周 / M月D日 */
-export function formatChatTime(iso: string): string {
-  const d = new Date(iso);
-  const now = new Date();
-  const diff = now.getTime() - d.getTime();
-  const day = 24 * 60 * 60 * 1000;
-  const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  if (diff < day && now.getDate() === d.getDate()) return `今天 ${hm}`;
-  if (diff < 2 * day) return `昨天 ${hm}`;
-  if (diff < 7 * day) return WEEKDAYS[d.getDay()];
-  if (diff < 14 * day) return "上周";
-  return `${d.getMonth() + 1}月${d.getDate()}日`;
-}
-
 export function formatTime(sec: number): string {
   const m = Math.floor(sec / 60);
   const s = Math.floor(sec % 60);

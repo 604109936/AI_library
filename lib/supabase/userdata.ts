@@ -138,20 +138,22 @@ export async function loadUserData(user: { id: string; nickname: string; avatarS
 
 const catOf = (m: ReadingMode) => (m === "text" ? "text" : "av");
 
-/* ---------------- 智学对话云同步（T2.5） ---------------- */
+/* ---------------- 智学对话云同步（T2.5；T4 起每用户唯一会话 'main'） ---------------- */
 // messages 整段存 jsonb（含卡片/反馈），简单可靠；流式中间态字段（streaming/toolNote）入库前剥掉
 const cleanMsgs = (msgs: ChatSession["messages"]) =>
   msgs.filter((m) => !m.streaming).map(({ streaming, toolNote, ...keep }) => keep);
 
-export async function loadChatSessions(uid: string): Promise<ChatSession[]> {
+// 拉取本人唯一会话（T4 后云端每用户只有 id='main' 一行）
+export async function loadMainSession(uid: string): Promise<ChatSession | null> {
   const { data, error } = await supabase
     .from("chat_sessions")
     .select("id,title,updated_at,messages")
     .eq("user_id", uid)
-    .order("updated_at", { ascending: false })
-    .limit(100);
+    .eq("id", "main")
+    .maybeSingle();
   if (error) throw error;
-  return (data ?? []).map((r: any) => ({ id: r.id, title: r.title ?? "", updatedAt: r.updated_at, messages: Array.isArray(r.messages) ? r.messages : [] }));
+  if (!data) return null;
+  return { id: "main", title: data.title ?? "", updatedAt: data.updated_at, messages: Array.isArray(data.messages) ? data.messages : [] };
 }
 
 export const chatDb = {
@@ -160,8 +162,6 @@ export const chatDb = {
       { user_id: uid, id: s.id, title: s.title, messages: cleanMsgs(s.messages), updated_at: s.updatedAt },
       { onConflict: "user_id,id" }
     ),
-  remove: (uid: string, id: string) => supabase.from("chat_sessions").delete().eq("user_id", uid).eq("id", id),
-  clear: (uid: string) => supabase.from("chat_sessions").delete().eq("user_id", uid),
 };
 
 // T1.5「一次阅读」上报：books.read_count +1（不去重，游客也计入）。

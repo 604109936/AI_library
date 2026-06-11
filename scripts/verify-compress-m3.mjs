@@ -9,13 +9,15 @@ for (const line of fs.readFileSync(".env.local", "utf8").split(/\r?\n/)) {
 }
 const BASE = process.env.E2E_BASE || "http://127.0.0.1:3000";
 const URL_ = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SID = "verify-compress-m3-001";
+const SID = "main"; // T4 单一会话：服务端只认 main，压缩/历史都挂在它上面
 
 const anon = createClient(URL_, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, { auth: { persistSession: false } });
 const { data: auth, error } = await anon.auth.signInWithPassword({ email: "demo@ailibrary.app", password: "123456" });
 if (error) { console.log("❌ demo 登录失败:", error.message); process.exit(1); }
 const uid = auth.user.id;
 const admin = createClient(URL_, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+// demo 是共享体验账号：备份 main 原样，测后恢复
+const { data: mainBackup } = await admin.from("chat_sessions").select("*").eq("user_id", uid).eq("id", "main").maybeSingle();
 
 // ① 72 条高信息密度消息：每条带独特数字事实/书名/人名，模型没法"归并凑数"只能逐条保留要点
 const topics = ["《了凡四训》的立命之学", "《认知觉醒》的舒适区边缘", "《被讨厌的勇气》课题分离", "《清醒地活》的觉察练习", "《人生只有一件事》的听话照做", "《你当像鸟飞往你的山》的原生家庭", "《格调》的生活品味分层"];
@@ -69,6 +71,8 @@ const a = await ask("只根据你对我的了解回答：我的职业是什么�
 const okM = /语文老师/.test(a.content ?? "") && /年糕/.test(a.content ?? "");
 console.log(`⑤ 跨压缩记忆：${okM ? "✅ 记得职业与猫名" : "⚠️ 人工判断"}｜回答节选: ${String(a.content ?? "").replace(/\n/g, " ").slice(0, 120)}`);
 
-await admin.from("chat_sessions").delete().eq("user_id", uid).eq("id", SID);
-console.log(okU && okL && okM ? "\n✅ T5 压缩放宽验证通过（验证会话已清理）" : "\n⚠️ 有项未达标（验证会话已清理）");
+// 恢复 demo main 原样（备份-还原模式，绝不残留测试数据）
+if (mainBackup) await admin.from("chat_sessions").upsert(mainBackup, { onConflict: "user_id,id" });
+else await admin.from("chat_sessions").delete().eq("user_id", uid).eq("id", SID);
+console.log(okU && okL && okM ? "\n✅ 压缩放宽验证通过（demo main 已恢复原样）" : "\n⚠️ 有项未达标（demo main 已恢复原样）");
 process.exit(okU && okL && okM ? 0 : 1);

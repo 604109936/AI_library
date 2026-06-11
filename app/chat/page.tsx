@@ -1,9 +1,8 @@
 "use client";
 import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Plus, History, Send, Square, Sparkles, Mic, X, ArrowDown, MessageCircle, ArrowRight } from "lucide-react";
+import { Send, Square, Sparkles, Mic, X, ArrowDown } from "lucide-react";
 import { BottomNav } from "@/components/shell/BottomNav";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { Mascot } from "@/components/chat/Mascot";
@@ -12,8 +11,7 @@ import { getBook, getChapters, getHome } from "@/lib/api";
 import { stripCardMarkers } from "@/lib/chatMarkers";
 import { greeting, buildQuestions, buildGuestQuestions } from "@/lib/chatWelcome";
 import { supabase } from "@/lib/supabase/client";
-import { useAuth, useChat, useLibrary, useUI } from "@/lib/store";
-import { formatChatTime } from "@/lib/utils";
+import { MAIN_SESSION_TITLE, useAuth, useChat, useLibrary, useUI } from "@/lib/store";
 import type { Book, Citation, ChatMessage as TMsg } from "@/lib/types";
 
 // 引用卡数据回填：服务端只给 {b:book_id, c:章序号}，这里拉书与章节拼出展示字段
@@ -38,32 +36,29 @@ async function buildCitations(items: { b: string; c: number }[]): Promise<Citati
   return out;
 }
 
-type Locate = { type: "end" } | { type: "q"; q: string } | { type: "id"; id: string };
+// 流式中间态/工具状态归一化：从持久层/缓存还原消息时修复半截状态（防永久"思考中"）
+function normalizeMsgs(msgs: TMsg[]): TMsg[] {
+  return msgs.map((m) =>
+    m.streaming || m.toolNote !== undefined
+      ? { ...m, streaming: false, toolNote: undefined, ...(m.content ? {} : { content: "这条回答没有生成完，点「重新生成」再试一次吧", error: true }) }
+      : m
+  );
+}
 
-// 模块级缓存：切 Tab（去泡馆/乱翻再回来）保持当前会话，不再每次都开新会话；按账号隔离防串号
-let chatLive: { id: string; messages: TMsg[]; uid: string } | null = null;
+// 模块级缓存：切 Tab（去泡馆/乱翻再回来）保持当前画面；按账号隔离防串号（T4 单一会话，无会话 id）
+let chatLive: { messages: TMsg[]; uid: string } | null = null;
 const chatLiveUid = () => useAuth.getState().user?.id ?? "guest";
 function takeChatLive() {
   if (chatLive && chatLive.uid !== "guest" && chatLive.uid !== chatLiveUid()) chatLive = null; // 换账号作废；游客→登录延续
   // 中途离开时可能残留流式中间态：还原为完成态，避免回来后一直"思考中"
-  if (chatLive?.messages.some((m) => m.streaming)) {
-    chatLive = {
-      ...chatLive,
-      messages: chatLive.messages.map((m) =>
-        m.streaming
-          ? m.content
-            ? { ...m, streaming: false, toolNote: undefined }
-            : { ...m, streaming: false, toolNote: undefined, content: "刚才断线了，点下方「重新生成」，我再说一遍", error: true }
-          : m
-      ),
-    };
-  }
+  if (chatLive?.messages.some((m) => m.streaming)) chatLive = { ...chatLive, messages: normalizeMsgs(chatLive.messages) };
   return chatLive;
 }
 
+// 超长会话只渲染最近这么多条：更早的内容仍完整保留在云端与小涤的记忆（压缩摘要）里
+const RENDER_WINDOW = 120;
+
 function ChatInner() {
-  const router = useRouter();
-  const sp = useSearchParams();
   const sessions = useChat((s) => s.sessions);
   const toast = useUI((s) => s.toast);
   const [messages, setMessages] = useState<TMsg[]>(() => takeChatLive()?.messages ?? []);
@@ -73,7 +68,6 @@ function ChatInner() {
   const recordingRef = useRef(false);
   const [cancelArmed, setCancelArmed] = useState(false);
   const cancelArmedRef = useRef(false);
-  const [locatedId, setLocatedId] = useState<string | null>(null);
   const [showJump, setShowJump] = useState(false); // 用户上滑回看时浮出「回到最新」
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pressStart = useRef<{ x: number; y: number } | null>(null);
@@ -82,19 +76,17 @@ function ChatInner() {
   const busyRef = useRef(false);
   const seq = useRef(0);
   const fetchCtrl = useRef<AbortController | null>(null);
-  const pendingLocate = useRef<Locate | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const stick = useRef(true); // 贴底跟随：用户上滑回看时停止自动滚底（流式期间被强拽回底是 P0 体验事故）
-  const appliedSid = useRef<string | null>(null); // 深链 ?s= 只应用一次（防 loadCloud 晚到后覆盖进行中对话）
+  const scrolledOnce = useRef(false); // 首次填充历史时瞬时滚到底（只做一次）
   const regenHint = useRef<string | null>(null); // 点踩后重新生成：把踩的原因喂回模型（一次性）
   const limitWarned = useRef(false); // 500 字截断只提醒一次
   const upsertSession = useChat((s) => s.upsertSession);
-  const sessionId = useRef<string>(takeChatLive()?.id ?? "sess-" + Date.now());
 
   // 会话续存：消息变化即回写模块缓存（流式中间态也存，回来还能看到完整画面）
   useEffect(() => {
-    if (messages.length) chatLive = { id: sessionId.current, messages, uid: chatLiveUid() };
+    if (messages.length) chatLive = { messages, uid: chatLiveUid() };
   }, [messages]);
 
   useEffect(() => () => {
@@ -122,52 +114,25 @@ function ChatInner() {
     return () => { window.removeEventListener("scroll", onScroll); if (raf) cancelAnimationFrame(raf); };
   }, []);
 
-  // 从历史打开指定会话：记录定位意图（无搜索→到最后；有搜索→命中处的最后一条）。
-  // 依赖带 sessions：冷启动直链时云端会话异步加载完成后才找得到；appliedSid 防重复应用覆盖进行中对话
+  // 单一会话水合：本地 store（persist 已水合）或云端（loadCloud 完成后 sessions 更新）的 main
+  // 会话灌入本页。流式中不动（防覆盖进行中对话）；只在 store 比当前画面更全时应用——
+  // 覆盖三种时序：冷启动 persist 异步水合、登录后云端晚到、多设备间云端更新
+  const mainMsgCount = sessions.find((x) => x.id === "main")?.messages.length ?? 0;
   useEffect(() => {
-    const sid = sp.get("s");
-    if (!sid || appliedSid.current === sid) return;
-    const qparam = sp.get("q") ?? "";
-    const mid = sp.get("mid") ?? "";
-    const found = sessions.find((x) => x.id === sid);
-    if (found && found.messages.length) {
-      appliedSid.current = sid;
-      sessionId.current = found.id;
-      // 还原时归一化流式中间态：历史数据若曾被污染（旧版本 persist 存过 streaming:true），
-      // 不修复会渲染成永久"思考中"。空内容的转错误占位，给重新生成出路
-      setMessages(found.messages.map((m) =>
-        m.streaming || m.toolNote !== undefined
-          ? { ...m, streaming: false, toolNote: undefined, ...(m.content ? {} : { content: "这条回答没有生成完，点「重新生成」再试一次吧", error: true }) }
-          : m
-      ));
-      pendingLocate.current = mid ? { type: "id", id: mid } : qparam ? { type: "q", q: qparam } : { type: "end" };
-    }
-  }, [sp, sessions]);
+    if (busyRef.current || !mainMsgCount || mainMsgCount <= messages.length) return;
+    const main = useChat.getState().sessions.find((x) => x.id === "main");
+    if (!main) return;
+    setMessages(normalizeMsgs(main.messages));
+    scrolledOnce.current = false; // 重新填充后滚到底
+    // eslint-disable-next-line
+  }, [mainMsgCount]);
 
-  // 统一滚动：从历史进入按意图瞬时定位；发消息/流式时仅在"贴底跟随"状态下滚到底
+  // 统一滚动：首次填充历史时瞬时滚到底；之后仅在"贴底跟随"状态下滚到底
   useEffect(() => {
-    const pl = pendingLocate.current;
-    if (pl) {
-      if (messages.length === 0) return; // 会话内容尚未填充，待填充后再定位
-      pendingLocate.current = null;
-      requestAnimationFrame(() => {
-        let targetId: string | null = null;
-        if (pl.type === "id") {
-          if (messages.some((m) => m.id === pl.id)) targetId = pl.id;
-        } else if (pl.type === "q") {
-          targetId = [...messages].reverse().find((m) => m.content.includes(pl.q))?.id ?? null;
-        }
-        if (targetId) {
-          const el = document.getElementById("msg-" + targetId);
-          if (el) {
-            el.scrollIntoView({ block: "center", behavior: "auto" });
-            setLocatedId(targetId);
-            setTimeout(() => setLocatedId(null), 2200);
-            return;
-          }
-        }
-        bottomRef.current?.scrollIntoView({ block: "end", behavior: "auto" });
-      });
+    if (!messages.length) return;
+    if (!scrolledOnce.current) {
+      scrolledOnce.current = true;
+      requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ block: "end", behavior: "auto" }));
       return;
     }
     if (stick.current) bottomRef.current?.scrollIntoView({ block: "end", behavior: "auto" });
@@ -183,13 +148,12 @@ function ChatInner() {
   }, [busy]);
 
   function persist(msgs: TMsg[]) {
-    const firstUser = msgs.find((m) => m.role === "user");
-    if (!firstUser) return;
+    if (!msgs.some((m) => m.role === "user")) return;
     // 流式中间态绝不落持久层：busy 期间给更早消息点赞也会走到这里，若把 streaming:true 的
-    // 半截消息存进本地，历史重开该会话会渲染成永久"思考中"。口径与云端 cleanMsgs 对齐。
+    // 半截消息存进本地，重开会渲染成永久"思考中"。口径与云端 cleanMsgs 对齐。
     const clean = msgs.filter((m) => !m.streaming).map((m) => (m.toolNote !== undefined ? { ...m, toolNote: undefined } : m));
     if (!clean.length) return;
-    upsertSession({ id: sessionId.current, title: firstUser.content.slice(0, 20), updatedAt: new Date().toISOString(), messages: clean });
+    upsertSession({ id: "main", title: MAIN_SESSION_TITLE, updatedAt: new Date().toISOString(), messages: clean });
   }
 
   // T2.1：答案来源 = 云函数 /api/chat（MiniMax 真实大模型，带多轮上下文）；
@@ -232,7 +196,7 @@ function ChatInner() {
             "content-type": "application/json",
             ...(data.session?.access_token ? { authorization: `Bearer ${data.session.access_token}` } : {}),
           },
-          body: JSON.stringify({ messages: history, sessionId: sessionId.current }),
+          body: JSON.stringify({ messages: history }),
           signal: ctrl.signal,
         })
       )
@@ -392,14 +356,6 @@ function ChatInner() {
     setTimeout(() => send(q, base), 30);
   }
 
-  function newSession() {
-    if (busy) { toast("等小涤说完这句，或先点停止生成", "info"); return; }
-    if (messages.length === 0) return;
-    setMessages([]);
-    sessionId.current = "sess-" + Date.now();
-    chatLive = null; // 主动开新会话才清掉续存
-  }
-
   // 语音输入：长按输入框触发（无单独图标）。识别能力在接入后端 minimax ASR 后启用
   function setRec(v: boolean) { recordingRef.current = v; setRecording(v); }
   function onRecPointerMove(e: React.PointerEvent) {
@@ -454,30 +410,31 @@ function ChatInner() {
   }
 
   const empty = messages.length === 0;
+  // 超长会话只渲染窗口内的消息；regenerate/反馈按原数组索引判定不受影响
+  const visible = messages.slice(-RENDER_WINDOW);
+  const hiddenCount = messages.length - visible.length;
 
   return (
     <main className="min-h-[100dvh] pb-[150px]">
-      <header className="sticky top-0 z-30 flex h-14 items-center justify-between bg-moon/90 px-3 backdrop-blur dark:bg-dark-bg/90">
-        <Link href="/chat/history" className="flex h-9 w-9 items-center justify-center rounded-full active:bg-line/50 dark:active:bg-white/10">
-          <History size={20} className="text-ink-700 dark:text-dark-text" />
-        </Link>
+      <header className="sticky top-0 z-30 flex h-14 items-center justify-center bg-moon/90 px-3 backdrop-blur dark:bg-dark-bg/90">
         <span className="font-serif text-lg text-ink dark:text-dark-text">智学</span>
-        <button onClick={newSession} aria-label="开启新对话" className={"flex h-9 w-9 items-center justify-center rounded-full active:bg-line/50 dark:active:bg-white/10" + (busy ? " opacity-40" : "")}>
-          <Plus size={22} className="text-ink-700 dark:text-dark-text" />
-        </button>
       </header>
 
       <div className="px-4">
         {empty ? (
-          <Welcome onAsk={send} onResume={(sid) => router.push(`/chat?s=${sid}`)} />
+          <Welcome onAsk={send} />
         ) : (
           <div className="space-y-4 pt-3">
-            {messages.map((m, i) => (
+            {hiddenCount > 0 && (
+              <p className="pt-1 text-center text-[11px] text-ink-300">
+                更早的 {hiddenCount} 条对话已收进小涤的记忆里
+              </p>
+            )}
+            {visible.map((m, i) => (
               <div key={m.id} id={"msg-" + m.id}>
                 <ChatMessage
                   msg={m}
-                  highlight={locatedId === m.id}
-                  onRegenerate={!busy && m.role === "assistant" && i === messages.length - 1 ? regenerate : undefined}
+                  onRegenerate={!busy && m.role === "assistant" && i === visible.length - 1 ? regenerate : undefined}
                   onFeedback={(v) => setFeedback(m.id, v)}
                   onFeedbackDetail={(reasons, text) => setFeedbackDetail(m.id, reasons, text)}
                 />
@@ -559,16 +516,14 @@ function ChatInner() {
 /* 欢迎区（UI Review 个性化重设计）：
    登录 → 时段问候喊昵称 + 小涤"汇报近况"开场白（本地拼装 0 token）+ 按读者数据动态生成的示例问题 + 续聊上次话题；
    游客 → 示例问题全部来自真实馆藏（绝不出现馆里没有的书）+ 一句克制的登录钩子。 */
-function Welcome({ onAsk, onResume }: { onAsk: (q: string) => void; onResume: (sid: string) => void }) {
+function Welcome({ onAsk }: { onAsk: (q: string) => void }) {
   const user = useAuth((s) => s.user);
   const history = useLibrary((s) => s.history);
   const progress = useLibrary((s) => s.progress);
   const favorites = useLibrary((s) => s.favorites);
   const notes = useLibrary((s) => s.notes);
   const readSeconds = useLibrary((s) => s.readSeconds);
-  const sessions = useChat((s) => s.sessions);
   const openLogin = useUI((s) => s.openLogin);
-  const [hideResume, setHideResume] = useState(false);
   // 全馆书目（与泡馆首页共用缓存）：游客问题用真实书名，登录态用于把收藏 id 解析成书名
   const home = useQuery({ queryKey: ["home"], queryFn: getHome, staleTime: 10 * 60 * 1000 });
   const books = home.data?.recommend ?? [];
@@ -580,10 +535,6 @@ function Welcome({ onAsk, onResume }: { onAsk: (q: string) => void; onResume: (s
   // 开场白素材：最近接触的一本书
   const last = history[0];
   const hours = readSeconds >= 3600 ? `${(readSeconds / 3600).toFixed(1)} 小时` : `${Math.max(1, Math.round(readSeconds / 60))} 分钟`;
-  // 续聊条：最近一次会话在 24 小时内才提（太久远的话题再提反而尴尬）
-  const lastSession = sessions[0];
-  const resumable =
-    !hideResume && lastSession && lastSession.messages.length > 0 && Date.now() - +new Date(lastSession.updatedAt) < 24 * 3600 * 1000;
 
   return (
     <div className="relative flex flex-col items-center pt-8">
@@ -629,27 +580,6 @@ function Welcome({ onAsk, onResume }: { onAsk: (q: string) => void; onResume: (s
               </button>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* 续聊上次话题 */}
-      {resumable && (
-        <div className="mt-3 flex w-full items-center gap-2.5 rounded-xl bg-snow px-3 py-2.5 shadow-sm dark:bg-dark-card">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-celadon-soft dark:bg-celadon/20">
-            <MessageCircle size={14} className="text-celadon-700 dark:text-celadon-300" />
-          </span>
-          <button onClick={() => onResume(lastSession.id)} className="min-w-0 flex-1 text-left">
-            <p className="truncate text-xs text-ink-700 dark:text-dark-text/80">
-              上次聊到「<span className="font-medium text-ink dark:text-dark-text">{lastSession.title}</span>」
-            </p>
-            <p className="mt-0.5 text-[11px] text-ink-300">{formatChatTime(lastSession.updatedAt)} · 点这里接着聊</p>
-          </button>
-          <button onClick={() => onResume(lastSession.id)} aria-label="继续上次对话" className="flex h-8 w-8 shrink-0 items-center justify-center text-celadon-700 dark:text-celadon-300">
-            <ArrowRight size={15} />
-          </button>
-          <button onClick={() => setHideResume(true)} aria-label="不再提示" className="flex h-8 w-8 shrink-0 items-center justify-center text-ink-300">
-            <X size={14} />
-          </button>
         </div>
       )}
 

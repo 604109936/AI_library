@@ -81,7 +81,9 @@ export async function POST(req: NextRequest) {
   if (!rateLimit(`m:${lk}`, 10, 60_000) || !rateLimit(`h:${lk}`, 80, 3_600_000)) {
     return NextResponse.json({ error: "你问得好快呀——歇口气，一分钟后我们接着聊" }, { status: 429 });
   }
-  const sessionId = typeof body.sessionId === "string" && body.sessionId ? body.sessionId.slice(0, 64) : null;
+  // T4 单一会话：登录用户一律落在唯一会话 'main'（忽略请求里的 sessionId——旧客户端缓存的
+  // sess-xxx 不再产生分叉，压缩/记忆都挂在 main 上）；游客无云端会话
+  const sessionId = uid ? "main" : null;
   // 变量⑥：本会话更早对话的压缩摘要（T2.6；登录且会话存在才有）
   const comp = uid && sessionId ? await getCompressed(uid, sessionId).catch(() => ({ summary: undefined, until: 0 })) : { summary: undefined as string | undefined, until: 0 };
   // 裁剪：摘要覆盖 [0,until) → 只送 until 之后的消息；无压缩则取最近 MAX_TURNS 条

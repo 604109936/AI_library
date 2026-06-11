@@ -117,15 +117,12 @@ export function ChatMessage({
   onRegenerate,
   onFeedback,
   onFeedbackDetail,
-  highlight,
 }: {
   msg: TMsg;
   onRegenerate?: () => void;
   onFeedback?: (value: "up" | "down" | null) => void;
   onFeedbackDetail?: (reasons: string[], text: string) => void; // 踩原因随消息落库（T2.5）
-  highlight?: boolean;
 }) {
-  const ringCls = highlight ? " ring-2 ring-celadon/70 ring-offset-2 ring-offset-moon dark:ring-offset-dark-bg" : "";
   const toast = useUI((s) => s.toast);
   const [fb, setFb] = useState<"up" | "down" | null>(msg.feedback ?? null);
   const [showFb, setShowFb] = useState(false);
@@ -136,7 +133,7 @@ export function ChatMessage({
     return (
       <div className="flex justify-end">
         {/* whitespace-pre-wrap：用户消息里的换行必须保留（多行提问挤成一行没法读） */}
-        <div className={"max-w-[80%] whitespace-pre-wrap break-words rounded-2xl rounded-tr-sm bg-celadon-soft px-3.5 py-2.5 text-sm leading-6 text-ink transition dark:bg-celadon/20 dark:text-dark-text" + ringCls}>
+        <div className="max-w-[80%] whitespace-pre-wrap break-words rounded-2xl rounded-tr-sm bg-celadon-soft px-3.5 py-2.5 text-sm leading-6 text-ink transition dark:bg-celadon/20 dark:text-dark-text">
           {msg.content}
         </div>
       </div>
@@ -170,7 +167,7 @@ export function ChatMessage({
           </span>
         </div>
       ) : (
-        <div className={"rounded-2xl rounded-tl-sm bg-snow px-3.5 py-3 shadow-sm transition dark:bg-dark-card" + ringCls}>
+        <div className="rounded-2xl rounded-tl-sm bg-snow px-3.5 py-3 shadow-sm transition dark:bg-dark-card">
           {/* 不放流式光标：Markdown 渲染为块级段落，光标会被挤到独立一行像根"杵着的竖线" */}
           {segments.map((seg, i) => {
             if (seg.kind === "text") {
