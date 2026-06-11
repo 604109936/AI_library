@@ -14,6 +14,7 @@ export default function NotesPage() {
   const router = useRouter();
   const notes = useLibrary((s) => s.notes);
   const removeNote = useLibrary((s) => s.removeNote);
+  const addNote = useLibrary((s) => s.addNote);
   const updateNote = useLibrary((s) => s.updateNote);
   const toast = useUI((s) => s.toast);
   const [q, setQ] = useState("");
@@ -106,7 +107,8 @@ export default function NotesPage() {
                                       <button aria-label="编辑笔记" onClick={(e) => { e.stopPropagation(); startEdit(n); }} className="-m-2.5 p-3.5 active:text-celadon-700">
                                         <Pencil size={13} />
                                       </button>
-                                      <button aria-label="删除笔记" onClick={(e) => { e.stopPropagation(); removeNote(n.id); toast("已删除"); }} className="-m-2.5 p-3.5 active:text-rouge">
+                                      {/* 笔记是用户手写内容，单击硬删无确认：给 4s 撤销窗口（与收藏删除同口径） */}
+                                      <button aria-label="删除笔记" onClick={(e) => { e.stopPropagation(); const snap = n; removeNote(n.id); toast("已删除", "success", { label: "撤销", onClick: () => addNote(snap) }); }} className="-m-2.5 p-3.5 active:text-rouge">
                                         <Trash2 size={13} />
                                       </button>
                                     </div>

@@ -92,7 +92,9 @@ export default function MePage() {
         <Motif name="bamboo" className="pointer-events-none absolute -left-2 top-0 h-24 w-24 text-celadon/25" />
         <LampPull />
 
-        {hydrated && user ? (
+        {/* 头部三态：user 就绪即显示（不等整条加载链）→ 未就绪且未水合给骨架 → 确认未登录才给 CTA。
+            原「hydrated && user」会让已登录用户冷启动慢网下闪现几秒"登录 / 注册"，点了还真弹登录抽屉 */}
+        {user ? (
           <motion.button
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}
             onClick={() => router.push("/me/settings/profile")}
@@ -103,6 +105,12 @@ export default function MePage() {
             <p className="mt-1 text-sm text-ink-500 dark:text-dark-text/55">{user.bio}</p>
             <span className="mt-1.5 text-xs text-celadon-700 dark:text-celadon-300">编辑资料</span>
           </motion.button>
+        ) : !hydrated ? (
+          <div className="relative flex w-full flex-col items-center text-center" aria-hidden>
+            <span className="h-[76px] w-[76px] animate-pulse rounded-full bg-moon dark:bg-dark-bg" />
+            <span className="mt-3 h-6 w-28 animate-pulse rounded-md bg-moon dark:bg-dark-bg" />
+            <span className="mt-2 h-4 w-44 animate-pulse rounded-md bg-moon dark:bg-dark-bg" />
+          </div>
         ) : (
           <button onClick={() => openLogin()} className="relative flex w-full flex-col items-center text-center">
             <span className="flex h-[76px] w-[76px] items-center justify-center rounded-full bg-celadon-soft font-serif text-2xl text-celadon-700 ring-2 ring-celadon/40 ring-offset-2 ring-offset-snow dark:bg-celadon/20 dark:text-celadon-300 dark:ring-offset-dark-card">读</span>

@@ -21,6 +21,7 @@ function HistoryInner() {
   const sp = useSearchParams();
   const history = useLibrary((s) => s.history);
   const removeHistory = useLibrary((s) => s.removeHistory);
+  const pushHistory = useLibrary((s) => s.pushHistory);
   const toast = useUI((s) => s.toast);
   // 类型筛选（音视频/文字稿，页面内可平铺切换）；入口可经 ?mode= 指定默认值（数据卡按"有记录的大类"传入）
   const [filter, setFilter] = useState<Filter>(() => (sp.get("mode") === "text" ? "text" : "av"));
@@ -76,7 +77,8 @@ function HistoryInner() {
                     <p className="mt-1 text-[11px] text-ink-300">{formatDate(h.lastAt)}</p>
                   </div>
                   <div className="flex flex-col items-center gap-2">
-                    <button aria-label="删除记录" onClick={() => { removeHistory(h.bookId, h.mode); toast("已移除"); }} className="-m-3.5 p-3.5 text-ink-300 active:text-rouge">
+                    {/* 单击即删给 4s 撤销窗口（与收藏/笔记删除同口径），误触不再不可挽回 */}
+                    <button aria-label="删除记录" onClick={() => { const snap = h; removeHistory(h.bookId, h.mode); toast("已移除", "success", { label: "撤销", onClick: () => pushHistory(snap) }); }} className="-m-3.5 p-3.5 text-ink-300 active:text-rouge">
                       <X size={16} />
                     </button>
                     <button

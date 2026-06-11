@@ -99,6 +99,47 @@ try {
     return Object.values(byNote);
   });
   ok(check2.some((t) => t === joined1), "刷新后标记按 offset 完整还原", `${check2.length} 条划线`);
+
+  // 合并扩展：从既有划线「最后一段」中部选到划线之后的正文（重叠 + 向后延伸）→ 点色块 → 应合并为一条更长的划线
+  await page.evaluate(() => {
+    const root = document.querySelector(".break-words");
+    const marks = Array.from(document.querySelectorAll("mark[data-note]"));
+    const mark = marks[marks.length - 1];
+    if (!root || !mark) return;
+    const markText = mark.firstChild;
+    // 文档序遍历找到 mark 之后第一个有内容的正文文本节点
+    const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let n, found = null, passed = false;
+    while ((n = w.nextNode())) {
+      if (mark.contains(n)) { passed = true; continue; }
+      if (passed && (n.nodeValue ?? "").trim().length > 8) { found = n; break; }
+    }
+    const r = document.createRange();
+    r.setStart(markText, Math.max(0, Math.floor((markText.nodeValue ?? "").length / 2)));
+    if (found) r.setEnd(found, Math.min(8, found.nodeValue.length));
+    else r.setEnd(markText, (markText.nodeValue ?? "").length);
+    const s = window.getSelection();
+    s.removeAllRanges();
+    s.addRange(r);
+    document.dispatchEvent(new Event("selectionchange"));
+  });
+  await page.waitForTimeout(400);
+  await page.locator('button[aria-label^="划线"]').first().click({ timeout: 5000 });
+  await page.waitForTimeout(1500);
+  const merged = await page.evaluate(() => {
+    const marks = Array.from(document.querySelectorAll("mark[data-note]"));
+    const ids = new Set(marks.map((m) => m.getAttribute("data-note")));
+    const byNote = {};
+    for (const m of marks) {
+      const id = m.getAttribute("data-note");
+      byNote[id] = (byNote[id] || "") + (m.textContent || "");
+    }
+    return { count: ids.size, texts: Object.values(byNote) };
+  });
+  ok(merged.count === 1, "重叠选区合并为一条划线（不再拒绝）", `现 ${merged.count} 条`);
+  const mergedText = merged.texts[0] ?? "";
+  createdExcerpt = mergedText || createdExcerpt;
+  ok(mergedText.length > joined1.length, "合并后区间为并集（比原划线更长）", `${joined1.length}→${mergedText.length} 字`);
 } finally {
   // 清理：删掉本次测试写入的 demo 笔记
   if (createdExcerpt) {

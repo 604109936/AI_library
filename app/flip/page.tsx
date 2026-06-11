@@ -169,11 +169,16 @@ export default function FlipPage() {
   }, [activeIdx, books.length, loading, loadMore]);
 
   // 切到新条：落上一条进度 → 清零计数基准（防旧书秒数污染新书，mediaPlayed 只增不可逆）→ 还原新书基线/续播 → 播
+  const slotInited = useRef(false);
   useEffect(() => {
+    // 续拉 append 只变 books.length、activeIdx 未变：不得重跑切条逻辑——原实现会在请求返回瞬间
+    // 强制取消用户主动暂停并自动续播、闪断错误兜底层、重复 seek 与落账（Review P1）
+    if (slotInited.current && activeIdxRef.current === activeIdx) return;
     writeMedia(true); // 此时 activeIdxRef 仍是旧条 → 收尾旧条
     activeIdxRef.current = activeIdx;
     if (flipCache) flipCache.idx = activeIdx;
     if (loading || !books.length) return;
+    slotInited.current = true;
     playedSec.current = 0;
     lastT.current = null;
     setUserPaused(false);
@@ -183,6 +188,7 @@ export default function FlipPage() {
     setPlaying(v ? !v.paused : false);
     primeActive(); // metadata 已就绪（预加载槽位）则立即还原；未就绪则等 onLoadedMetadata 再还原
     playActive();
+    // eslint-disable-next-line
   }, [activeIdx, books.length, loading, writeMedia, setUserPaused, primeActive, playActive]);
 
   // 卸载（去详情页/写书评/切 Tab）：把最后一段观看落进历史（不依赖视频元素，ref 置空也能写）
@@ -318,6 +324,8 @@ export default function FlipPage() {
                     key={`slot-${s}`}
                     ref={(el) => { videoRefs.current[s] = el; }}
                     src={b?.videoUrl}
+                    // 当前槽全量预载（接续零等待），相邻槽只拉 metadata（流量可控）：滑到下一条不再必见缓冲圈
+                    preload={isActive(s) ? "auto" : "metadata"}
                     className="absolute inset-x-0 z-0 w-full object-cover"
                     style={{ top: i >= 0 ? `${(i / books.length) * 100}%` : "-200%", height: `${100 / books.length}%` }}
                     loop

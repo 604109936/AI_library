@@ -105,6 +105,9 @@ export function useVoiceInput() {
           ctxRef.current?.close().catch(() => {});
           streamRef.current = stream;
           const ctx = new AudioContext();
+          // iOS 上 AudioContext 可能以 suspended 状态创建（非直接手势栈内）：不 resume 的话
+          // 频谱恒为 0，波形柱会停在最低高度呆住而不是走"匀速呼吸"回退
+          if (ctx.state === "suspended") ctx.resume().catch(() => {});
           ctxRef.current = ctx;
           const src = ctx.createMediaStreamSource(stream);
           const analyser = ctx.createAnalyser();

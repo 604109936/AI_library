@@ -101,9 +101,9 @@ export default function SettingsPage() {
       setActing(false);
     }
   }
-  function doLogout() {
+  async function doLogout() {
     close();
-    logout();
+    await logout().catch(() => {}); // 等 signOut 完成再跳转：否则"我的"页可能短暂闪已登录头像
     toast("已退出登录");
     router.replace("/me");
   }

@@ -17,7 +17,10 @@ import { loadUserData, loadMainSession, chatDb, db } from "@/lib/supabase/userda
 /* ---------------- Auth（接 Supabase Auth） ---------------- */
 // profiles + auth.users.email → UserProfile。stats 由前端各页实时计算，这里置 0（不用 user.stats）。
 async function loadProfile(authUser: any): Promise<UserProfile> {
-  const { data } = await supabase.from("profiles").select("*").eq("id", authUser.id).maybeSingle();
+  const { data, error } = await supabase.from("profiles").select("*").eq("id", authUser.id).maybeSingle();
+  // 查询失败时落"邮箱前缀+默认头像"兜底资料但必须留痕（TOKEN_REFRESHED 会自动刷新补救）；
+  // 静默吞掉会让错误资料整个会话期无声展示且无从排查
+  if (error) console.error("[auth] profiles 读取失败，暂用基础资料兜底：", error);
   return {
     id: authUser.id,
     nickname: data?.nickname ?? authUser.email?.split("@")[0] ?? "书友",
@@ -116,6 +119,9 @@ export const useAuth = create<AuthState>()((set, get) => ({
     if (error) return { error: error.message };
     const u = data.user;
     if (!u) return { error: "注册失败，请重试" };
+    // 邮箱确认开启时，已注册邮箱的 signUp 不报错而是返回 identities 为空的混淆假用户——
+    // 不识别会把老用户误导去"查收确认邮件"（邮件永远不来，用户卡死）
+    if (!data.session && (u.identities?.length ?? 0) === 0) return { error: "该邮箱已注册，请直接登录" };
     if (nick && data.session) {
       // 有会话时再直写一次作双保险（老触发器未更新前也能生效）；error 不致命（触发器已写过）
       await supabase.from("profiles").update({ nickname: nick }).eq("id", u.id);
@@ -252,7 +258,6 @@ interface LibState {
   clearHistory: () => void;
   removeHistory: (bookId: string, mode: ReadingMode) => void;
   toggleLike: (id: string) => void;
-  addReview: (r: Review) => void;
   removeReview: (id: string) => void;
   upsertReview: (r: Review) => void;
   myReviewOf: (bookId: string) => Review | undefined;
@@ -370,8 +375,13 @@ export const useLibrary = create<LibState>()((set, get) => {
       // 音视频本质同一内容，按「书+大类(av/text)」去重 → 音视频共用一条，与文字稿分开
       const id = real(h.bookId);
       const top = get().history[0];
-      if (top && top.bookId === id && histCat(top.mode) === histCat(h.mode) && top.progress === h.progress) return; // 已在最前且进度未变 → 不重复 set/写库
-      set({ history: [{ ...h, bookId: id }, ...get().history.filter((x) => !(x.bookId === id && histCat(x.mode) === histCat(h.mode)))].slice(0, 50) });
+      // 进度未变的去重要给 lastAt 留刷新口子（10 分钟阈值）：隔几天重读同一章不推进度，
+      // 「我的-历史」时间标签和跨设备排序不该停在旧日期
+      if (top && top.bookId === id && histCat(top.mode) === histCat(h.mode) && top.progress === h.progress
+        && Date.now() - +new Date(top.lastAt) < 10 * 60 * 1000) return;
+      // 不再 slice(0,50)：loadUserData 全量拉取，本地截断会让"已读/进行中"统计在写入时跳变；
+      // 条数天然有界（每书每大类至多一条）
+      set({ history: [{ ...h, bookId: id }, ...get().history.filter((x) => !(x.bookId === id && histCat(x.mode) === histCat(h.mode)))] });
       // 必须过 canSync（uid + hydrated 双门禁）：pushHistory 由阅读器/播放器挂载自动触发，
       // 登录后 load() 未完成的窗口期上报会用空基线 progress=0 直接覆盖云端 reading_history
       if (canSync()) sync(db.pushHistory(uid()!, id, h.mode, h.progress, h.lastAt), "历史");
@@ -395,11 +405,8 @@ export const useLibrary = create<LibState>()((set, get) => {
       const u = uid();
       if (u) sync(has ? db.removeReviewLike(u, id) : db.addReviewLike(u, id), "点赞");
     },
-    addReview: (r) => {
-      set({ myReviews: [r, ...get().myReviews] });
-      const u = uid();
-      if (u) sync(db.upsertReview(u, { ...r, bookId: real(r.bookId) }), "书评");
-    },
+    // addReview 已删除：全站书评写入收敛到 upsertReview 单入口（原 addReview 本地前插不去重、
+    // 云端却 onConflict 单行，一旦被误用即产生本地/云端漂移的死代码陷阱）
     removeReview: (id) => {
       const rev = get().myReviews.find((r) => r.id === id);
       set({ myReviews: get().myReviews.filter((r) => r.id !== id) });
@@ -575,6 +582,9 @@ export const useChat = create<ChatState>()(
       // cloudLoaded 是会话期内存标记，绝不能持久化：否则刷新后带着旧 uid 复活，门禁形同虚设
       partialize: (s) => ({ sessions: s.sessions, hiddenSamples: s.hiddenSamples }) as any,
       migrate: (state: any, version: number) => {
+        // 脏数据护栏：localStorage 被外部写坏混入 null/非对象项时，下面取 s.ownerUid 会 throw，
+        // zustand 对 migrate 异常的处理是放弃水合回初始态（本地缓存全丢）
+        if (Array.isArray(state?.sessions)) state.sessions = state.sessions.filter((s: any) => s && typeof s === "object");
         // v1：旧版（ownerUid 字段之前）的存量会话可能属于此前登录过的任意账号——打 legacy 标记防串档上传
         if (version < 1 && Array.isArray(state?.sessions)) {
           state.sessions = state.sessions.map((s: any) => (s.ownerUid ? s : { ...s, ownerUid: "legacy" }));

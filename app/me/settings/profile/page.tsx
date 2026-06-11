@@ -151,14 +151,15 @@ export default function ProfileEdit() {
 
           <div className="overflow-hidden rounded-2xl bg-snow shadow-sm dark:bg-dark-card">
             <Row label="昵称">
-              <input value={nickname} onChange={(e) => setNickname(e.target.value.slice(0, 16))} aria-label="昵称" className="w-full bg-transparent text-right text-sm text-ink outline-none dark:text-dark-text" />
+              {/* 原生 maxLength 对 IME 友好：onChange 里 slice 回写会在拼音组合越过上限时强行打断组词 */}
+              <input value={nickname} maxLength={16} onChange={(e) => setNickname(e.target.value)} aria-label="昵称" className="w-full bg-transparent text-right text-sm text-ink outline-none dark:text-dark-text" />
             </Row>
             <div className="border-b border-line px-4 py-3.5 dark:border-white/5">
               <div className="mb-1.5 flex items-center justify-between">
                 <span className="text-sm text-ink-500 dark:text-dark-text/60">简介</span>
                 <span className="text-[11px] text-ink-300">{bio.length}/30</span>
               </div>
-              <textarea ref={bioRef} value={bio} onChange={(e) => setBio(e.target.value.slice(0, 30))} rows={1} placeholder="一句话介绍自己" aria-label="简介" className="w-full resize-none overflow-hidden bg-transparent text-sm text-ink outline-none placeholder:text-ink-300 dark:text-dark-text" />
+              <textarea ref={bioRef} value={bio} maxLength={30} onChange={(e) => setBio(e.target.value)} rows={1} placeholder="一句话介绍自己" aria-label="简介" className="w-full resize-none overflow-hidden bg-transparent text-sm text-ink outline-none placeholder:text-ink-300 dark:text-dark-text" />
             </div>
             <Row label="账号">
               <span className="text-sm text-ink-300">{user?.account ?? user?.email}</span>

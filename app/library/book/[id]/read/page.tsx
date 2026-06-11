@@ -278,8 +278,10 @@ function ReaderInner({ id }: { id: string }) {
     const max = el.scrollHeight - el.clientHeight;
     const p = (el.scrollTop / (max || 1)) * 100;
     const clamped = Math.min(100, Math.max(0, p));
-    pctRef.current = clamped;
-    setPct(clamped);
+    pctRef.current = clamped; // 上报用精确值
+    // 渲染按整数百分比降频：未取整的浮点每个滚动事件都触发整个 ReaderInner 重渲染（含 framer 顶底栏），
+    // 长章节滚动掉帧+耗电；取整后从每帧一次降到每 1% 一次
+    setPct((prev) => (Math.round(prev) === Math.round(clamped) ? prev : Math.round(clamped)));
     // 滚到底(≥95%) 或 内容不足一屏(无需滚动) 即记为本章读毕（与定时上报口径一致）
     if ((clamped >= 95 || max <= 4) && bookQ.data && cur) markChapterRead(realId, cur.id);
   }
@@ -358,18 +360,43 @@ function ReaderInner({ id }: { id: string }) {
     setLastColor(c);
     try { localStorage.setItem(LAST_COLOR_KEY, c); } catch {}
   }
+  // 选区命中的全部既有划线（读 getState 最新值——登录回调时云端数据才同步回来）
+  function overlappingNotes(start: number, end: number): NoteItem[] {
+    const full = contentRef.current?.textContent ?? "";
+    return useLibrary.getState().notes.filter((n) => {
+      if (n.bookId !== realId || n.chapterId !== cur?.id || !n.excerpt) return false;
+      const s = locate(full, n.excerpt, typeof n.start === "number" ? n.start : 0);
+      return s >= 0 && start < s + n.excerpt.length && end > s;
+    });
+  }
   function doHighlight(color: string) {
     if (!menu) return;
     const { text, start, end } = menu;
     if (!text) { setMenu(null); return; }
     setMenu(null);
     window.getSelection()?.removeAllRanges();
-    if (overlapsExisting(start, end)) { toast("这段已有划线，点击原划线可修改"); return; }
-    // 登录回调内必须复查：游客选中的可能恰是云端已划过的段落（游客看不到既有高亮），
-    // 登录同步回数据后不复查就落库 = 重叠划线 → 正文渲染被去重跳过的"幽灵笔记"
+    // 与既有划线重叠不再拒绝，改「并集合并扩展」：把已有划线扩选更长是最自然的动作，
+    // 原 toast 打断是高亮交互最大的别扭点。删旧划线 → 以区间并集新建（想法合并保留、用新选的颜色）；
+    // 在登录回调内整体执行，游客登录后以最新云端数据计算，天然不产生重叠落库（幽灵笔记）
     requireLogin(() => {
-      if (overlapsExisting(start, end)) { toast("这段已有划线，点击原划线可修改"); return; }
-      addNote(makeNote(text, "", color, start)); rememberColor(color); toast("已划线");
+      const hits = overlappingNotes(start, end);
+      if (!hits.length) {
+        addNote(makeNote(text, "", color, start));
+        rememberColor(color);
+        toast("已划线");
+        return;
+      }
+      const full = contentRef.current?.textContent ?? "";
+      let s = start, e = end;
+      for (const n of hits) {
+        const i = locate(full, n.excerpt, typeof n.start === "number" ? n.start : 0);
+        if (i >= 0) { s = Math.min(s, i); e = Math.max(e, i + n.excerpt.length); }
+      }
+      const thought = hits.map((n) => n.note).filter(Boolean).join("\n");
+      hits.forEach((n) => removeNote(n.id));
+      addNote(makeNote(full.slice(s, e), thought, color, s));
+      rememberColor(color);
+      toast(hits.length > 1 ? "已合并多条划线" : "已与原划线合并");
     });
   }
   function openNote() {
@@ -675,7 +702,7 @@ function ReaderInner({ id }: { id: string }) {
                   <PenLine size={15} /> {activeNote.note ? "编辑想法" : "写想法"}
                 </button>
                 <button
-                  onClick={() => { removeNote(activeNote.id); toast("已删除"); setActiveNote(null); }}
+                  onClick={() => { const snap = activeNote; removeNote(snap.id); toast("已删除", "success", { label: "撤销", onClick: () => addNote(snap) }); setActiveNote(null); }}
                   className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl border border-rouge/40 py-2.5 text-sm text-rouge active:scale-[0.99]"
                 >
                   <Trash2 size={15} /> 删除这条划线
@@ -708,7 +735,7 @@ function ReaderInner({ id }: { id: string }) {
                         <p className="rounded border-l-[3px] px-2 py-1 text-xs leading-5 text-ink-700 dark:text-dark-text/80" style={{ borderColor: n.color, background: n.color + "22" }}>{n.excerpt}</p>
                         {n.note && <p className="mt-1 line-clamp-2 px-1 text-sm text-ink dark:text-dark-text">{n.note}</p>}
                       </button>
-                      <button onClick={() => { removeNote(n.id); toast("已删除"); }} aria-label="删除笔记" className="relative shrink-0 p-1 text-ink-300 before:absolute before:-inset-2.5 before:content-[''] active:scale-90">
+                      <button onClick={() => { const snap = n; removeNote(snap.id); toast("已删除", "success", { label: "撤销", onClick: () => addNote(snap) }); }} aria-label="删除笔记" className="relative shrink-0 p-1 text-ink-300 before:absolute before:-inset-2.5 before:content-[''] active:scale-90">
                         <Trash2 size={15} />
                       </button>
                     </div>

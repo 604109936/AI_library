@@ -12,6 +12,7 @@ const DEMO_PWD = "123456";
 
 // Supabase 英文报错 → 中文
 function zhError(msg: string): string {
+  if (/[一-龥]/.test(msg)) return msg; // 已是中文（store 侧产出的业务提示）直接透传
   const m = msg.toLowerCase();
   if (m.includes("invalid login credentials")) return "邮箱或密码不正确";
   if (m.includes("already registered") || m.includes("already exists")) return "该邮箱已注册，请直接登录";
@@ -61,8 +62,11 @@ export function LoginSheet() {
   // 登录成功后的统一收尾：关弹层、清表单、执行挂起操作
   function finish(msg: string) {
     setLoading(false);
+    // 弹层已被用户关闭（loading 中点蒙层/「先逛逛」）：迟到的登录成功只静默落态——
+    // 用户已表态取消，不该一两秒后被 toast + 挂起跳转"传送走"
+    if (!useUI.getState().loginOpen) { reset(); return; }
     toast(msg);
-    const action = pending;
+    const action = useUI.getState().pending; // 取最新挂起操作（渲染闭包里的 pending 可能已被 close 清空）
     close();
     reset();
     action?.(); // 立即执行挂起操作（已登录）
@@ -127,7 +131,9 @@ export function LoginSheet() {
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
             transition={{ type: "spring", stiffness: 320, damping: 32 }}
-            className="app-width relative rounded-t-[24px] bg-snow px-6 pb-[calc(env(safe-area-inset-bottom)+24px)] pt-3 dark:bg-dark-card"
+            /* max-h+内部滚动：注册态内容约 530px，小屏键盘弹起（resizes-content）后顶部的邮箱/昵称
+               输入框会被顶出屏幕上沿且无任何滚动手段；dvh 随键盘收缩 */
+            className="app-width relative max-h-[85dvh] overflow-y-auto rounded-t-[24px] bg-snow px-6 pb-[calc(env(safe-area-inset-bottom)+24px)] pt-3 dark:bg-dark-card"
           >
             <div className="mx-auto mb-5 h-1 w-10 rounded-full bg-line dark:bg-white/15" />
             <div className="mb-4 flex flex-col items-center">

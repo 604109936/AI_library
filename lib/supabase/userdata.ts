@@ -175,7 +175,10 @@ export function bumpReadCount(bookId: string) {
 
 // 写穿透：均返回 Supabase 查询（store 侧 .then 处理出错提示）
 export const db = {
-  addFav: (uid: string, bookId: string) => supabase.from("favorites").insert({ user_id: uid, book_id: bookId }),
+  // upsert+忽略重复：双标签页/双设备同时收藏同一本书时，第二次 insert 撞主键会报"收藏同步失败"假错
+  // （云端实际已是用户想要的状态）；removeFav 删 0 行无错天然幂等
+  addFav: (uid: string, bookId: string) =>
+    supabase.from("favorites").upsert({ user_id: uid, book_id: bookId }, { onConflict: "user_id,book_id", ignoreDuplicates: true }),
   removeFav: (uid: string, bookId: string) => supabase.from("favorites").delete().eq("user_id", uid).eq("book_id", bookId),
 
   addNote: (uid: string, n: NoteItem) =>

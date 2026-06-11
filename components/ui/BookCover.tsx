@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 
 // 新中式书封：优先渲染真实封面图（src），加载失败时回退到按 coverSeed 生成的确定性色块美术
@@ -31,6 +31,9 @@ export function BookCover({
   showText?: boolean;
 }) {
   const [ok, setOk] = useState(true);
+  // 换 src 时重置坏图标记：组件实例被复用（无 key 重挂载的调用方）时，上一张图的失败
+  // 不该让新封面被误判走兜底美术
+  useEffect(() => { setOk(true); }, [src]);
   const p = PALETTES[(seed - 1 + PALETTES.length) % PALETTES.length] ?? PALETTES[0];
   const useArt = !src || !ok;
   return (
