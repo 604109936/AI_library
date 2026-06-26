@@ -1877,13 +1877,13 @@ footer{margin:40px 0 28px;text-align:center;color:var(--ink3);font-size:12px}
   </div></div><div class="submod"><h3>乱翻+我的 <span class="cnt">4</span></h3><div class="item" data-id="BUG-8" data-group="Bug 修复验收" data-mod="">
     <div class="ihead">
       <span class="iid">BUG-8</span>
-      <span class="ititle">乱翻自动播放会改写与详情页共享的「续播位置」；且音频与视频共用同一个分数续播点（时长不同→落点错位）</span>
+      <span class="ititle">乱翻↔详情页续播位置共享（音视频内容一致），且不被 loop 回卷 / 拖动进度条污染</span>
       <span class="tag t-mid">中</span>
       <span class="vmark" data-for="BUG-8"></span>
     </div>
     <div class="ibody">
-      <div class="row"><span class="k">操作</span><span class="v">触发场景：把某本在读书的音频听到中段→进乱翻（该书因在读被置顶，很快滑到）→视频自动播放/循环→退回详情页，原来的续播位置已被乱翻的播放位置覆盖。</span></div>
-      <div class="row"><span class="k">预期</span><span class="v">修复后：上述问题不再复现。修复要点：真实问题（中等严重）：媒体续播位置 media_progress.position 只按 (user_id, book_id) 存一行，被详情页音频播放器、视频播放器、乱翻三处共用，导致两类漂移：(A) 跨媒体类型——音频/视频时长内容不同却共用同一分数，听音频到 X% 后开视频会从视频 X% 处（错位内容）起播；(B) 乱翻自动播放污染——在读书被 flipfeed 置顶后自动播视频，onSlotTime 每帧把 position 改</span></div>
+      <div class="row"><span class="k">操作</span><span class="v">① 详情页把某书音频/视频看到中段 → 进乱翻滑到这本，应从同一进度接着播；反过来乱翻看到中段 → 进详情页也接着播（音频是视频的口播、内容一致，所以进度互通）。② 让乱翻视频自动循环回到开头、或拖动一下进度条，再退回详情页看续播点。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">① 进度在「乱翻 ↔ 详情页」「音频 ↔ 视频」之间共享一致。② loop 回卷到开头、拖动进度条这类人为跳变<b>不会</b>把续播位置污染回 0 或乱跳——只有自然前进播放才更新共享位置（按你的口径修正：恢复共享、只防拖动/回卷那种）。</span></div>
       <div class="row meta2"><code class="loc">D:/ClaudeCode/AI_library/app/flip/page.tsx:108-109(primeActive seek) / 273(onSlotTime 写 position) + lib/store.ts:423-426 + lib/supabase/userdata.ts:216-220(media_progress 唯一键 user_id,book_id) + lib/server/flipfeed.ts:217,223(在读置顶)</code></div>
       <div class="verdict">
         <label class="vb pass"><input type="radio" name="v-BUG-8" value="pass"><span>✓ 通过</span></label>
