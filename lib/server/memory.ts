@@ -25,16 +25,6 @@ export const MEMORY_FIELDS = [
   ["follow_ups", "待跟进事项（答应过的、下次该问候的）"],
 ] as const;
 
-export interface UserMemory {
-  identity: string;
-  reading_pref: string;
-  interests: string;
-  chat_style: string;
-  facts: string;
-  recent_focus: string;
-  follow_ups: string;
-}
-
 // 防同一用户并发重复更新（serverless 单实例内有效；多实例最坏重复跑一次，幂等无害）
 const inflight = new Set<string>();
 
@@ -100,7 +90,7 @@ async function update(uid: string, budgetMs: number) {
   for (const [k] of MEMORY_FIELDS) {
     if (!(k in patch)) continue;
     const v = patch[k];
-    if (typeof v === "string") valid[k] = v.trim().slice(0, MAX_FIELD);
+    if (typeof v === "string") { const t = v.trim().slice(0, MAX_FIELD); if (t) valid[k] = t; } // 空串/纯空白=本维度无更新，绝不覆盖现值（防记忆被某次模型抖动静默清空·Bug#3）
     else if (typeof v === "number" || typeof v === "boolean") valid[k] = String(v); // 偶发标量容错
     // 维度值类型不对（null/嵌套对象）：视同解析失败整批放弃、不推进进度——
     // 原实现静默丢弃该维度却照常推进，这批认知会被标记"已消化"而永久丢失

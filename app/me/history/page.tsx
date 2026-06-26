@@ -8,6 +8,7 @@ import { BookCover } from "@/components/ui/BookCover";
 import { EmptyState } from "@/components/ui/States";
 import { useLibrary, useUI } from "@/lib/store";
 import { formatDate } from "@/lib/utils";
+import type { HistoryItem } from "@/lib/types";
 
 type Filter = "av" | "text";
 const FILTERS: { key: Filter; label: string }[] = [
@@ -30,26 +31,43 @@ function HistoryInner() {
   const status: Status = sParam === "read" ? "read" : sParam === "reading" ? "reading" : "all";
   const title = status === "read" ? "已读" : status === "reading" ? "进行中" : "阅读历史";
 
-  const list = history
-    .filter((h) => (filter === "av" ? h.mode === "video" || h.mode === "audio" : h.mode === "text"))
-    .filter((h) => (status === "all" ? true : status === "read" ? h.progress >= 100 : h.progress < 100));
+  // 「已读/进行中」由数据卡进入：卡片数字跨大类按「书」去重统计，故列表也按书去重展示全部大类，
+  // 使卡片数字与列表条数严格一致（Bug#19）；纯「阅读历史」(status=all)仍按 av/text 平铺切换。
+  // 两种视图均按 lastAt 倒序，使撤销删除恢复的旧记录不被错误置顶（Bug#15）。
+  const byLastDesc = (a: HistoryItem, b: HistoryItem) => +new Date(b.lastAt) - +new Date(a.lastAt);
+  let list: HistoryItem[];
+  if (status === "all") {
+    list = history
+      .filter((h) => (filter === "av" ? h.mode === "video" || h.mode === "audio" : h.mode === "text"))
+      .sort(byLastDesc);
+  } else {
+    const m = new Map<string, HistoryItem>();
+    for (const h of history.filter((h) => (status === "read" ? h.progress >= 100 : h.progress < 100))) {
+      const cur = m.get(h.bookId);
+      if (!cur || h.progress > cur.progress) m.set(h.bookId, h); // 同书跨大类去重，保留进度更高的一条
+    }
+    list = Array.from(m.values()).sort(byLastDesc);
+  }
 
   return (
     <main className="min-h-[100dvh]">
       <Header title={title} />
       <RequireAuth>
-        <div className="flex gap-2 px-4 pt-3">
-          {FILTERS.map((f) => (
-            <button
-              key={f.key}
-              aria-pressed={filter === f.key}
-              onClick={() => setFilter(f.key)}
-              className={"rounded-full px-3.5 py-1.5 text-xs transition " + (filter === f.key ? "bg-celadon text-snow" : "bg-snow text-ink-500 dark:bg-dark-card dark:text-dark-text/70")}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
+        {/* av/text 切换仅在纯「阅读历史」(status=all)展示；「已读/进行中」按书去重跨大类合并，无需切换（Bug#19） */}
+        {status === "all" && (
+          <div className="flex gap-2 px-4 pt-3">
+            {FILTERS.map((f) => (
+              <button
+                key={f.key}
+                aria-pressed={filter === f.key}
+                onClick={() => setFilter(f.key)}
+                className={"rounded-full px-3.5 py-1.5 text-xs transition " + (filter === f.key ? "bg-celadon text-snow" : "bg-snow text-ink-500 dark:bg-dark-card dark:text-dark-text/70")}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        )}
         {list.length === 0 ? (
           <EmptyState
             icon="history"

@@ -37,6 +37,16 @@ async function buildCitations(items: { b: string; c: number; bt?: string; ct?: s
   return out;
 }
 
+// 降级书目：仅用事件自带的 {id,title} 构造可点进详情页的最小卡（封面走 BookCover 的 CSS 兜底）
+function degradedBook(id: string, title: string): Book {
+  return {
+    id, title, author: "", cover: "", coverSeed: 1, heroUrl: "", posterUrl: "", category: "", categoryId: "",
+    tags: [], summary: "", rating: 0, readers: 0, words: 0, durationMin: 0,
+    hasVideo: false, hasAudio: false, hasText: false, likes: 0, favCount: 0, reviewCount: 0,
+    featured: false, intro: "", shelvedAt: "",
+  } as Book;
+}
+
 // 推荐卡数据：getBook 失败重试一次；仍失败用事件自带的 {id,title} 构造降级书目（保底可点进详情页）
 async function resolveRecBooks(items: (string | { id: string; title: string })[]): Promise<Book[]> {
   const out: Book[] = [];
@@ -46,14 +56,7 @@ async function resolveRecBooks(items: (string | { id: string; title: string })[]
     let book: Book | null = null;
     try { book = await getBook(id); } catch { try { book = await getBook(id); } catch {} }
     if (book) out.push(book);
-    else if (title) {
-      out.push({
-        id, title, author: "", cover: "", coverSeed: 1, heroUrl: "", posterUrl: "", category: "", categoryId: "",
-        tags: [], summary: "", rating: 0, readers: 0, words: 0, durationMin: 0,
-        hasVideo: false, hasAudio: false, hasText: false, likes: 0, favCount: 0, reviewCount: 0,
-        featured: false, intro: "", shelvedAt: "",
-      } as Book);
-    }
+    else if (title) out.push(degradedBook(id, title));
   }
   return out;
 }
@@ -313,15 +316,25 @@ function ChatInner() {
           }
           else if (ev.t === "status" && typeof ev.v === "string") { if (noteShown !== ev.v) { noteShown = ev.v; apply({ toolNote: ev.v }); } }
           else if (ev.t === "recs" && Array.isArray(ev.v)) {
-            // 预取展示数据（封面/书名/作者）后插标记；handle 在行循环里被 await，期间不会有新文字混进 acc，位置不漂移
-            const books = await resolveRecBooks(ev.v as (string | { id: string; title: string })[]);
-            if (fetchCtrl.current !== ctrl) return; // await 期间被停止：卡片不再挂上已定格的消息
-            if (books.length) {
+            // 先用事件自带 {id,title} 即时构造降级卡并就地渲染（标记位置由当下 acc 决定，顺序不漂移）；
+            // 真实封面/作者放进“不被读循环 await”的后台 Promise 富化，完成后按 id 就地替换——避免在
+            // NDJSON 读循环内逐本串行 getBook(带重试)阻塞后续 delta/end 消费致打字机卡顿（Bug#4）
+            const rawRecs = (ev.v as (string | { id: string; title: string })[])
+              .map((it) => (typeof it === "string" ? { id: it, title: "" } : it))
+              .filter((it) => it && it.id);
+            if (rawRecs.length) {
               const from = recsAcc.length;
-              recsAcc.push(...books);
+              recsAcc.push(...rawRecs.map((it) => degradedBook(it.id, it.title)));
               pushMarker("recs", from, recsAcc.length);
               apply({ recommendations: recsAcc.slice() });
               smooth();
+              void (async () => {
+                const rich = await resolveRecBooks(rawRecs);
+                if (fetchCtrl.current !== ctrl || !rich.length) return; // 已停止/被新请求取代：不再回填已定格的消息
+                const byId = new Map(rich.map((b) => [b.id, b]));
+                for (let i = 0; i < recsAcc.length; i++) { const b = byId.get(recsAcc[i].id); if (b) recsAcc[i] = b; }
+                apply({ recommendations: recsAcc.slice() });
+              })();
             }
           } else if (ev.t === "cites" && Array.isArray(ev.v)) {
             const cites = await buildCitations(ev.v as { b: string; c: number }[]);
@@ -381,9 +394,10 @@ function ChatInner() {
         if (timer.current) { clearInterval(timer.current); timer.current = null; }
         const msg = e instanceof Error && e.message && e.message !== "Failed to fetch" ? e.message : "网络有点不稳，缓一缓再问我一次吧";
         if (acc.trim()) {
-          // 中途失败但已流出正文（多轮工具循环后段挂掉）：保留已有内容 + 尾注说明，不打 error 标记
-          // （正文与已出的卡片真实有效，整体替换成报错会让内容凭空消失、错误气泡里挂着推荐卡观感矛盾）
-          setMessages((prev) => prev.map((m) => (m.id === aId ? { ...m, content: acc + "\n\n（后面断线了，回答可能不完整——可以点重新生成补全）", streaming: false, toolNote: undefined } : m)));
+          // 中途失败但已流出正文（多轮工具循环后段挂掉）：保留模型真实正文 + truncated 标记，不打 error。
+          // 尾注由渲染层据 truncated 追加，content 不掺尾注——否则下一轮 history 会把"（后面断线了…）"
+          // 当成模型自己说过的话回灌污染上下文（Bug#11）。正文与已出卡片真实有效，不整体替换成报错。
+          setMessages((prev) => prev.map((m) => (m.id === aId ? { ...m, content: acc, streaming: false, toolNote: undefined, truncated: true } : m)));
         } else {
           // 零内容失败：错误占位，并清掉可能已挂上的卡片数组（错误气泡不该出现"为你挑的书"）
           setMessages((prev) => prev.map((m) => (m.id === aId ? { ...m, content: msg, streaming: false, error: true, toolNote: undefined, recommendations: undefined, citations: undefined, webSources: undefined } : m)));

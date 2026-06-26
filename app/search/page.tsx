@@ -1,6 +1,6 @@
 "use client";
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, Search as SearchIcon, X, Flame } from "lucide-react";
 import { BookRow } from "@/components/library/BookCard";
@@ -8,10 +8,12 @@ import { Skeleton, EmptyState, ErrorState } from "@/components/ui/States";
 import { search, getHotSearches, logSearch } from "@/lib/api";
 import { useUI } from "@/lib/store";
 
-export default function SearchPage() {
+function SearchInner() {
   const router = useRouter();
-  const [input, setInput] = useState("");
-  const [q, setQ] = useState("");
+  const sp = useSearchParams();
+  const [input, setInput] = useState(() => sp.get("q") ?? "");
+  const [q, setQ] = useState(() => (sp.get("q") ?? "").trim());
+  const [autoFocusInit] = useState(() => !sp.get("q")); // 从详情页返回(URL 带 ?q)时不再自动弹键盘
   const hydrated = useUI((s) => s.hydrated);
   const recent = useUI((s) => s.recentSearches);
   const addRecent = useUI((s) => s.addRecent);
@@ -23,6 +25,14 @@ export default function SearchPage() {
     const t = setTimeout(() => setQ(input.trim()), 300);
     return () => clearTimeout(t);
   }, [input]);
+
+  // 查询词同步进 URL：使「搜词 → 点进一本看不合适 → 返回继续挑」能还原查询词与结果列表，不必每次重打
+  // （App Router 软导航返回时本页重挂载，从 ?q= 恢复 input/q，TanStack Query 命中缓存即时回显）（Bug#10）
+  useEffect(() => {
+    const cur = sp.get("q") ?? "";
+    if (q !== cur) router.replace(q ? `/search?q=${encodeURIComponent(q)}` : "/search", { scroll: false });
+    // eslint-disable-next-line
+  }, [q]);
 
   const { data, isLoading, isError, isFetching, refetch, isPlaceholderData } = useQuery({
     queryKey: ["search", q],
@@ -68,7 +78,7 @@ export default function SearchPage() {
         <form onSubmit={(e) => { e.preventDefault(); submit(input); }} className="flex flex-1 items-center gap-2 rounded-full border border-line bg-snow px-3.5 py-2 dark:border-white/10 dark:bg-dark-card">
           <SearchIcon size={16} className="text-ink-300" />
           <input
-            autoFocus
+            autoFocus={autoFocusInit}
             type="search"
             enterKeyHint="search"
             value={input}
@@ -136,5 +146,13 @@ export default function SearchPage() {
         )}
       </div>
     </main>
+  );
+}
+
+export default function SearchPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-ink-500">正在打开</div>}>
+      <SearchInner />
+    </Suspense>
   );
 }

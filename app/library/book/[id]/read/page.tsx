@@ -264,7 +264,23 @@ function ReaderInner({ id }: { id: string }) {
         el.animate?.([{ filter: "brightness(1.45)" }, { filter: "brightness(1)" }], { duration: 1200, easing: "ease-out" });
         return;
       }
-      if (++tries < 25) timer = setTimeout(tick, 150); // 最多约 3.75s 等渲染/水合
+      if (++tries < 25) { timer = setTimeout(tick, 150); return; } // 最多约 3.75s 等渲染/水合
+      // 兜底（Bug#17）：被外层划线完全包含的重叠划线在正文无独立 mk 锚点，轮询必失败 →
+      // 改按该笔记摘录在正文中的位置滚过去，杜绝「我的笔记点进去无反应」
+      markDone.current = true;
+      const note = useLibrary.getState().notes.find((n) => n.id === mk);
+      const root = contentRef.current;
+      if (!note || !root) return;
+      const full = root.textContent ?? "";
+      const at = locate(full, note.excerpt, typeof note.start === "number" ? note.start : 0);
+      if (at < 0) return;
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      let acc = 0; let tn: Node | null;
+      while ((tn = walker.nextNode())) {
+        const len = (tn as Text).nodeValue?.length ?? 0;
+        if (at < acc + len) { (tn.parentElement as HTMLElement | null)?.scrollIntoView({ block: "center" }); break; }
+        acc += len;
+      }
     };
     timer = setTimeout(tick, 250);
     return () => clearTimeout(timer);

@@ -26,6 +26,7 @@ export default function BookDetail({ params }: { params: { id: string } }) {
   const user = useAuth((s) => s.user);
   const isFav = useLibrary((s) => s.isFav);
   const toggleFav = useLibrary((s) => s.toggleFav);
+  const libHydrated = useLibrary((s) => s.hydrated); // 收藏数据是否已加载（防登录窗口期收藏态闪烁·Bug#13）
   const myReviews = useLibrary((s) => s.myReviews);
   const readChapters = useLibrary((s) => s.readChapters);
   const progress = useLibrary((s) => s.progress);
@@ -35,7 +36,7 @@ export default function BookDetail({ params }: { params: { id: string } }) {
   const chQ = useQuery({ queryKey: ["chapterList", id], queryFn: () => getChapterList(id), enabled: !!bookQ.data?.hasText });
 
   const book = bookQ.data;
-  const fav = book && user ? isFav(book.id) : false;
+  const fav = book && user && libHydrated ? isFav(book.id) : false;
   const [favTick, setFavTick] = useState(0);
   const [expand, setExpand] = useState(false);
   const [overflow, setOverflow] = useState(false);
@@ -120,22 +121,31 @@ export default function BookDetail({ params }: { params: { id: string } }) {
             {book.hasText && <span>约 {formatCount(book.words)} 字</span>}
           </div>
           <div className="relative shrink-0">
-            <button
-              onClick={onFav}
-              aria-pressed={fav}
-              className={
-                // before 伪元素纵向扩触区到 ≥40px，视觉不变
-                "relative flex items-center gap-1 rounded-full px-4 py-1.5 text-xs font-medium shadow-sm transition before:absolute before:inset-x-0 before:-inset-y-1.5 before:content-[''] active:scale-95 " +
-                (fav ? "bg-rouge/15 text-rouge dark:bg-rouge/25" : "bg-celadon-soft text-celadon-700 dark:bg-celadon/20 dark:text-celadon-300")
-              }
-            >
-              <motion.span key={favTick} initial={favTick ? { scale: 0.5 } : false} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 500, damping: 13 }}>
-                <Heart size={14} className={fav ? "fill-rouge text-rouge" : ""} />
-              </motion.span>
-              {fav ? "已收藏" : "收藏"}
-            </button>
-            {fav && favTick > 0 && (
-              <Heart key={favTick} size={14} className="pointer-events-none absolute -top-1 left-1/2 -translate-x-1/2 animate-like-burst fill-rouge text-rouge" />
+            {user && !libHydrated ? (
+              // 收藏数据加载完成前给中性占位：避免已收藏书短暂显示"收藏"再跳"已收藏"（Bug#13）
+              <span className="flex items-center gap-1 rounded-full bg-celadon-soft/50 px-4 py-1.5 text-xs font-medium text-celadon-700/50 dark:bg-celadon/10 dark:text-celadon-300/50" aria-hidden>
+                <Heart size={14} /> 收藏
+              </span>
+            ) : (
+              <>
+                <button
+                  onClick={onFav}
+                  aria-pressed={fav}
+                  className={
+                    // before 伪元素纵向扩触区到 ≥40px，视觉不变
+                    "relative flex items-center gap-1 rounded-full px-4 py-1.5 text-xs font-medium shadow-sm transition before:absolute before:inset-x-0 before:-inset-y-1.5 before:content-[''] active:scale-95 " +
+                    (fav ? "bg-rouge/15 text-rouge dark:bg-rouge/25" : "bg-celadon-soft text-celadon-700 dark:bg-celadon/20 dark:text-celadon-300")
+                  }
+                >
+                  <motion.span key={favTick} initial={favTick ? { scale: 0.5 } : false} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 500, damping: 13 }}>
+                    <Heart size={14} className={fav ? "fill-rouge text-rouge" : ""} />
+                  </motion.span>
+                  {fav ? "已收藏" : "收藏"}
+                </button>
+                {fav && favTick > 0 && (
+                  <Heart key={favTick} size={14} className="pointer-events-none absolute -top-1 left-1/2 -translate-x-1/2 animate-like-burst fill-rouge text-rouge" />
+                )}
+              </>
             )}
           </div>
         </div>
@@ -171,7 +181,7 @@ export default function BookDetail({ params }: { params: { id: string } }) {
             <div className="divide-y divide-line dark:divide-white/10">
               {chQ.data?.map((c) => {
                 const isRead = readCh.includes(c.id);
-                const isReading = !isRead && prog?.mode === "text" && prog?.chapterId === c.id;
+                const isReading = !isRead && prog?.mode === "text" && prog?.chapterId === c.id && (prog?.pct ?? 0) > 0; // pct=0(打开未滚)不算在读，与续读CTA/分类页"进行中"口径一致（Bug#18）
                 return (
                 <Link
                   key={c.id}
@@ -230,7 +240,9 @@ export default function BookDetail({ params }: { params: { id: string } }) {
       <div className="sticky bottom-0 z-20 mt-8 border-t border-line bg-snow/[0.92] px-4 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur dark:border-white/10 dark:bg-dark-card/[0.92]">
         {book.hasText ? (
           <Link
-            href={`/library/book/${book.id}/read${textProg ? `?ch=${textProg.chapterId}` : ""}`}
+            // 续读不带 ?ch：让阅读器走完整续读决议（恢复 saved 章 + 章内精确滚动位置），与首页续读一致；
+            // 带 ?ch 会让阅读器续读 effect 提前 return、丢失 ail-chpos 精确位置，每次把读者甩回章首（Bug#6）
+            href={`/library/book/${book.id}/read`}
             className="flex w-full items-center justify-center gap-1.5 rounded-full bg-celadon py-3 text-sm font-medium text-snow shadow-celadon transition active:scale-[0.98]"
           >
             <BookOpen size={16} />

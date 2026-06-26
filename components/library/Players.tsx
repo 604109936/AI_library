@@ -57,9 +57,14 @@ function useHistoryReporter(book: Book, mode: "video" | "audio") {
   const flushRef = useRef(flush);
   flushRef.current = flush;
   useEffect(() => () => flushRef.current(), []);
-  // 续播：把已存覆盖作为只增基线（否则只增设计会"卡住"到不了 100%）
+  // 续播：把已存覆盖作为只增基线（否则只增设计会"卡住"到不了 100%）。
+  // 只在本会话首次 metadata 就绪时取一次：媒体报错后「重试」会再触发 loadedmetadata→primePlayed，
+  // 若重设 base 而 regions 未清，同一段播放并集被计两次致 mediaPlayed≈2× 提前误判已读完（Bug#7）
+  const primed = useRef(false);
   const primePlayed = (dur: number) => {
-    if (dur > 0) base.current = useLibrary.getState().mediaPlayed[realId] ?? 0;
+    if (primed.current || dur <= 0) return;
+    primed.current = true;
+    base.current = useLibrary.getState().mediaPlayed[realId] ?? 0;
   };
   // 真实播放：仅连续正常推进（增量 0~1.5s）计入区间并集，拖动/快进的大跳变不计 → 排除「拖到结尾」
   const trackPlayed = (cur: number, dur: number) => {

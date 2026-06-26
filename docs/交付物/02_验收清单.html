@@ -1,0 +1,2150 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>AI 图书馆 · 前后端验收清单</title>
+<style>
+:root{--paper:#f4efe4;--paper2:#fbf8f1;--card:#fffdf8;--ink:#33302a;--ink2:#6b6459;--ink3:#928a7b;
+  --celadon:#4a7359;--gold:#b08d57;--cinnabar:#b04a3c;--line:#e2d9c6;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:"Noto Serif SC","Songti SC",ui-serif,Georgia,serif;line-height:1.7;font-size:14.5px}
+.wrap{max-width:1080px;margin:0 auto;padding:0 18px}
+code{font-family:Consolas,monospace;font-size:.82em;background:#f0e9d8;color:#6a5b3e;padding:1px 5px;border-radius:4px;word-break:break-all}
+.hero{background:linear-gradient(135deg,#3f6452,#4a7359 62%,#5a8068);color:#f6f2e8;border-bottom:3px solid var(--gold)}
+.hero .wrap{padding:34px 18px 26px}
+.hero .kicker{letter-spacing:.34em;font-size:12px;opacity:.85;margin:0 0 7px}
+.hero h1{margin:0;font-size:27px;font-weight:700}
+.hero p{margin:11px 0 0;max-width:760px;opacity:.95;font-size:14px}
+.hero .how{margin-top:14px;font-size:12.5px;opacity:.92;background:rgba(255,255,255,.1);border-radius:10px;padding:10px 14px;border:1px solid rgba(255,255,255,.18)}
+.toolbar{position:sticky;top:0;z-index:30;background:rgba(244,239,228,.95);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.toolbar .wrap{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 18px}
+.prog{flex:1;min-width:180px}
+.bar{height:9px;border-radius:5px;background:#e3dac7;overflow:hidden;display:flex}
+.bar i{display:block;height:100%}
+.bar .p{background:#6f9b80}.bar .f{background:#cf6a5c}.bar .n{background:#c9b079}
+.stat{font-size:12px;color:var(--ink2);margin-top:4px}
+.stat b{color:var(--ink)}
+.chip{border:1px solid var(--line);background:var(--paper2);color:var(--ink2);border-radius:18px;padding:5px 12px;font:inherit;font-size:12.5px;cursor:pointer}
+.chip.active{background:var(--celadon);color:#fff;border-color:var(--celadon)}
+.btn{border:1px solid var(--gold);background:#fff;color:#8a6d3b;border-radius:18px;padding:5px 13px;font:inherit;font-size:12.5px;cursor:pointer}
+.btn:hover{background:#fbf3e3}
+.intro{margin:22px 0 6px}
+.note-box{background:#fff7 e6;background:#fdf6e3;border:1px solid #e7d9b0;border-radius:12px;padding:12px 16px;font-size:13px;color:#7a6326;margin:18px 0}
+.grp{margin:26px 0}
+.grp>h2{font-size:20px;margin:0 0 12px;display:flex;align-items:center;gap:10px;border-bottom:2px solid var(--line);padding-bottom:6px}
+.grp>h2::before{content:"";width:16px;height:16px;background:var(--gold);transform:rotate(45deg);display:inline-block}
+.gcnt{font-size:12px;color:var(--ink3);font-weight:400}
+.submod{margin:14px 0}
+.submod h3{font-size:15px;margin:14px 0 8px;color:var(--celadon);display:flex;align-items:center;gap:8px}
+.submod .cnt{font-size:11px;color:var(--ink3)}
+.seal{width:18px;height:18px;border-radius:5px;color:#fff;font-size:11px;display:inline-flex;align-items:center;justify-content:center;font-weight:700}
+.item{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--line);border-radius:10px;padding:11px 14px;margin:8px 0;transition:.12s}
+.item.done-pass{border-left-color:#6f9b80;background:#f6faf4}
+.item.done-fail{border-left-color:#cf6a5c;background:#fcf3f1}
+.item.done-na{border-left-color:#c9b079;opacity:.85}
+.ihead{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.iid{font-family:Consolas,monospace;font-size:11px;color:#fff;background:var(--ink3);border-radius:4px;padding:1px 6px;flex:none}
+.ititle{font-weight:700;font-size:14.5px}
+.vmark{margin-left:auto;font-size:13px;font-weight:700}
+.tag{font-size:10.5px;padding:1px 8px;border-radius:20px;font-family:system-ui;color:#fff;flex:none}
+.t-hi{background:#b04a3c}.t-mid{background:#c98a2e}.t-lo{background:#8a9a8f}.t-done{background:#4a7359}.t-part{background:#b08d57}.t-neu{background:#9a9486}
+.ibody{margin-top:7px}
+.row{display:flex;gap:9px;margin-top:4px;font-size:13px}
+.row .k{flex:none;width:32px;color:var(--ink3);font-size:11px;font-family:system-ui;padding-top:2px}
+.row .v{color:var(--ink2);flex:1}
+.row.meta2{gap:10px;flex-wrap:wrap}
+.be{font-size:11px;color:var(--celadon);background:#eef3ea;border-radius:5px;padding:1px 7px}
+.loc{font-size:10.5px}
+.verdict{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:9px;border-top:1px dashed var(--line);padding-top:8px}
+.vb{display:inline-flex;align-items:center;gap:4px;font-size:12.5px;font-family:system-ui;cursor:pointer;border:1px solid var(--line);border-radius:16px;padding:3px 11px;user-select:none}
+.vb input{display:none}
+.vb.pass.on{background:#6f9b80;color:#fff;border-color:#6f9b80}
+.vb.fail.on{background:#cf6a5c;color:#fff;border-color:#cf6a5c}
+.vb.na.on{background:#c9b079;color:#fff;border-color:#c9b079}
+.note{flex:1;min-width:160px;border:1px solid var(--line);border-radius:8px;padding:5px 10px;font:inherit;font-size:12.5px;background:#fff}
+.note:focus{outline:none;border-color:var(--celadon)}
+.hide{display:none !important}
+footer{margin:40px 0 28px;text-align:center;color:var(--ink3);font-size:12px}
+@media print{.toolbar{display:none}.item{break-inside:avoid}.hero{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+</style>
+</head>
+<body>
+<div class="hero"><div class="wrap">
+  <p class="kicker">AI 图书馆 · 前后端验收清单</p>
+  <h1>逐条验收 · 勾选即记</h1>
+  <p>共 <b>109</b> 个验收点，覆盖前端四大模块功能、后端数据库/接口/安全/调度、以及本轮修复的 25 个 Bug。每条选「通过 / 不通过 / 待定」，可填备注；勾选进度自动存在本浏览器，刷新不丢。验完点右上「导出反馈」，把不通过项一键复制发我。</p>
+  <div class="how">⚠️ 验收口径：① <b>现有功能</b>可在线上 <b>goodcontent.cn</b> 验收；② <b>本轮 25 个 Bug 修复</b>尚在本地工作区<b>未部署</b>，需在本地新构建（pnpm build && pnpm start）或部署后验收（我不会未经你同意就部署）。</div>
+</div></div>
+
+<div class="toolbar"><div class="wrap">
+  <div class="prog">
+    <div class="bar"><i class="p" id="bp"></i><i class="f" id="bf"></i><i class="n" id="bn"></i></div>
+    <div class="stat"><b id="sp">0</b> 通过 · <b id="sf">0</b> 不通过 · <b id="sn">0</b> 待定 · 共 <b>109</b> · 已验 <b id="sd">0</b></div>
+  </div>
+  <button class="chip active" data-filter="all">全部</button>
+  <button class="chip" data-filter="todo">未验</button>
+  <button class="chip" data-filter="fail">不通过</button>
+  <button class="btn" id="export">导出反馈</button>
+  <button class="btn" id="reset">清空勾选</button>
+</div></div>
+
+<div class="wrap">
+  <div class="note-box">建议验收顺序：先「构建与清理」确认基线 → 再按模块过「前端功能」→「后端」→ 最后逐条核「Bug 修复」。不确定的选「待定」，我来补充说明或一起看。</div>
+  <section class="grp" data-group="构建与清理"><h2>构建与清理 <span class="gcnt">5 项</span></h2><div class="item" data-id="CL-1" data-group="构建与清理" data-mod="">
+    <div class="ihead">
+      <span class="iid">CL-1</span>
+      <span class="ititle">TypeScript 类型检查通过</span>
+      <span class="tag t-lo">基线</span>
+      <span class="vmark" data-for="CL-1"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">开发者执行 <code>pnpm typecheck</code>（tsc --noEmit）</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">退出码 0、无类型错误</span></div>
+      
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-CL-1" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-CL-1" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-CL-1" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="CL-1" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="CL-2" data-group="构建与清理" data-mod="">
+    <div class="ihead">
+      <span class="iid">CL-2</span>
+      <span class="ititle">生产构建通过</span>
+      <span class="tag t-lo">基线</span>
+      <span class="vmark" data-for="CL-2"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">执行 <code>pnpm build</code></span></div>
+      <div class="row"><span class="k">预期</span><span class="v">编译成功、18/18 静态页生成、无报错</span></div>
+      
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-CL-2" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-CL-2" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-CL-2" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="CL-2" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="CL-3" data-group="构建与清理" data-mod="">
+    <div class="ihead">
+      <span class="iid">CL-3</span>
+      <span class="ititle">44 个一次性脚本已删除</span>
+      <span class="tag t-lo">清理</span>
+      <span class="vmark" data-for="CL-3"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">查看 <code>scripts/</code> 目录</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">仅保留 7 个有用脚本（import-books / db-stats / run-sql / lan-ip / e2e / reset-demo / create-demo-user）</span></div>
+      
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-CL-3" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-CL-3" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-CL-3" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="CL-3" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="CL-4" data-group="构建与清理" data-mod="">
+    <div class="ihead">
+      <span class="iid">CL-4</span>
+      <span class="ititle">10 处死代码 + mock 死文件已删除</span>
+      <span class="tag t-lo">清理</span>
+      <span class="vmark" data-for="CL-4"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">确认 getChapter / getBookReviews / sleep / BookGridCard / PageTransition / UserMemory 等已移除，lib/mock/data.ts 已删</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">全站功能不受影响（构建已验证）</span></div>
+      
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-CL-4" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-CL-4" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-CL-4" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="CL-4" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="CL-5" data-group="构建与清理" data-mod="">
+    <div class="ihead">
+      <span class="iid">CL-5</span>
+      <span class="ititle">根目录冗余脚本已删除</span>
+      <span class="tag t-lo">清理</span>
+      <span class="vmark" data-for="CL-5"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">确认 gen_candidates.ps1 已移除</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">保留 7 个有用脚本与文档/大图（按你选择的『删零风险项』口径）</span></div>
+      
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-CL-5" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-CL-5" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-CL-5" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="CL-5" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div></section><section class="grp" data-group="前端功能验收"><h2>前端功能验收 <span class="gcnt">63 项</span></h2><div class="submod"><h3><i class="seal" style="background:#4a7359">智</i>智学 / AI 问答助手「小涤」 <span class="cnt">17</span></h3><div class="item" data-id="F-chat-1" data-group="前端功能验收" data-mod="chat">
+    <div class="ihead">
+      <span class="iid">F-chat-1</span>
+      <span class="ititle">SSE 真流式回答 + 追赶打字机</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-chat-1"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/chat/page.tsx:211 send / app/api/chat/route.ts:136 POST / :196</code> 体验：提问后回答以 NDJSON 逐行流式吐出，前端用追赶打字机平滑渐显(落后越多追越快)，后台标签页直接全量上屏；流正常结束却零文字零卡片时给错误占位而非空气泡。服务端 NDJSON Agent 是整条对话的承载云函数(POST /api/chat)。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：回答即时连续涌现，长答也不卡顿，体感像真人在打字</span></div>
+      <div class="row meta2"><span class="be">依赖：MiniMax-M3 /v1/chat/completions(stream:true)；getUid 经 admin.auth.getUser 验 token，游客可用</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-chat-1" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-chat-1" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-chat-1" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-chat-1" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-chat-2" data-group="前端功能验收" data-mod="chat">
+    <div class="ihead">
+      <span class="iid">F-chat-2</span>
+      <span class="ititle">Agent 工具循环 + 失配兜底补救轮</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-chat-2"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/api/chat/route.ts:32 runAgent / :99 失配兜底</code> 体验：服务端 runAgent 循环：模型流式产出→有 tool_calls 则执行并回灌→直到纯文本收尾，上限 8 轮 + 105s 时间预算。结束后做三类失配兜底(承诺了卡片却没出/细读过章节却没引用/有荐书意图提了馆藏书名却零卡片)，追加一轮『只许出卡』补救调用。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：模型说『为你推荐/依据如下』时一定真出现可点击卡片，避免说了卡片却没卡的失信</span></div>
+      <div class="row meta2"><span class="be">依赖：MiniMax-M3 + Supabase(books/chapters)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-chat-2" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-chat-2" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-chat-2" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-chat-2" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-chat-3" data-group="前端功能验收" data-mod="chat">
+    <div class="ihead">
+      <span class="iid">F-chat-3</span>
+      <span class="ititle">推荐书目卡片(recommend_books)</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-chat-3"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>components/chat/ChatMessage.tsx:64 RecsBlock / lib/server/tools.ts:124</code> 体验：模型决定荐书时调 recommend_books，服务端按模型顺序重排、校验 id 真实存在(≤5 本)，回 recs 事件直带 {id,title}。前端解析成完整书目，横滑卡组展示封面并叠『懂你』徽标(已读完/在读N%/在书架)，点击直达书籍详情页。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：正文书名点不了，卡片是进入书的唯一入口，徽标让人感到『它知道我读到哪了』</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase books 表 + 本地 store(favorites/progress 算徽标)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-chat-3" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-chat-3" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-chat-3" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-chat-3" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-chat-4" data-group="前端功能验收" data-mod="chat">
+    <div class="ihead">
+      <span class="iid">F-chat-4</span>
+      <span class="ititle">引用章节卡片(cite_chapters)</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-chat-4"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>components/chat/ChatMessage.tsx:95 CitesBlock / lib/server/tools.ts:169</code> 体验：答疑/解读原文时模型末尾调 cite_chapters，服务端一次取齐书名/封面/章题/开头 60 字摘要(前端零查询直渲)，列出『依据原文N处』并与读者进度缝合标注『你正读到这里/你读过这章』，点击直达原文对应章。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：回答有据可查，可一键跳到原文核对，且贴合自己的阅读进度</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase books/chapters 表 + 本地 store(progress)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-chat-4" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-chat-4" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-chat-4" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-chat-4" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-chat-5" data-group="前端功能验收" data-mod="chat">
+    <div class="ihead">
+      <span class="iid">F-chat-5</span>
+      <span class="ititle">联网搜索 + 来源卡片(web_search)</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-chat-5"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>lib/server/websearch.ts:17 searchWeb / components/chat/ChatMessage.tsx:126 WebBlock</code> 体验：问题带时效性(新闻/近况/最新)且超出馆藏时模型调 web_search，服务端直调 MiniMax TokenPlan /v1/coding_plan/search(前 5 条、snippet≤200 字)，回 web 事件渲染『来源N处』外链卡(域名+日期、仅 http/https 白名单、新开页)。系统提示严格限制仅时效问题可联网。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：时效问题不被过时知识误导，能查到最新信息并附可信来源溯源</span></div>
+      <div class="row meta2"><span class="be">依赖：MiniMax TokenPlan 联网搜索端点(MINIMAX_API_KEY)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-chat-5" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-chat-5" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-chat-5" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-chat-5" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-chat-6" data-group="前端功能验收" data-mod="chat">
+    <div class="ihead">
+      <span class="iid">F-chat-6</span>
+      <span class="ititle">等待期过程提示(工具状态 + 思考提示 + 本地兜底)</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-chat-6"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>lib/server/tools.ts:21 toolStatus / lib/server/thinkhint.ts:11 makeThinkHint / components/chat/ChatMessage.tsx:22 ThinkingNote</code> 体验：三层等待陪伴：①工具执行时服务端发 status 事件拼成『翻开《某书》/细读第N章/在网上帮你查』，前端水波纹扫光呈现；②M3 思考流被剥离不直出，但用零成本规则从思考增量提取≤20 字第一人称过程短句也作 status；③无服务端提示时本地句池每 2.6s 轮换文案(登录/游客两套)，服务端提示优先则停轮换。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：把模型思考转成温暖人话的进度提示，替代廉价转圈，等待期有确定感不冷场</span></div>
+      <div class="row meta2"><span class="be">依赖：MiniMax-M3(&lt;think&gt; 思考流) + Supabase books(取书名)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-chat-6" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-chat-6" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-chat-6" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-chat-6" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-chat-7" data-group="前端功能验收" data-mod="chat">
+    <div class="ihead">
+      <span class="iid">F-chat-7</span>
+      <span class="ititle">卡片交错渲染(占位标记)</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-chat-7"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>lib/chatMarkers.ts:19 splitCardSegments / app/chat/page.tsx:272 pushMarker</code> 体验：工具事件到达时前端把占位标记 [[recs/cites/web:from,to]] 插进正文当前位置(正好在两轮模型文字之间)，打字机一步跨过标记不露半截；渲染端按标记切段，卡片自然出现在『理由→卡片→后话』的真实位置，老消息无标记则回退末尾不丢卡。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：卡片出现在它该出现的话语位置，阅读顺序自然不突兀</span></div>
+      <div class="row meta2"><span class="be">依赖：无(前端渲染逻辑)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-chat-7" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-chat-7" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-chat-7" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-chat-7" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-chat-8" data-group="前端功能验收" data-mod="chat">
+    <div class="ihead">
+      <span class="iid">F-chat-8</span>
+      <span class="ititle">个性化变量注入(这位读者)</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-chat-8"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>lib/server/agent.ts:116 buildSystem / :50 userVars</code> 体验：buildSystem 为登录用户注入 6 类个人数据(全馆书单/已读完书单含笔记书评/收藏/在读书单/学习总时长/压缩摘要)再加长期记忆；任一路查询失败降级为明示『本轮看不到你的阅读记录』，绝不让模型断言反事实。游客无个人数据。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：小涤结合你读过/在读/收藏/笔记给出『被懂』的个性化荐书与答疑</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase favorites/notes/reviews/text_progress/media_progress/profiles/books/categories(service_role 查)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-chat-8" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-chat-8" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-chat-8" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-chat-8" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-chat-9" data-group="前端功能验收" data-mod="chat">
+    <div class="ihead">
+      <span class="iid">F-chat-9</span>
+      <span class="ititle">长期记忆(T7)</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-chat-9"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>lib/server/memory.ts:41 maybeUpdateMemory / :120 memoryVar</code> 体验：每轮答完后台异步(waitUntil)：攒够 4 条新消息才跑，由 M3 对照『记忆现值+新对话』判断 7 维度(身份/阅读偏好/兴趣/聊天风格/事实/近期关注/待跟进)增量更新写 user_memory(每维≤120 字)，注入 system 让小涤『记得这位读者』。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：跨会话记得你的偏好/近况，越聊越懂你，问候和推荐更贴心</span></div>
+      <div class="row meta2"><span class="be">依赖：MiniMax-M3 + Supabase user_memory(RLS 仅本人读，写走 service_role)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-chat-9" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-chat-9" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-chat-9" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-chat-9" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-chat-10" data-group="前端功能验收" data-mod="chat">
+    <div class="ihead">
+      <span class="iid">F-chat-10</span>
+      <span class="ititle">上下文压缩(T2.6)</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-chat-10"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>lib/server/compress.ts:30 maybeCompress / :105 getCompressed</code> 体验：会话过长时后台 maybeCompress(waitUntil)：保最近 40 条(20 轮)不压，更早的由 M3 压成≤3500 字接续摘要写 chat_sessions.compressed_history，compressed_until 记进度(原始 messages 永久保留)；route 据 until 动态裁剪请求消息防『既不在摘要也不在请求』黑洞。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：超长对话也不丢上下文、不爆窗口，小涤始终记得早先聊过的内容</span></div>
+      <div class="row meta2"><span class="be">依赖：MiniMax-M3 + Supabase chat_sessions(compressed_history/compressed_until)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-chat-10" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-chat-10" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-chat-10" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-chat-10" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-chat-11" data-group="前端功能验收" data-mod="chat">
+    <div class="ihead">
+      <span class="iid">F-chat-11</span>
+      <span class="ititle">语音输入(长按说话)</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-chat-11"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>lib/useVoiceInput.ts:29 useVoiceInput / app/chat/page.tsx:478 onInputPointerDown</code> 体验：长按输入框 350ms 触发：浏览器原生 SpeechRecognition(zh-CN/continuous/interim)实时识别，松手把文字回填输入框可改可删再发，上滑&gt;90px 取消；录音浮层带实时文本+音量波形(getUserMedia 频谱驱动 7 柱)+计时，处理自动续录/权限拒绝引导/指针 capture/双指竞态。MiniMax 无 ASR 故选原生方案。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：不方便打字时长按说话即可提问，识别文本可确认后再发更稳</span></div>
+      <div class="row meta2"><span class="be">依赖：浏览器原生 SpeechRecognition + getUserMedia(无服务端)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-chat-11" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-chat-11" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-chat-11" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-chat-11" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-chat-12" data-group="前端功能验收" data-mod="chat">
+    <div class="ihead">
+      <span class="iid">F-chat-12</span>
+      <span class="ititle">个性化欢迎区与示例问题</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-chat-12"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/chat/page.tsx:683 Welcome / lib/chatWelcome.ts:33 buildQuestions</code> 体验：空会话时：登录显示时段问候喊昵称 + 小涤『汇报近况』开场白(已读N小时/某书进度，含继续读/给我荐一本按钮) + 按读者数据动态生成的专属示例问题；游客用真实馆藏书名拼问题 + 登录钩子。全部纯前端拼装(0 token)。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：一进来就被认出、被点出在读的书，照着示例问题点一下就能开聊</span></div>
+      <div class="row meta2"><span class="be">依赖：本地 store(history/progress/favorites/notes/readSeconds) + getHome 馆藏缓存</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-chat-12" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-chat-12" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-chat-12" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-chat-12" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-chat-13" data-group="前端功能验收" data-mod="chat">
+    <div class="ihead">
+      <span class="iid">F-chat-13</span>
+      <span class="ititle">点赞/点踩反馈 + 踩原因留痕 + 重新生成生效</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-chat-13"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>components/chat/ChatMessage.tsx:266 操作栏 / app/chat/page.tsx:417 setFeedback / :434 regenerate</code> 体验：每条回答可赞/踩，踩弹反馈浮层选标签(推荐偏差/答疑有误/解读没用/其它可自填≤200 字)随消息落库；踩过常驻『已反馈·原因』可改；被踩回答点重新生成时把踩的原因作为一次性指示喂回模型(regenHint)当场可感知生效。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：能告诉小涤哪里没说好，重新生成时立刻看到『它听进去了』</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase chat_sessions(反馈写穿透消息)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-chat-13" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-chat-13" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-chat-13" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-chat-13" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-chat-14" data-group="前端功能验收" data-mod="chat">
+    <div class="ihead">
+      <span class="iid">F-chat-14</span>
+      <span class="ititle">重新生成 / 复制 / 停止生成</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-chat-14"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/chat/page.tsx:396 stop / :434 regenerate / components/chat/ChatMessage.tsx:297 复制</code> 体验：重新生成截掉旧回答用同一问题重发(显式传 base 防旧闭包复读)；复制剥卡片标记后复制纯文本(兼容非安全上下文 execCommand 回退)；停止 abort 当前请求并保留已流出正文与卡片。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：答得不满意可换一版、随时叫停、一键复制收藏好内容</span></div>
+      <div class="row meta2"><span class="be">依赖：无(前端控制流)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-chat-14" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-chat-14" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-chat-14" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-chat-14" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-chat-15" data-group="前端功能验收" data-mod="chat">
+    <div class="ihead">
+      <span class="iid">F-chat-15</span>
+      <span class="ititle">会话续存与历史回显(单一会话)</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-chat-15"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/chat/page.tsx:71 chatLive / :186 persist / lib/store.ts:532 loadCloud</code> 体验：单一会话 main：模块级缓存按账号隔离切 Tab 保活，登录态云端 chat_sessions 持久化(loadCloud 水合/persist 消息级并集去重防覆盖)，超长会话只渲染最近 120 条、更早的『已收进小涤的记忆』，流式中间态归一化防永久『思考中』，离开页面快照落库防丢提问。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：聊天记录跨页面、跨设备、跨刷新都在，回来接着聊不丢内容</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase chat_sessions 表(messages 整段 jsonb)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-chat-15" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-chat-15" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-chat-15" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-chat-15" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-chat-16" data-group="前端功能验收" data-mod="chat">
+    <div class="ihead">
+      <span class="iid">F-chat-16</span>
+      <span class="ititle">贴底跟随 / 回到最新 / 输入区交互</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-chat-16"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/chat/page.tsx:138 贴底检测 / :588 回到最新 / :609 textarea</code> 体验：流式期间贴底自动跟随(离底&lt;80px)，用户上滑回看即停跟随并浮出『回到最新』；输入区 textarea 多行自适应(封顶 96px)、Enter 发送(IME 选词不打断)、500 字上限提醒、字数计数(≥450 字显示)。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：看长回答时能自由上滑回看不被打断，一键回到最新，输入顺手</span></div>
+      <div class="row meta2"><span class="be">依赖：无(前端)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-chat-16" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-chat-16" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-chat-16" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-chat-16" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-chat-17" data-group="前端功能验收" data-mod="chat">
+    <div class="ihead">
+      <span class="iid">F-chat-17</span>
+      <span class="ititle">Markdown 渲染 + 表格降级 + 安全外链</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-chat-17"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>components/chat/ChatMessage.tsx:46 MD_COMPONENTS / :175 memo</code> 体验：回答用 react-markdown+remark-gfm 渲染(加粗/引用/列表)；System 禁表格、渲染端再兜底把漏出的 table 降级为行式列表；正文链接强制新开页+青瓷下划线、危险协议过滤；memo+稳定回调避免打字机每拍全量重解析卡顿。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：回答排版清晰、手机不挤爆、外链安全，长会话不卡顿</span></div>
+      <div class="row meta2"><span class="be">依赖：无(前端渲染)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-chat-17" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-chat-17" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-chat-17" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-chat-17" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div></div><div class="submod"><h3><i class="seal" style="background:#b08d57">泡</i>泡馆 / 分类书库 + 三种阅读器 <span class="cnt">11</span></h3><div class="item" data-id="F-library-18" data-group="前端功能验收" data-mod="library">
+    <div class="ihead">
+      <span class="iid">F-library-18</span>
+      <span class="ititle">泡馆首页(Banner/继续阅读/分类网格/热门好书)</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-library-18"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/library/page.tsx:21</code> 体验：落地页：横滑 Banner(每分类最新入库一本)、继续阅读(仅文字稿未读完、本地历史驱动、水合后才渲染防闪烁)、6 宫格分类入口(带每类书数)、热门好书列表(按入库时间排序、过滤已读完取 20 本)。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：一屏完成『找书/接着读/逛分类』，新入馆与个人进度首屏可达</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase getHome(categories+books 公开读)；继续阅读取自 useLibrary.history</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-library-18" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-library-18" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-library-18" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-library-18" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-library-19" data-group="前端功能验收" data-mod="library">
+    <div class="ihead">
+      <span class="iid">F-library-19</span>
+      <span class="ititle">分类书库页(阅读类型切换 + 状态筛选 + 无限滚动)</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-library-19"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/library/category/[id]/page.tsx:24</code> 体验：按分类列书：顶部『音视频/文字稿』下拉切换(决定查 has_video|has_audio 还是 has_text)，右侧『全部/进行中/已读/未读』状态 pill(非全部需登录)；IntersectionObserver 无限滚动 + 稀疏筛选自动续拉、按 id 去重防跨页重复；非法分类给 404。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：按媒介与阅读状态精准筛书，长列表流畅加载不重复</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase getBooks(offset 分页, shelved_at desc + id 兜底排序)；状态判定取本地 progress 与 mediaPlayed</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-library-19" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-library-19" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-library-19" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-library-19" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-library-20" data-group="前端功能验收" data-mod="library">
+    <div class="ihead">
+      <span class="iid">F-library-20</span>
+      <span class="ititle">书籍详情页</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-library-20"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/library/book/[id]/page.tsx:20</code> 体验：顶部媒体台(音视频内联播放/纯文字显示立体书封)+氛围背景；题名作者标签字数；收藏药丸(爱心爆裂动效，写穿透 favorites)；简介展开收起；文字全文章节目录(在读/已读真实态)；我的评价区(只展示本人一条)；底部 sticky 续读 CTA。书不存在区分 404 与网络错误两套出路。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：一页看全一本书并据进度一键续读，收藏与本人书评闭环</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase getBook + getChapterList(不取正文)；收藏/我的书评/已读章来自 useLibrary</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-library-20" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-library-20" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-library-20" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-library-20" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-library-21" data-group="前端功能验收" data-mod="library">
+    <div class="ihead">
+      <span class="iid">F-library-21</span>
+      <span class="ititle">文字稿阅读器(Markdown + 章节切换 + 沉浸模式 + 阅读设置)</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-library-21"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/library/book/[id]/read/page.tsx:87</code> 体验：独立路由 /read：ReactMarkdown(GFM+CJK 友好)按章 memo 渲染；上一/下一章 + 同步 ?ch；点正文中部切换顶/底栏沉浸模式；阅读设置面板(字号四档/四种背景白·米黄·护眼·深灰/亮度滑杆，存 useReader 持久化)；最后一章读毕显示『读毕』印章 + 写书评 CTA；按章整棵 key 重挂载规避命令式高亮与 React diff 冲突白屏。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：专注、可个性化(字号/背景/亮度)的中式排版阅读体验，读毕有成就感</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase getChapters(全量含 content)；阅读偏好走 useReader 本地持久化不入库</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-library-21" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-library-21" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-library-21" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-library-21" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-library-22" data-group="前端功能验收" data-mod="library">
+    <div class="ihead">
+      <span class="iid">F-library-22</span>
+      <span class="ititle">音频伴读播放器</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-library-22"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>components/library/Players.tsx:320</code> 体验：详情页媒体台内唱片台座：旋转封面圆盘、进度条(拖动只移滑块、松手 commitSeek 才定位)、倍速 0.75~2x、±15 秒、环形进度大播放钮、缓冲转圈、失败重试；MediaSession 接通锁屏/控制中心；续播按已存 media_progress 定位；卸载/切台 pause+removeAttribute(src)+load 停声释放资源。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：可后台/锁屏的全本朗读伴读，断点续听不丢位置</span></div>
+      <div class="row meta2"><span class="be">依赖：audioUrl 来自 OSS；setMediaProgress/setMediaPlayed 写穿透 media_progress(5 秒节流)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-library-22" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-library-22" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-library-22" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-library-22" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-library-23" data-group="前端功能验收" data-mod="library">
+    <div class="ihead">
+      <span class="iid">F-library-23</span>
+      <span class="ititle">竖屏视频解读播放器</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-library-23"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>components/library/Players.tsx:128</code> 体验：详情页媒体台内 3:4 竖屏视频：播放/暂停、静音、自绘竖屏全屏(锁滚动+pushState 接管系统返回仅退全屏不退页)、进度条松手定位、倍速循环、缓冲转圈、失败占位重试；未播放时显示书封(首次播放才 seek 防跳帧)；视频/音频双媒介书提供 Tab 切换；卸载停声释放资源。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：沉浸的竖屏读书解读视频，断点续看、全屏手势自然</span></div>
+      <div class="row meta2"><span class="be">依赖：videoUrl 来自 OSS；进度同 media_progress 写穿透；mediaPlayed 真实播放覆盖决定已读</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-library-23" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-library-23" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-library-23" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-library-23" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-library-24" data-group="前端功能验收" data-mod="library">
+    <div class="ihead">
+      <span class="iid">F-library-24</span>
+      <span class="ititle">章节目录(详情页清单 + 阅读器抽屉)</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-library-24"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/library/book/[id]/read/page.tsx:750 / app/library/book/[id]/page.tsx:171</code> 体验：详情页列出全部章节(在读高亮+已读勾，第 0 章统一『前言』)；阅读器内左滑目录抽屉，打开把当前章 scrollIntoView 居中，点击跳转回顶并清旧章选区菜单防幽灵笔记。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：快速跳章、清楚看到读到哪、哪些读过</span></div>
+      <div class="row meta2"><span class="be">依赖：getChapterList(详情页轻量)/getChapters(阅读器全量)；已读/在读取 useLibrary.readChapters 与 progress</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-library-24" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-library-24" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-library-24" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-library-24" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-library-25" data-group="前端功能验收" data-mod="library">
+    <div class="ihead">
+      <span class="iid">F-library-25</span>
+      <span class="ititle">高亮划线与笔记</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-library-25"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/library/book/[id]/read/page.tsx:372</code> 体验：长按选词弹工具条(四色青瓷/黄铜/胭脂/淡墨、记住上次用色)：划线/写笔记/复制。用 TreeWalker 把 Range 映射到 textContent 坐标系，支持跨段落/跨粗体精确包裹落库 excerpt+start+end；与既有划线重叠时『并集合并』删旧建新杜绝幽灵笔记；点已有划线可换色/写想法/删除(带撤销 toast)；本章笔记列表浮层；从『我的笔记』带 ?mark 轮询定位并高亮闪烁。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：在正文里完整可见、可改色可合并的划线批注，跨设备同步且不丢位置</span></div>
+      <div class="row meta2"><span class="be">依赖：addNote/removeNote/updateNote 写穿透 notes(offset 取整)；游客经 requireLogin 引导登录后落库</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-library-25" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-library-25" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-library-25" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-library-25" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-library-26" data-group="前端功能验收" data-mod="library">
+    <div class="ihead">
+      <span class="iid">F-library-26</span>
+      <span class="ititle">阅读进度与续读</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-library-26"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/library/book/[id]/read/page.tsx:202</code> 体验：文字稿进度=(已读完章数+当前章滚动比例)/总章数，滚到底≥95% 或不足一屏记本章读毕；进入先续读决议(等水合，按 ?ch&gt;本地章内比例&gt;全书 pct 反解三级兜底)，resolved 前不上报防抢跑写脏；5 秒定时 + onScroll 双路只由活着的容器判读毕。音视频真实播放区间并集≥90% 记 100%，progress 与媒体分列互不覆盖；pushHistory 写阅读历史(按书+大类去重，10 分钟刷新口子)。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：任何时候退出回来都能精确接着读/看，进度跨设备一致且不被误判读完</span></div>
+      <div class="row meta2"><span class="be">依赖：setProgress/markChapterRead→text_progress；pushHistory→reading_history；mediaPlayed/Progress→media_progress；hydrated 双门禁防空基线</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-library-26" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-library-26" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-library-26" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-library-26" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-library-27" data-group="前端功能验收" data-mod="library">
+    <div class="ihead">
+      <span class="iid">F-library-27</span>
+      <span class="ititle">写 / 更新书评</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-library-27"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/library/book/[id]/review/new/page.tsx:19</code> 体验：独立编辑页：门禁外壳等 auth+lib 水合再初始化表单防直刷洗空；星级打分(伴文案)+选填标题(IME 友好)+正文(≥10 字可发、≤2000)；既有书评进『更新』模式预填保留原发表时间；提交锁防双击、未保存改动离开二次确认；未登录先登录回调再发。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：读完即可一键记录/修改自己的评价与评分，不丢内容不重复发</span></div>
+      <div class="row meta2"><span class="be">依赖：upsertReview 写穿透 reviews(onConflict user_id,book_id 单本一条)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-library-27" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-library-27" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-library-27" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-library-27" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-library-28" data-group="前端功能验收" data-mod="library">
+    <div class="ihead">
+      <span class="iid">F-library-28</span>
+      <span class="ititle">读者评价(他人书评)展示</span>
+      <span class="tag t-part">Mock占位</span>
+      <span class="vmark" data-for="F-library-28"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>lib/api.ts:238 getBookReviews</code> 体验：getBookReviews 仍读 mock 的 reviewsByBook(支持热门/最新排序)，本版数据-only 不在任何书库 UI 展示——详情页『我的评价』只读本人，他人书评未接 Supabase 也未渲染。全仓无任何 UI 调用 getBookReviews，属预留接口。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：(暂无用户可见价值，为后续读者评价/社区化预留)</span></div>
+      <div class="row meta2"><span class="be">依赖：mock(lib/mock/data.ts reviewsByBook)；后续接 reviews 表公开读时替换</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-library-28" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-library-28" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-library-28" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-library-28" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div></div><div class="submod"><h3><i class="seal" style="background:#b04a3c">乱</i>乱翻 / 竖滑视频信息流(类抖音) <span class="cnt">9</span></h3><div class="item" data-id="F-flip-29" data-group="前端功能验收" data-mod="flip">
+    <div class="ihead">
+      <span class="iid">F-flip-29</span>
+      <span class="ititle">信息流加载与个性化书池</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-flip-29"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/flip/page.tsx:138 load / lib/api.ts:169 flipPool / :196 getFlip</code> 体验：进入先从模块级缓存(按账号隔离、5 分钟新鲜)秒显上次位置；无缓存则 getFlip→flipPool 取数：登录用户读自己最近一期 flip_feed.book_ids 严格按序还原成带视频书，游客或无 feed 回退最新入库 50 本带视频书。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：打开即看到为自己量身排序的读书短视频流，离开再回来保持原位</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase flip_feed + books(has_video/video_url) + categories；含 owner 戳与 5min 内存缓存</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-flip-29" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-flip-29" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-flip-29" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-flip-29" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-flip-30" data-group="前端功能验收" data-mod="flip">
+    <div class="ihead">
+      <span class="iid">F-flip-30</span>
+      <span class="ititle">上下滑切条 + scroll-snap + 位置记忆</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-flip-30"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/flip/page.tsx:210 滚动落点 / :296 snap 容器 / :173 切条</code> 体验：竖向 CSS scroll-snap 每屏一条；滚动落点用 rAF + scrollend 确定 activeIdx；切新条时收尾旧条进度、清零计数基准、还原新书续播位置再播；离开/返回经 flipCache 恢复滚动位置。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：像抖音一样顺滑上下滑换书，跟手、不串台、回来还在原处</span></div>
+      <div class="row meta2"><span class="be">依赖：无(进度落 media_progress 见续播项)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-flip-30" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-flip-30" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-flip-30" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-flip-30" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-flip-31" data-group="前端功能验收" data-mod="flip">
+    <div class="ihead">
+      <span class="iid">F-flip-31</span>
+      <span class="ititle">自动播放(含微信解锁/静音兜底)</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-flip-31"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/flip/page.tsx:113 playActive / :227 手势 kick / :237 WeixinJSBridge</code> 体验：playActive 播当前槽暂停其余；带声被拦截则自动静音继续播并弹『轻点开启声音』chip 4 秒自隐；手势内与 WeixinJSBridgeReady 主动 kick 满足微信 X5 带声解锁；play() Promise 带 stillActive 守卫防快滑切条后旧槽后台复活。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：滑到哪条自动播哪条，微信里也能带声播，断网/快滑不会出现幽灵后台声音</span></div>
+      <div class="row meta2"><span class="be">依赖：OSS video_url；无服务端逻辑</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-flip-31" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-flip-31" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-flip-31" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-flip-31" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-flip-32" data-group="前端功能验收" data-mod="flip">
+    <div class="ihead">
+      <span class="iid">F-flip-32</span>
+      <span class="ititle">3 槽位视频池虚拟化窗口</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-flip-32"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/flip/page.tsx:25 SLOTS/slotOf / :318 视频池渲染 / :346 overlay 虚拟化</code> 体验：SLOTS=3 只复用 3 个 &lt;video&gt;(当前条 ±1)永不新建卸载→全程仅 3 个解码器；当前槽 preload=auto 全量预载、相邻槽只拉 metadata；overlay 仅 activeIdx±2 渲染、封面垫底仅 ±1，滚动高度由占位 div 撑起，注释明确支持 100+ 本。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：书再多也不卡、不爆内存，滑动相邻条几乎零缓冲等待</span></div>
+      <div class="row meta2"><span class="be">依赖：无(前端渲染优化)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-flip-32" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-flip-32" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-flip-32" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-flip-32" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-flip-33" data-group="前端功能验收" data-mod="flip">
+    <div class="ihead">
+      <span class="iid">F-flip-33</span>
+      <span class="ititle">个性化 feed Cron 日更生成</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-flip-33"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/api/cron/flip-feed/route.ts:11 GET / lib/server/flipfeed.ts:172 generateFlipFeeds</code> 体验：Vercel Cron 每天北京 04:00(UTC 20:00)调 GET /api/cron/flip-feed(CRON_SECRET Bearer 鉴权)；generateFlipFeeds 排除已读完、在读置顶，其余候选(≤120)交 MiniMax 按读者画像排序，每用户≤50 本写 flip_feed；按批生成+50s 时间预算+幂等续做，LLM 失败退默认序，新用户不写行(前端回退最新池)，?force=1 强制重生成。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：每天醒来乱翻就有一批结合你近期阅读口味的新推荐，越用越懂你</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase flip_feed/profiles/books/favorites/text_progress/media_progress/reviews/notes/chat_sessions(画像信号) + MiniMax-M3 + Vercel Cron</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-flip-33" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-flip-33" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-flip-33" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-flip-33" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-flip-34" data-group="前端功能验收" data-mod="flip">
+    <div class="ihead">
+      <span class="iid">F-flip-34</span>
+      <span class="ititle">无限续拉(loadMore)</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-flip-34"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/flip/page.tsx:158 loadMore / :167 临近末尾触发 / lib/api.ts:200</code> 体验：当 activeIdx 进入末尾 2 条内自动 loadMore：getFlip(已看 ids) 把同一书池打乱、附唯一 id 后缀(防 key 冲突)续接到列表尾；fetching ref 防并发，弱网失败静默下次滑动重试，append 不触发切条逻辑。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：可以一直往下刷不到底，看完一轮自动换序重发</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase(复用 flipPool 缓存，不二次查库)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-flip-34" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-flip-34" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-flip-34" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-flip-34" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-flip-35" data-group="前端功能验收" data-mod="flip">
+    <div class="ihead">
+      <span class="iid">F-flip-35</span>
+      <span class="ititle">进度条/续播位置与详情页双向同步</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-flip-35"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/flip/page.tsx:532 FlipProgress / :99 primeActive / :263 onSlotTime</code> 体验：底部抖音式细线进度条(rAF 直写 DOM 零重渲染)，按下变粗可拖动定位、显示当前/总时长气泡、松手 seek(锁定目标视频防串台)；onTimeUpdate/onSeeked 把位置写入 media_progress，详情页与乱翻共享同一本书进度；mediaPlayed 真实播放秒数只增防 seek 跳变污染。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：拖动精确定位，文字/视频两种入口看同一本书进度互通不重复看</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase media_progress(经 useLibrary store 落账)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-flip-35" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-flip-35" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-flip-35" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-flip-35" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-flip-36" data-group="前端功能验收" data-mod="flip">
+    <div class="ihead">
+      <span class="iid">F-flip-36</span>
+      <span class="ititle">条内互动(收藏/写书评/双击点赞动画)</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-flip-36"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/flip/page.tsx:430 FlipOverlay / :463 favOnly / :496 右侧 Action 列</code> 体验：右侧心形收藏(toggleFav，未登录走 requireLogin)、写/编辑书评跳转；双击正文触发心形爆发+小心心散开动画(280ms 单/双击辨别，快滑切条不误暂停)；底部展示书名/标签/简介与『读这本书』跳详情。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：刷到喜欢的书一键收藏/双击点赞/写书评，无缝跳到正文阅读</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase favorites/reviews(经 useLibrary store)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-flip-36" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-flip-36" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-flip-36" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-flip-36" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-flip-37" data-group="前端功能验收" data-mod="flip">
+    <div class="ihead">
+      <span class="iid">F-flip-37</span>
+      <span class="ititle">加载/错误/空态与视频出错兜底</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-flip-37"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/flip/page.tsx:284 loading/error/empty / :355 vErr 兜底 / :376 播放按钮</code> 体验：FlipSkeleton 骨架屏；整体拉流失败 ErrorState 可重试；无带视频书 EmptyState 引导去泡馆；单条视频源坏显示『暂时无法播放』+重试(reload+续播)/看图文详情双按钮；缓冲转圈；仅用户主动暂停才显播放按钮(杜绝暂停显示却在放)。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：弱网/坏视频不会白屏或一直转圈，总有重试或转图文详情的出路</span></div>
+      <div class="row meta2"><span class="be">依赖：无(前端状态机)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-flip-37" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-flip-37" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-flip-37" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-flip-37" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div></div><div class="submod"><h3><i class="seal" style="background:#4f7a8c">我</i>我的 / 个人中心 <span class="cnt">9</span></h3><div class="item" data-id="F-me-38" data-group="前端功能验收" data-mod="me">
+    <div class="ihead">
+      <span class="iid">F-me-38</span>
+      <span class="ititle">个人中心首页(资料 + 数据卡 + 菜单 + 拉绳台灯)</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-me-38"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/me/page.tsx:50</code> 体验：按三态渲染头像区(已登录头像昵称简介+编辑入口/未水合骨架/未登录登录注册 CTA，专修冷启动闪现登录按钮 bug)；4 张数据卡(阅读时长真实累计/已读去重计数/进行中/收藏)，已读·进行中卡 href 带『有记录的大类』避免点进历史页空；菜单(书评/笔记/设置/关于)，未登录点需登录项挂起目标登录后跳过去；右上角彩蛋 LampPull 拉绳台灯下拉切浅/深主题。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：一屏看清阅读成就(时长/已读/进行中/收藏)，并作为收藏/笔记/书评/设置总入口</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase profiles + 各业务表统计；统计全由前端从 useLibrary store 实时算</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-me-38" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-me-38" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-me-38" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-me-38" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-me-39" data-group="前端功能验收" data-mod="me">
+    <div class="ihead">
+      <span class="iid">F-me-39</span>
+      <span class="ititle">我的收藏(=点赞)</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-me-39"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/me/favorites/page.tsx:19</code> 体验：网格展示收藏书，book_id 列表来自 useLibrary.favorites，用 getBooksByIds 批量查 books 解析；queryKey 固定+placeholderData 避免每次取消收藏闪骨架；『最新/最早收藏』排序；每卡取消按钮单击即取消+4s 撤销窗口+退场动画；区分网络失败(可重试)与真空态(引导去泡馆)。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：集中管理收藏的好书，一键进入详情或取消收藏，误删可撤销</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase favorites(读 book_id) + books(批量解析)；toggleFav 写穿透 addFav(upsert ignoreDuplicates)/removeFav</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-me-39" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-me-39" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-me-39" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-me-39" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-me-40" data-group="前端功能验收" data-mod="me">
+    <div class="ihead">
+      <span class="iid">F-me-40</span>
+      <span class="ititle">阅读历史(含已读/进行中视图)</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-me-40"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/me/history/page.tsx:19</code> 体验：同页面三种视图由 ?status= 决定(read=已读/reading=进行中/缺省=历史)，胶囊切『音视频/文字稿』；每条显示封面书名作者进度条最后阅读时间，右侧继续/重读按 mode 跳阅读器或详情，删除单击即删+4s 撤销；数据来自 useLibrary.history 按书+大类去重。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：随时续读上次进度、回看读过哪些书，进度可视化，误删可撤销</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase reading_history(mode_category=av/text,progress,last_at)；10 分钟阈值去重+hydrated 门禁</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-me-40" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-me-40" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-me-40" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-me-40" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-me-41" data-group="前端功能验收" data-mod="me">
+    <div class="ihead">
+      <span class="iid">F-me-41</span>
+      <span class="ititle">我的笔记</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-me-41"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/me/notes/page.tsx:13</code> 体验：按书分组可折叠列表(默认展开第一组)，组头封面+书名+N 条；顶部搜索按笔记内容/原文摘录/书名过滤；每条展示带颜色左边框的原文摘录+笔记正文+章节标题+时间，点击跳回阅读器定位高亮(?ch=&amp;mark=)；支持就地编辑(仅改 note 不动摘录)与删除(+4s 撤销)；书名封面用创建时快照字段。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：集中查看/搜索/编辑读书划线写下的笔记，一键跳回原文定位高亮</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase notes(excerpt/note/color/start_offset/end_offset/chapter_id)；偏移强制整数</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-me-41" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-me-41" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-me-41" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-me-41" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-me-42" data-group="前端功能验收" data-mod="me">
+    <div class="ihead">
+      <span class="iid">F-me-42</span>
+      <span class="ititle">我的书评</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-me-42"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/me/reviews/page.tsx:15</code> 体验：按时间倒序展示书评卡(封面+书名+星级+可选标题+两行正文)，编辑跳书评页、删除走底部弹层二次确认；本版明确『读者评价只存数据不展示/不显示点赞数/卡片不可点进列表』；书名封面用快照字段。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：管理自己写过的书评，可重新编辑评分/内容或删除(防误删二次确认)</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase reviews(onConflict user_id+book_id 单本一条)；review_likes 点赞已闭环但 UI 不展示</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-me-42" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-me-42" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-me-42" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-me-42" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-me-43" data-group="前端功能验收" data-mod="me">
+    <div class="ihead">
+      <span class="iid">F-me-43</span>
+      <span class="ititle">设置(改密/阅读偏好/主题/注销/反馈/退出)</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-me-43"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/me/settings/page.tsx:22</code> 体验：个人信息(头像昵称简介跳资料页、修改密码=先 signInWithPassword 验旧密再 updateUser 真改非假成功)；阅读偏好(默认字号/背景写 useReader)；主题外观(浅/深)；注销账号(取 token 调 /api/account/delete)；意见反馈(真落库 feedback 表只写无读仅管理员可见)；退出(signOut)。四个弹层锁背景滚动防重复提交；体验账号(DEMO_EMAIL)禁改密/注销点击给 toast。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：一站式管理密码安全、阅读偏好、外观主题、反馈与账号注销/退出</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase Auth(signInWithPassword/updateUser/signOut) + feedback 表 + /api/account/delete + useReader 本地持久化</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-me-43" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-me-43" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-me-43" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-me-43" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-me-44" data-group="前端功能验收" data-mod="me">
+    <div class="ihead">
+      <span class="iid">F-me-44</span>
+      <span class="ititle">编辑资料(昵称/简介/头像上传)</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-me-44"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/me/settings/profile/page.tsx:41</code> 体验：改昵称(≤16 IME 友好)、简介(≤30 高度自适应)、头像(相册/拍照上传或选 8 个预设)；上传图先本地压缩(最长边≤512、白底转 JPEG85% 防透明染黑)仅本地预览，点保存才真上传 avatars/&lt;uid&gt;/avatar.jpg(upsert+版本参数破 CDN 缓存)并写 profiles.avatar_url；选预设=显式清空云端头像；冷加载回填守卫防直刷洗空；保存失败不假成功可重试。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：个性化头像/昵称/简介跨设备同步，上传自动压缩省流量</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase Storage avatars 桶(策略限本人) + profiles 表(乐观更新+失败回滚)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-me-44" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-me-44" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-me-44" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-me-44" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-me-45" data-group="前端功能验收" data-mod="me">
+    <div class="ihead">
+      <span class="iid">F-me-45</span>
+      <span class="ititle">法律/关于页(关于/用户协议/隐私政策)</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-me-45"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/me/legal/page.tsx:41</code> 体验：由 ?doc=about|terms|privacy 切换的三合一静态文档(非法值兜底 about)：about 介绍三大模块+版本号；terms 含服务/账号/版权/AI 免责/变更五条；privacy 含收集/使用/存储保护(提 RLS)/用户权利/联系五条。内容硬编码在 DOCS 常量，Suspense 包 useSearchParams。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：了解产品定位、阅读用户协议与隐私政策，满足合规告知</span></div>
+      <div class="row meta2"><span class="be">依赖：无(纯前端静态文档)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-me-45" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-me-45" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-me-45" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-me-45" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-me-46" data-group="前端功能验收" data-mod="me">
+    <div class="ihead">
+      <span class="iid">F-me-46</span>
+      <span class="ititle">注销账号云函数(删号 API)</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-me-46"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/api/account/delete/route.ts:10 POST</code> 体验：POST /api/account/delete(Node runtime)：先 Bearer token 验身份(无效 401)、再校验体验账号(DEMO_EMAIL 403 防直接打 API)；主动列删 avatars 桶本人目录(存储无级联，失败记日志不阻断)；最后 service_role 调 admin.deleteUser，业务表靠 on delete cascade 级联清除；幂等(用户已不存在 404 视作成功)。maxDuration=30。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：用户可彻底注销账号、永久删除全部云端数据(收藏/笔记/书评/进度/对话/头像)，符合隐私合规</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase service_role(admin.auth.admin.deleteUser) + avatars Storage 列删 + 各业务表 on delete cascade</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-me-46" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-me-46" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-me-46" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-me-46" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div></div><div class="submod"><h3><i class="seal" style="background:#6b6459">全</i>全局与基础设施(外壳/鉴权/搜索/状态/数据/后端) <span class="cnt">17</span></h3><div class="item" data-id="F-global-47" data-group="前端功能验收" data-mod="global">
+    <div class="ihead">
+      <span class="iid">F-global-47</span>
+      <span class="ititle">根布局与视口归一</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-global-47"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/layout.tsx:34 / :49 视口内联脚本</code> 体验：全站 HTML 外壳注入 metadata/PWA manifest/主题色；内联脚本在移动端把布局视口锁回手机真实宽度并强制 user-scalable=no(禁双指缩放)，键盘弹起用 interactive-widget=resizes-content 收缩视口避免盖住智学输入框；app-shell 容器在 ≥1024px 桌面居中限宽 480px 成手机壳。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：保证微信/添加到主屏等各 WebView 下比例一致不误缩放，桌面端也有干净手机预览框</span></div>
+      <div class="row meta2"><span class="be">依赖：无</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-global-47" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-global-47" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-global-47" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-global-47" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-global-48" data-group="前端功能验收" data-mod="global">
+    <div class="ihead">
+      <span class="iid">F-global-48</span>
+      <span class="ititle">Providers 全局供给</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-global-48"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>components/providers.tsx:25</code> 体验：单例 QueryClient(staleTime 30s/retry 1/关窗聚焦重取) + ThemeApplier(按 store.theme 切 html.dark) + AuthInit(首屏恢复会话) + Toaster + LoginSheet 统一挂载在根。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：刷新不掉线、全局可弹登录/Toast、数据缓存复用减少重复请求</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase Auth(AuthInit 触发会话恢复)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-global-48" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-global-48" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-global-48" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-global-48" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-global-49" data-group="前端功能验收" data-mod="global">
+    <div class="ihead">
+      <span class="iid">F-global-49</span>
+      <span class="ititle">鉴权状态机 useAuth + 注册/登录/改密</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-global-49"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>lib/store.ts:66 useAuth / :70 initAuth / :40 signInLoad</code> 体验：initAuth 首屏 getSession 恢复会话并订阅 onAuthStateChange：SIGNED_OUT 清 user+书库+对话+搜索历史防串号；SIGNED_IN/刷新经 signInLoad 按 uid 在途去重跑『profiles→书库 load→对话 loadCloud』整链。邮箱密码注册(昵称随 metadata 进触发器建档)/登录/登出/改资料(乐观更新+失败回滚)；处理邮箱确认未关时的假用户、改密先验旧密。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：跨标签/刷新会话一致，换号不串档，资料修改即时可见且失败可感知</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase Auth(signInWithPassword/signUp/getSession/onAuthStateChange) + profiles 表 + handle_new_user 触发器</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-global-49" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-global-49" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-global-49" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-global-49" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-global-50" data-group="前端功能验收" data-mod="global">
+    <div class="ihead">
+      <span class="iid">F-global-50</span>
+      <span class="ititle">登录/注册弹层 LoginSheet + 登录守卫 RequireAuth/requireLogin</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-global-50"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>components/shell/LoginSheet.tsx:27 / components/shell/RequireAuth.tsx:6 / lib/store.ts:609 requireLogin</code> 体验：底部抽屉登录注册：邮箱密码登录、注册(昵称+确认密码+协议链接)、密码显隐、Supabase 英文报错转中文、体验账号一键登录(DEMO_EMAIL/123456)，loading 中被关闭迟到成功只静默落态。RequireAuth 包裹个人二级页(未水合『正在打开』/未登录登录引导卡/已登录放行)；requireLogin(action) 把需登录操作挂起 pending、登录成功 finish 后自动回放。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：登录即同步收藏/笔记/书评/对话，体验账号零门槛逛全功能，需登录操作无缝引导不丢动作</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase Auth signInWithPassword/signUp + profiles 写昵称</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-global-50" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-global-50" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-global-50" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-global-50" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-global-51" data-group="前端功能验收" data-mod="global">
+    <div class="ihead">
+      <span class="iid">F-global-51</span>
+      <span class="ititle">搜索页</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-global-51"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/search/page.tsx:11 / lib/api.ts:221 search / :251 getHotSearches</code> 体验：独立二级搜索页：自定义顶栏(返回+搜索框+取消)、autoFocus、300ms 防抖、placeholderData 换词不闪骨架、isFetching 旋转指示；结果仅书籍列表；空态展示『最近搜过』(本地 persist 最多 5 条可单删/清空)与『热门搜索』；仅有结果且非 placeholder 才 1.2s 后写历史+上报，过滤零结果/前缀中间态。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：按书名/作者/标签快速找书，热门词点出去必有结果，搜索历史登出即清不泄露</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase books(前端 ilike 不敏感过滤) + search_logs 写入 + get_hot_searches RPC(近 30 天热词不足补真实书目)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-global-51" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-global-51" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-global-51" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-global-51" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-global-52" data-group="前端功能验收" data-mod="global">
+    <div class="ihead">
+      <span class="iid">F-global-52</span>
+      <span class="ititle">开屏页 Splash + 路由转场 + 错误边界/404</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-global-52"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>app/page.tsx:14 / components/shell/PageTransition.tsx:7 / app/error.tsx:6</code> 体验：根路由 / 为开屏页(馆徽+slogan+进度条停留 3 秒可跳过，期间 prefetch 首页数据，到时 replace 进泡馆)；PageTransition 逐页手动包裹淡入+8px 上移(0.26s)与列表错位淡入；error.tsx 应用级错误边界、global-error.tsx 根崩溃自带样式兜底、not-found.tsx 404，文案全中文配青瓷主题。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：首启有品牌印象且后台预热进馆瞬间出内容，进页柔和淡入，任何崩溃/坏链都有优雅中文兜底不白屏</span></div>
+      <div class="row meta2"><span class="be">依赖：TanStack Query 预取 getHome</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-global-52" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-global-52" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-global-52" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-global-52" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-global-53" data-group="前端功能验收" data-mod="global">
+    <div class="ihead">
+      <span class="iid">F-global-53</span>
+      <span class="ititle">底部主导航 + 二级页顶栏 + 返回兜底</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-global-53"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>components/shell/BottomNav.tsx:17 / components/shell/Header.tsx:16</code> 体验：BottomNav 唯一底部 Tab 栏(智学/泡馆/乱翻/我的)仅四个根页挂载、选中条本地浮现动画、提供 light/dark 两 variant 供乱翻沉浸态用、含 aria-current 与安全区；Header 二级页 sticky 顶栏(返回+居中标题+右操作)，useGoBack 处理直链/分享无历史可退时回泡馆，titleShown 支持大标题滚动收起再淡入。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：四大模块一键切换选中态清晰，二级页返回永不卡死，标题滚动联动细腻</span></div>
+      <div class="row meta2"><span class="be">依赖：无</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-global-53" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-global-53" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-global-53" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-global-53" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-global-54" data-group="前端功能验收" data-mod="global">
+    <div class="ihead">
+      <span class="iid">F-global-54</span>
+      <span class="ititle">主题(浅色/深色) + 全局 Toast + 通用 UI 原子组件库</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-global-54"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>components/ui/Toaster.tsx:7 / components/ui/BookCover.tsx:16 / lib/store.ts:192 theme</code> 体验：useUI.theme 持久化(ail-ui)、ThemeApplier 切 html.dark(仅浅/深二选一不跟随系统)，全套组件含 dark: 适配；Toast 队列(success/error/info 三色、最多 3 条、2.8s 自动消失带动作钮则 4s、同文案去重)；原子组件 Avatar/BookCover(真实图优先+CSS 兜底美术)/Motif(新中式 SVG 纹样)/Stars(半星+弹跳)/States(Skeleton/Empty/Error)/BackToTop。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：夜间护眼且主题跨刷新记忆，操作即时反馈可撤销，图片未就位也有体面占位、空/错/加载态统一优雅</span></div>
+      <div class="row meta2"><span class="be">依赖：无(本地持久化) + 对象存储图片(全有 CSS 兜底)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-global-54" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-global-54" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-global-54" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-global-54" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-global-55" data-group="前端功能验收" data-mod="global">
+    <div class="ihead">
+      <span class="iid">F-global-55</span>
+      <span class="ititle">状态管理(Zustand 5 切片 + 三道护栏)</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-global-55"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>lib/store.ts:66 useAuth / :187 useUI / :285 useLibrary / :468 useReader / :513 useChat / :295 canSync</code> 体验：5 个 store 切片：useAuth(登录态) / useUI(主题+Toast+登录抽屉+搜索历史 persist) / useLibrary(9 类用户数据不持久化、登录 load 灌入退出 reset) / useReader(阅读偏好 persist) / useChat(智学单一会话云同步)。三道护栏贯穿：canSync(uid+hydrated 双门禁防空基线洗云端)、世代校验(uid 比对防换号串档)、节流(媒体 5s/计时 30s)。用户数据走『本地乐观更新+异步写穿透+失败 toast』。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：私有数据跨设备同步、登录即见退出即清不串号不丢数据，偏好本地记忆</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase 多表 + localStorage persist(ail-ui/ail-reader/ail-chat)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-global-55" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-global-55" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-global-55" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-global-55" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-global-56" data-group="前端功能验收" data-mod="global">
+    <div class="ihead">
+      <span class="iid">F-global-56</span>
+      <span class="ititle">用户数据写穿透层 + 登录一次性加载(userdata.ts)</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-global-56"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>lib/supabase/userdata.ts:24 loadUserData / :180+ 各 CRUD</code> 体验：loadUserData 两波查询：先并发拉本人 8 表(favorites/notes/reviews/reading_history/text_progress/media_progress/profiles.read_seconds/review_likes，任一路 error 必 throw 防静默吞成空基线)，再批量查 books/chapters 拼书名封面章标题(用户表故意不设外键)；各 CRUD(收藏 upsert ignoreDuplicates/笔记/进度 syncText 整行 upsert/媒体 5s 节流/历史按书+大类去重/书评 onConflict 单条/书评点赞)写穿透对应表。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：登录瞬间把全部个人数据一次拉齐带书名封面，各操作即时本地生效再异步同步</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase 8 张用户表 + books/chapters 批量查 + RLS</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-global-56" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-global-56" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-global-56" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-global-56" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-global-57" data-group="前端功能验收" data-mod="global">
+    <div class="ihead">
+      <span class="iid">F-global-57</span>
+      <span class="ititle">目录数据访问层 lib/api.ts(只读)</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-global-57"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>lib/api.ts:66 getHome / :106 getBooks / :196 getFlip / :221 search</code> 体验：书库公开读：getHome(分类计数/每类最新 Banner/热门好书)、getCategories、getBooks(分类+音视频/文字筛选+游标分页+id 兜底排序防重复)、getBook/getBooksByIds、getChapters(全量含正文)/getChapterList(轻量)/getChapter(校验章节确属此书防深链串书)、search、getFlip+flipPool、logSearch、getHotSearches；toBook/toChapter 做行→前端类型映射，每查询都检查 error 并 throw。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：首页/分类/详情/章节/搜索/乱翻的真实书库数据，乱翻个性化日更、热门搜索真实聚合</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase 公开读 books/categories/chapters/flip_feed/search_logs + RPC get_hot_searches/increment_read_count</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-global-57" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-global-57" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-global-57" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-global-57" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-global-58" data-group="前端功能验收" data-mod="global">
+    <div class="ihead">
+      <span class="iid">F-global-58</span>
+      <span class="ititle">阅读时长与一次阅读计数(共享 useReadingClock)</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-global-58"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>lib/useReadingClock.ts:13 / lib/supabase/userdata.ts:169 bumpReadCount / :227 addReadSeconds</code> 体验：跨文字阅读器/音视频播放器/乱翻共用：useReadingClock 可见且 active 时按墙钟秒累加 readSeconds，每 30 秒走 add_read_seconds 增量 RPC 落账(切后台/卸载补零头，增量而非绝对值覆盖防多设备 lost update)；useReadCountBump 同书真实可见满 30 秒上报 books.read_count +1(不去重、游客也计、存而不展示)。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：『我的-总时长』真实可信、多设备并行不丢时长，运营侧有阅读热度数据</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase RPC add_read_seconds(增量累加 profiles.read_seconds) + increment_read_count</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-global-58" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-global-58" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-global-58" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-global-58" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-global-59" data-group="前端功能验收" data-mod="global">
+    <div class="ihead">
+      <span class="iid">F-global-59</span>
+      <span class="ititle">对话限流 ratelimit</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-global-59"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>lib/server/ratelimit.ts:15 rateLimit / app/api/chat/route.ts:151</code> 体验：滑动窗口内存级限流：登录 20 次/分+200 次/时(按 uid)，游客 8 次/分+40 次/时(按 IP)，超限返回 429 友好文案；分钟桶与小时桶分键，键数超阈值时节流全量清扫+硬上限淘汰最旧键防内存膨胀。serverless 多实例为尽力而为口径(严格全局需 Redis)。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：防脚本滥刷烧 token，真实读者连续追问不被打断</span></div>
+      <div class="row meta2"><span class="be">依赖：无(进程内存 Map)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-global-59" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-global-59" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-global-59" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-global-59" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-global-60" data-group="前端功能验收" data-mod="global">
+    <div class="ihead">
+      <span class="iid">F-global-60</span>
+      <span class="ititle">数据库结构与自动维护(16 表 + 触发器 + RPC + pg_cron + RLS)</span>
+      <span class="tag t-done">已实现</span>
+      <span class="vmark" data-for="F-global-60"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>docs/后端_Supabase建库SQL.md:424 per-user 策略 / docs/后端_T1计数触发器SQL.md / docs/后端_T1安全收紧SQL.md:13</code> 体验：Supabase 直连：anon key 前端直读写、RLS 作安全主防线(目录表公开读、用户表 per-user 四类策略、profiles 列级只放行昵称简介头像)；触发器自动维护收藏数(sync_book_fav_count)/评分均分与条数(recalc_book_review_stats)/书评点赞数/多设备进度合并(text/media played 只增、已读章并集)；RPC(add_read_seconds/increment_read_count/get_hot_searches/refresh_books_readers)；pg_cron 日更在读人数(19:30 UTC)与清 90 天前 search_logs(20:30 UTC)；T1 安全收紧把默认过宽授权收到最小必要、建纵深防御。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：用户数据严格隔离任何人只能读写自己的、计数/评分/在读人数自动维护、多设备进度不互相回退，误配也有纵深兜底</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase Postgres 16 表 + RLS + 触发器 + RPC + pg_cron(均经 scripts/run-sql.mjs 直连执行验收)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-global-60" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-global-60" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-global-60" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-global-60" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-global-61" data-group="前端功能验收" data-mod="global">
+    <div class="ihead">
+      <span class="iid">F-global-61</span>
+      <span class="ititle">对象存储 OSS 封面/音视频(仅存 URL，上传无代码)</span>
+      <span class="tag t-part">部分实现</span>
+      <span class="vmark" data-for="F-global-61"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>lib/api.ts:21 cover/videoUrl/audioUrl 映射</code> 体验：每本书封面/视频/音频都在阿里云 OSS，books.cover_url/video_url/audio_url 直接填公开 URL 前端直读，Supabase 不建 covers/audio/video 桶；氛围图/海报为按 categoryId 的前端静态装饰图(public/heroes、public/posters 不入库)。仓库内无 OSS 上传/签名代码——文件上传与 URL 入库靠后台/import-books 脚本手工完成。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：封面与音视频走 OSS/CDN 加载快、不占 Supabase 存储</span></div>
+      <div class="row meta2"><span class="be">依赖：阿里云 OSS(公开 URL)；URL 落 books 表由 import-books 脚本/后台维护(无上传代码)</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-global-61" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-global-61" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-global-61" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-global-61" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-global-62" data-group="前端功能验收" data-mod="global">
+    <div class="ihead">
+      <span class="iid">F-global-62</span>
+      <span class="ititle">PWA 壳</span>
+      <span class="tag t-part">部分实现</span>
+      <span class="vmark" data-for="F-global-62"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>public/manifest.webmanifest:11 icons</code> 体验：manifest.webmanifest(standalone/portrait/start_url=/library/scope=/) + layout metadata(applicationName/appleWebApp/themeColor)。图标仅提供矢量 /icon.svg(any 与 maskable 都指向同一 SVG)，缺真正多尺寸光栅 PNG(192/512)与 apple-touch-icon PNG。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：可添加到主屏全屏启动，但部分安卓/iOS 对纯 SVG 图标支持不全主屏图标可能不显示(与记忆中 PWA 图标延后一致)</span></div>
+      <div class="row meta2"><span class="be">依赖：无</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-global-62" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-global-62" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-global-62" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-global-62" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="F-global-63" data-group="前端功能验收" data-mod="global">
+    <div class="ihead">
+      <span class="iid">F-global-63</span>
+      <span class="ititle">书评点赞数据闭环(review_likes，UI 未展示)</span>
+      <span class="tag t-part">部分实现</span>
+      <span class="vmark" data-for="F-global-63"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">进入 <code>lib/store.ts:402 toggleLike / lib/supabase/userdata.ts:222 addReviewLike</code> 体验：toggleLike 维护 likedReviews 并写穿透 review_likes(add insert/remove delete)，数据库触发器聚合回写 reviews.likes。本版 UI 不展示点赞数(原纯本地实现刷新即丢，先做数据闭环消除鬼影)，留作后续读者互评展示。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">预期：为将来读者互评点赞预留已就绪的数据通道(当前界面未露出)</span></div>
+      <div class="row meta2"><span class="be">依赖：Supabase review_likes 表(per-user RLS) + sync_review_likes 触发器</span></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-F-global-63" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-F-global-63" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-F-global-63" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="F-global-63" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div></div></section><section class="grp" data-group="后端验收"><h2>后端验收 <span class="gcnt">16 项</span></h2><div class="submod"><h3>数据库 · 表结构 <span class="cnt">1</span></h3><div class="item" data-id="BE-1" data-group="后端验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BE-1</span>
+      <span class="ititle">16 张表齐全</span>
+      <span class="tag t-neu">建库</span>
+      <span class="vmark" data-for="BE-1"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">用 Supabase 控制台或 scripts/db-stats.mjs 查看</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">categories/books/chapters/profiles/favorites/notes/reviews/review_likes/text_progress/media_progress/reading_history/read_chapters/chat_sessions/user_memory/flip_feed/search_logs 均存在</span></div>
+      
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BE-1" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BE-1" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BE-1" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BE-1" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div></div><div class="submod"><h3>数据库 · RLS <span class="cnt">2</span></h3><div class="item" data-id="BE-2" data-group="后端验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BE-2</span>
+      <span class="ititle">目录表公开读</span>
+      <span class="tag t-neu">安全</span>
+      <span class="vmark" data-for="BE-2"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">未登录访问书库/分类/详情/搜索/乱翻</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">游客可正常浏览全部书库内容</span></div>
+      
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BE-2" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BE-2" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BE-2" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BE-2" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="BE-3" data-group="后端验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BE-3</span>
+      <span class="ititle">用户表 per-user 隔离</span>
+      <span class="tag t-neu">安全</span>
+      <span class="vmark" data-for="BE-3"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">A 账号登录看不到 B 账号的收藏/笔记/书评/历史</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">RLS 仅放行 user_id=auth.uid() 的行；换号无串档</span></div>
+      
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BE-3" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BE-3" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BE-3" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BE-3" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div></div><div class="submod"><h3>数据库 · 触发器/RPC <span class="cnt">1</span></h3><div class="item" data-id="BE-4" data-group="后端验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BE-4</span>
+      <span class="ititle">收藏数/评分/在读人数自动维护</span>
+      <span class="tag t-neu">建库</span>
+      <span class="vmark" data-for="BE-4"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">收藏一本书 / 写一条书评后查 books.fav_count、review_count</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">计数由触发器自动累加，无需前端维护</span></div>
+      
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BE-4" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BE-4" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BE-4" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BE-4" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div></div><div class="submod"><h3>数据库 · 进度合并 <span class="cnt">1</span></h3><div class="item" data-id="BE-5" data-group="后端验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BE-5</span>
+      <span class="ititle">多设备阅读进度合并不互相覆盖</span>
+      <span class="tag t-neu">正确性</span>
+      <span class="vmark" data-for="BE-5"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">两设备先后读同一本书</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">read_chapters 取并集、played 只增、时长走增量 RPC</span></div>
+      
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BE-5" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BE-5" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BE-5" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BE-5" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div></div><div class="submod"><h3>API · /api/chat <span class="cnt">3</span></h3><div class="item" data-id="BE-6" data-group="后端验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BE-6</span>
+      <span class="ititle">鉴权与游客可用</span>
+      <span class="tag t-neu">鉴权</span>
+      <span class="vmark" data-for="BE-6"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">登录态带 Bearer token 提问；游客也能提问</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">登录注入个人数据；游客无个人数据但可用</span></div>
+      
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BE-6" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BE-6" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BE-6" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BE-6" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="BE-7" data-group="后端验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BE-7</span>
+      <span class="ititle">限流生效</span>
+      <span class="tag t-neu">限流</span>
+      <span class="vmark" data-for="BE-7"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">短时间高频提问（登录 >20/分 或游客 >8/分）</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">返回 429『歇口气』提示；正常节奏不被打断</span></div>
+      
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BE-7" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BE-7" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BE-7" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BE-7" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="BE-8" data-group="后端验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BE-8</span>
+      <span class="ititle">（可选）多实例全局限流</span>
+      <span class="tag t-neu">限流</span>
+      <span class="vmark" data-for="BE-8"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">如已配置 KV_REST_API_URL/KV_REST_API_TOKEN 环境变量</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">限流改走 Vercel KV 全局计数；未配置则维持单实例内存兜底（Bug#16）</span></div>
+      
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BE-8" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BE-8" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BE-8" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BE-8" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div></div><div class="submod"><h3>API · /api/account/delete <span class="cnt">2</span></h3><div class="item" data-id="BE-9" data-group="后端验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BE-9</span>
+      <span class="ititle">注销级联清理</span>
+      <span class="tag t-neu">鉴权</span>
+      <span class="vmark" data-for="BE-9"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">登录后注销账号</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">auth 账号删除，profiles/favorites/notes/… 级联清除，头像桶清空</span></div>
+      
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BE-9" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BE-9" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BE-9" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BE-9" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="BE-10" data-group="后端验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BE-10</span>
+      <span class="ititle">体验账号防注销（fail-closed）</span>
+      <span class="tag t-neu">安全</span>
+      <span class="vmark" data-for="BE-10"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">用体验账号尝试注销</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">返回 403 不可注销；身份核验失败时也不放行（Bug#5）</span></div>
+      
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BE-10" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BE-10" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BE-10" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BE-10" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div></div><div class="submod"><h3>API · /api/cron/flip-feed <span class="cnt">1</span></h3><div class="item" data-id="BE-11" data-group="后端验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BE-11</span>
+      <span class="ititle">Cron 密钥校验</span>
+      <span class="tag t-neu">安全</span>
+      <span class="vmark" data-for="BE-11"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">无 CRON_SECRET 直接请求该端点</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">未授权请求被拒；仅 Vercel Cron（带密钥）可触发</span></div>
+      
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BE-11" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BE-11" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BE-11" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BE-11" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div></div><div class="submod"><h3>外部 · MiniMax <span class="cnt">1</span></h3><div class="item" data-id="BE-12" data-group="后端验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BE-12</span>
+      <span class="ititle">对话/压缩/记忆/排序统一 M3</span>
+      <span class="tag t-neu">集成</span>
+      <span class="vmark" data-for="BE-12"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">正常对话、长对话压缩、跨会话记忆、乱翻日更</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">四条链路均调用 MiniMax-M3，密钥仅在服务端</span></div>
+      
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BE-12" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BE-12" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BE-12" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BE-12" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div></div><div class="submod"><h3>外部 · MiniMax 联网 <span class="cnt">1</span></h3><div class="item" data-id="BE-13" data-group="后端验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BE-13</span>
+      <span class="ititle">时效问题联网搜索</span>
+      <span class="tag t-neu">集成</span>
+      <span class="vmark" data-for="BE-13"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">问『最新/近况/新闻』类时效问题</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">触发联网搜索并给出来源卡（仅时效问题，非时效不联网）</span></div>
+      
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BE-13" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BE-13" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BE-13" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BE-13" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div></div><div class="submod"><h3>外部 · 对象存储 <span class="cnt">1</span></h3><div class="item" data-id="BE-14" data-group="后端验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BE-14</span>
+      <span class="ititle">封面/音频/视频可访问</span>
+      <span class="tag t-neu">集成</span>
+      <span class="vmark" data-for="BE-14"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">打开有封面/音频/视频的书</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">OSS 公开 URL 正常加载；坏源有重试/兜底</span></div>
+      
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BE-14" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BE-14" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BE-14" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BE-14" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div></div><div class="submod"><h3>定时任务 · Cron <span class="cnt">1</span></h3><div class="item" data-id="BE-15" data-group="后端验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BE-15</span>
+      <span class="ititle">每日 04:00 生成乱翻 feed</span>
+      <span class="tag t-neu">调度</span>
+      <span class="vmark" data-for="BE-15"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">查看 Vercel Cron 配置与 flip_feed 表</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">每天为有画像的用户生成≤50 本个性化书单</span></div>
+      
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BE-15" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BE-15" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BE-15" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BE-15" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div></div><div class="submod"><h3>环境 · 配置 <span class="cnt">1</span></h3><div class="item" data-id="BE-16" data-group="后端验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BE-16</span>
+      <span class="ititle">关键环境变量齐全</span>
+      <span class="tag t-neu">配置</span>
+      <span class="vmark" data-for="BE-16"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">检查 .env.local：SUPABASE URL/anon/service_role、MINIMAX_API_KEY、CRON_SECRET</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">服务端密钥不进前端；缺失时有兜底/报错</span></div>
+      
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BE-16" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BE-16" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BE-16" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BE-16" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div></div></section><section class="grp" data-group="Bug 修复验收"><h2>Bug 修复验收 <span class="gcnt">25 项</span></h2><div class="submod"><h3>状态同步 <span class="cnt">5</span></h3><div class="item" data-id="BUG-1" data-group="Bug 修复验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BUG-1</span>
+      <span class="ititle">体验账号(demo)对话会写穿透到共享云端会话，造成跨用户串档/隐私泄露</span>
+      <span class="tag t-hi">高</span>
+      <span class="vmark" data-for="BUG-1"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">触发场景：用体验账号登录→在智学发一条消息并收到回复→换一台设备/无痕窗口再用体验账号登录进智学→能看到上一个人的对话。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">修复后：上述问题不再复现。修复要点：真实问题：体验(demo)账号是全体访客共用的同一 auth 用户，loadCloud 已对其做了&quot;只读云端、不合并上传本地会话&quot;的门禁，但 upsertSession 的实时写穿透路径漏配同款门禁。任一访客用 demo 在智学发言并收到回复后，upsertSession 会把&quot;云端历史+本人新消息&quot;整段 upsert 回共享的 chat_sessions(user_id=demoUid,id='</span></div>
+      <div class="row meta2"><code class="loc">lib/store.ts:519-529（upsertSession）对照 544-545（loadCloud 的 isSharedDemo 门禁）</code></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BUG-1" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BUG-1" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BUG-1" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BUG-1" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="BUG-12" data-group="Bug 修复验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BUG-12</span>
+      <span class="ititle">乐观更新失败后不回滚，本地与 Supabase 静默不一致（仅 updateProfile 有回滚）</span>
+      <span class="tag t-lo">低</span>
+      <span class="vmark" data-for="BUG-12"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">触发场景：断网或制造 RLS 拒绝→点收藏(toast 报同步失败但心形仍为已收藏)→刷新页面→收藏消失。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">修复后：上述问题不再复现。修复要点：真实但低危的一致性瑕疵：7 个 Library 写穿透在 DB 写失败时不回滚乐观值，导致「乐观 UI 与失败 toast 自相矛盾」的窗口——加收藏失败仍显示已收藏、删笔记/删书评失败本地已消失但下次 load 又复活。因 Library 不持久化、刷新即以云端为准，云端真实数据不会被破坏，错误方向是安全的、刷新自愈，故定 low（删除类的『复活』观感稍差，可上调到 low~medium）。</span></div>
+      <div class="row meta2"><code class="loc">lib/store.ts:288-292（sync 助手）；toggleFav 344-351 / addNote 352-356 / removeNote 357-361 / updateNote 362-366 / toggleLike 402-407 / upsertReview 416-421 / removeReview 410-415</code></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BUG-12" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BUG-12" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BUG-12" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BUG-12" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="BUG-13" data-group="Bug 修复验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BUG-13</span>
+      <span class="ititle">登录加载窗口内：已收藏书短暂显示未收藏，窗口内点收藏会被 load() 整体覆盖回未收藏</span>
+      <span class="tag t-lo">低</span>
+      <span class="vmark" data-for="BUG-13"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">触发场景：登录后收藏某书→在该书详情页硬刷新→观察收藏按钮先显示『收藏』再跳成『已收藏』；网络较慢时在跳变前再点一次收藏，刷新后状态与云端不一致。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">修复后：上述问题不再复现。修复要点：真实存在但仅为低危体验瑕疵，且不涉及任何数据完整性问题：①冷启动瞬态闪烁——已收藏书在 favorites 加载完成前(首屏一次网络往返,数百 ms)收藏钮先显示『收藏』后跳『已收藏』，我的页统计同样先显示真值前的占位(book/[id]/page.tsx:38、me/page.tsx:74-79 均按 user 门禁而非 hydrated)；②极窄且自愈的本地态回退——对一本『尚未收藏』的书，在首屏 load 窗口内点收藏，328 行</span></div>
+      <div class="row meta2"><code class="loc">lib/store.ts:328（load 的 set({...d,hydrated:true})）；canSync 门禁 295 仅覆盖进度/历史/时长，未覆盖 toggleFav 344-351、addNote 352-356 等用户动作</code></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BUG-13" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BUG-13" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BUG-13" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BUG-13" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="BUG-14" data-group="Bug 修复验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BUG-14</span>
+      <span class="ititle">整段对话 transcript 持久化进 localStorage，长会话有写入配额风险</span>
+      <span class="tag t-lo">低</span>
+      <span class="vmark" data-for="BUG-14"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">触发场景：在智学产生大量长消息后刷新，观察 localStorage 写入是否报错/被截。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">修复后：上述问题不再复现。修复要点：真实但低危的健壮性缺口（非误报，但影响被高估）。修正三点事实：(1) 不是&quot;静默失败&quot;——zustand 4.5.7 新版 persist（middleware.mjs:473-475 api.setState 内 `void setItem()`，setItem 直接调 localStorage.setItem）在配额超限时会同步抛 QuotaExceededError，throw 会从 upsertSession</span></div>
+      <div class="row meta2"><code class="loc">lib/store.ts:583（useChat persist partialize: sessions 全量）</code></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BUG-14" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BUG-14" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BUG-14" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BUG-14" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="BUG-15" data-group="Bug 修复验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BUG-15</span>
+      <span class="ititle">撤销删除历史时把旧记录前插到列表顶部，短暂打乱时间倒序</span>
+      <span class="tag t-lo">低</span>
+      <span class="vmark" data-for="BUG-15"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">触发场景：删除一条较旧的历史→点撤销→该旧记录出现在历史列表最上方，日期却是旧的。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">修复后：上述问题不再复现。修复要点：真实但低危的瞬时展示排序瑕疵。撤销删除一条非顶部（较旧）历史记录时，pushHistory 把该 snapshot 恒前插到 history[0]；而历史页直接按数组序渲染（无二次排序），导致这条旧 lastAt 记录短暂显示在列表最顶，看似最新阅读。DB 写入用原始 lastAt（正确），刷新经 loadUserData 按 last_at desc 重拉即恢复，故纯本地展示问题、不污染同步。</span></div>
+      <div class="row meta2"><code class="loc">app/me/history/page.tsx:81（撤销 onClick: pushHistory(snap)）；lib/store.ts:374-388（pushHistory 前插）</code></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BUG-15" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BUG-15" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BUG-15" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BUG-15" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div></div><div class="submod"><h3>智学链路 <span class="cnt">4</span></h3><div class="item" data-id="BUG-2" data-group="Bug 修复验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BUG-2</span>
+      <span class="ititle">长回答（&gt;~90s）会让上下文压缩被跳过，请求裁剪却假设压缩已跟上 → 中段对话被静默丢进黑洞</span>
+      <span class="tag t-mid">中</span>
+      <span class="vmark" data-for="BUG-2"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">触发场景：登录后与小涤连续进行多轮需要 read_book_toc→read_chapter→cite_chapters 的深度问答，使多数回答耗时 &gt;90s（M3 思考+多工具时常见）；约 12 轮后未压缩尾部超过 64 条，再追问更早讨论过的内容，模型已看不到那段上下文。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">修复后：上述问题不再复现。修复要点：根因：请求裁剪窗口与压缩进度 compressed_until 在「压缩落后」时会解耦，产生「既不在摘要也不在请求」的上下文空洞。三种可达性递增/影响递减：
+(A) 易达·瞬态(无需长回答)：首次压缩需 all 长度≥KEEP+BATCH_MIN=48(compress.ts:53-54)，但 MAX_TURNS=40。会话长度在 41~47 且 until=0 时，all.slice(-40) 已丢弃最早 1~7 条而摘要尚未生成——</span></div>
+      <div class="row meta2"><code class="loc">app/api/chat/route.ts:162（配合 lib/server/compress.ts:53-58）</code></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BUG-2" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BUG-2" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BUG-2" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BUG-2" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="BUG-3" data-group="Bug 修复验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BUG-3</span>
+      <span class="ititle">记忆更新可用空串/异常值静默清空整个维度（不可逆数据丢失）</span>
+      <span class="tag t-mid">中</span>
+      <span class="vmark" data-for="BUG-3"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">触发场景：构造一轮对话让记忆管理器倾向于重写某维度；当模型对该维度返回空字符串值时，user_memory 对应列被覆盖为空、processed_until 前进，原记忆永久丢失。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">修复后：上述问题不再复现。修复要点：真实问题但非 critical：merge 循环对字符串维度值缺少「空串/纯空白视为本维度无更新」的保护。当 M3 在 prompt 之外把某维度回传 &quot;&quot; 或仅空白时，valid[k] 为空串，line 112-115 的局部 upsert 会把 user_memory 该列覆盖为空，且 processed_until 已推进、该批对话被标记已消化，原维度长期记忆永久丢失（与 line 105-107 对 null</span></div>
+      <div class="row meta2"><code class="loc">lib/server/memory.ts:99-115</code></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BUG-3" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BUG-3" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BUG-3" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BUG-3" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="BUG-4" data-group="Bug 修复验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BUG-4</span>
+      <span class="ititle">推荐卡解析在 NDJSON 读循环内逐本发起带重试的网络请求，阻塞后续流事件消费</span>
+      <span class="tag t-mid">中</span>
+      <span class="vmark" data-for="BUG-4"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">触发场景：在网络较慢环境下让小涤一次推荐 5 本书，观察出卡那一刻后续文字明显停顿后才继续。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">修复后：上述问题不再复现。修复要点：真实但非数据错误，定级 medium（偏 low 边界）。准确描述：打字机由独立 16ms interval 驱动，await resolveRecBooks 期间已缓冲的 acc 仍在渐显，约有 0.5~1s 缓冲余量；但慢网下让小涤一次荐 5 本时，N~2N 次串行无超时的 getBook 往返常超过这点余量，打字机追平后会停顿，并推迟后续 delta 与读循环结束(ended)上屏；若某次 getBook 长挂（无超时），整条流尾</span></div>
+      <div class="row meta2"><code class="loc">app/chat/page.tsx:41-59 与 307-325</code></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BUG-4" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BUG-4" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BUG-4" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BUG-4" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="BUG-11" data-group="Bug 修复验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BUG-11</span>
+      <span class="ititle">断线补注『（后面断线了…）』未打 error 标记，下一轮被当作模型自己说过的话回灌</span>
+      <span class="tag t-lo">低</span>
+      <span class="vmark" data-for="BUG-11"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">触发场景：让一轮回答在已流出正文后断线（触发该分支），再追问一句，检查回灌 history 里包含该尾注文本。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">修复后：上述问题不再复现。修复要点：真实的低危上下文整洁性问题：断线补注消息（content 含「（后面断线了…）」、无 error 标记）会被 send() 当作模型真实产出回灌进下一轮 history，与作者227行「中断占位不进上下文」的设计意图相悖。</span></div>
+      <div class="row meta2"><code class="loc">app/chat/page.tsx:383-390（配合 229）</code></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BUG-11" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BUG-11" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BUG-11" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BUG-11" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div></div><div class="submod"><h3>后端安全 <span class="cnt">2</span></h3><div class="item" data-id="BUG-5" data-group="Bug 修复验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BUG-5</span>
+      <span class="ititle">注销「体验账号」保护在 getUserById 瞬时出错时 fail-open</span>
+      <span class="tag t-mid">中</span>
+      <span class="vmark" data-for="BUG-5"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">触发场景：demo 账号登录态下调用 /api/account/delete，且该请求恰逢 Supabase Admin getUserById 抖动返回 error → 守卫静默失效 → demo 账号被删。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">修复后：上述问题不再复现。修复要点：真实的失败开放(fail-open)缺陷：拦截共享 demo 账号注销的守卫在 getUserById 返回 error / who 为空时静默放行，落到 deleteUser，理论上可被掌握 demo 登录态者反复直连 /api/account/delete 探测命中那一瞬窗口而删掉全员共用的体验账号。严重度 medium（触发需 getUserById 抖动且同请求 deleteUser 仍成功，且 demo 账号可由管理员重建）。</span></div>
+      <div class="row meta2"><code class="loc">app/api/account/delete/route.ts:14-17:14-17</code></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BUG-5" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BUG-5" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BUG-5" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BUG-5" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="BUG-16" data-group="Bug 修复验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BUG-16</span>
+      <span class="ititle">内存级限流为「单实例尽力而为」，多实例下全局上限成倍放大</span>
+      <span class="tag t-lo">低</span>
+      <span class="vmark" data-for="BUG-16"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">触发场景：并发压测 /api/chat，观察实际放行量随实例数线性超过单实例阈值。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">修复后：上述问题不再复现。修复要点：真实但低危。内存级限流在 Vercel 多实例下无法提供可靠的「全局」频率闸：登录用户键为裸 uid（ratelimit.ts:42），并发请求被负载均衡到多个进程后，每进程各自计数，单账号实际放行量≈单实例阈值×热实例数，冷启动/滚动部署还会清零计数。烧 token 的对话路径上这是唯一的频率闸（鉴权与单请求护栏只限单次成本、不限频次）。注释已承认并预留 Redis/Upstash 升级路径，故为已知技术债而非疏漏。</span></div>
+      <div class="row meta2"><code class="loc">lib/server/ratelimit.ts:8 / app/api/chat/route.ts:153:ratelimit.ts:8</code></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BUG-16" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BUG-16" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BUG-16" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BUG-16" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div></div><div class="submod"><h3>阅读器书库 <span class="cnt">4</span></h3><div class="item" data-id="BUG-6" data-group="Bug 修复验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BUG-6</span>
+      <span class="ititle">详情页&quot;继续阅读&quot;CTA 丢失章内精确位置（与首页续读不一致）</span>
+      <span class="tag t-mid">中</span>
+      <span class="vmark" data-for="BUG-6"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">触发场景：长章节滚到 70% → 退回书详情页 → 点底部『继续阅读 · 第N章 · X%』→ 落在该章顶部（scrollTop 0），70% 的位置丢失，需手动重新下滑。改用首页『继续阅读』则能精确回到 70%。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">修复后：上述问题不再复现。修复要点：真实问题：详情页底部「继续阅读」是最常用续读入口，但其链接带 `?ch=${chapterId}` 致阅读器续读 effect 在 read/page.tsx:175 提前 return，章内精确滚动位置(localStorage `ail-chpos-{bookId}`)及 saved.pct 反解兜底均被静默忽略，每次落在该章顶部(scrollTop 0)；而首页续读不带 ?ch，能精确回到原章内位置——同一行为两套结果，且 P2-</span></div>
+      <div class="row meta2"><code class="loc">D:/ClaudeCode/AI_library/app/library/book/[id]/page.tsx:233 (配合 read/page.tsx:175,182-195)</code></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BUG-6" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BUG-6" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BUG-6" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BUG-6" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="BUG-7" data-group="Bug 修复验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BUG-7</span>
+      <span class="ititle">媒体加载失败重试后，已播放覆盖率(mediaPlayed)被重复累加，可能提前判定『已读完』</span>
+      <span class="tag t-mid">中</span>
+      <span class="vmark" data-for="BUG-7"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">触发场景：播放音/视频到约 50%（连续播放，trackPlayed 累计 union≈0.5）→ 弱网触发 onError → 点『重试』→ load 重新 onMeta → base 被设为 0.5、regions 仍为 0.5 → 继续播放时 setMediaPlayed=base+union≈1.0 → 越过 0.9 阈值被判『已读完』。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">修复后：上述问题不再复现。修复要点：真实 Bug（播放器覆盖率状态机）：媒体报错后点「重试」会触发 load()→loadedmetadata→onMeta→primePlayed，重新把 base.current 设成已含本会话并集的存储值，而 regions.current 未清，导致同一段并集被计两次，mediaPlayed≈2×已播比例。当报错前连续播放≥45% 时，单次重试即跨过 0.9 阈值；多次重试还会逐步复利。由于 setMediaPlayed 只增且落库</span></div>
+      <div class="row meta2"><code class="loc">D:/ClaudeCode/AI_library/components/library/Players.tsx:61-63 (primePlayed) / 65-75 (trackPlayed) / 211,395-404 (onMeta)</code></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BUG-7" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BUG-7" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BUG-7" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BUG-7" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="BUG-17" data-group="Bug 修复验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BUG-17</span>
+      <span class="ititle">被完全包含的重叠划线在正文不渲染，残留为列表里的『幽灵笔记』</span>
+      <span class="tag t-lo">低</span>
+      <span class="vmark" data-for="BUG-17"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">触发场景：两台设备在同步前对同一段做划线：设备1划[0,100]，设备2划其中的[10,20]；二者都入云。重新加载后正文只显示外层那条，内层那条成为只在笔记列表出现的幽灵条目。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">修复后：上述问题不再复现。修复要点：真实但低危的残余缺陷：当存在「B 被 A 完全包含」的划线对（单设备由 doHighlight:381-400 的并集合并杜绝，但多设备同步前并发创建或历史存量数据可产生，注释已自承），applyHighlights 裁剪后 B 无可渲染段→正文不画、不挂 mk-B 锚点；而本章笔记(142/732)与我的笔记列表直接读 store，仍展示 B。后果：①列表有 B、正文无独立标记；②从我的笔记点 B 深链(me/notes:85)→re</span></div>
+      <div class="row meta2"><code class="loc">D:/ClaudeCode/AI_library/app/library/book/[id]/read/page.tsx:850-859 (applyHighlights 重叠裁剪)</code></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BUG-17" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BUG-17" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BUG-17" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BUG-17" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="BUG-18" data-group="Bug 修复验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BUG-18</span>
+      <span class="ititle">章节『在读』徽标对『打开过但未读』的章节误亮，与书状态『未读/开始阅读』自相矛盾</span>
+      <span class="tag t-lo">低</span>
+      <span class="vmark" data-for="BUG-18"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">触发场景：打开任一文字书的某章，立刻返回详情页（不滚动）。该章项显示『在读』，但底部按钮是『开始阅读』、分类页该书状态为『未读』。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">修复后：上述问题不再复现。修复要点：真实的轻度状态一致性问题。复现：进入未读文字书的某章（尤其第一章，readChapters 为空时 doneN=0 → prog 取整为 0），一字未滚立即返回详情页。该章项显示青瓷点+&quot;在读&quot;（page.tsx:174/185），但底部 CTA 显示&quot;开始阅读&quot;（:50/:237 因 pct=0 而 textProg=undefined），同书在分类页被判为&quot;未读&quot;（cate</span></div>
+      <div class="row meta2"><code class="loc">D:/ClaudeCode/AI_library/app/library/book/[id]/page.tsx:174 (isReading) 对比 50 (textProg) / 238 (CTA 文案)</code></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BUG-18" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BUG-18" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BUG-18" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BUG-18" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div></div><div class="submod"><h3>乱翻+我的 <span class="cnt">4</span></h3><div class="item" data-id="BUG-8" data-group="Bug 修复验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BUG-8</span>
+      <span class="ititle">乱翻自动播放会改写与详情页共享的「续播位置」；且音频与视频共用同一个分数续播点（时长不同→落点错位）</span>
+      <span class="tag t-mid">中</span>
+      <span class="vmark" data-for="BUG-8"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">触发场景：把某本在读书的音频听到中段→进乱翻（该书因在读被置顶，很快滑到）→视频自动播放/循环→退回详情页，原来的续播位置已被乱翻的播放位置覆盖。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">修复后：上述问题不再复现。修复要点：真实问题（中等严重）：媒体续播位置 media_progress.position 只按 (user_id, book_id) 存一行，被详情页音频播放器、视频播放器、乱翻三处共用，导致两类漂移：(A) 跨媒体类型——音频/视频时长内容不同却共用同一分数，听音频到 X% 后开视频会从视频 X% 处（错位内容）起播；(B) 乱翻自动播放污染——在读书被 flipfeed 置顶后自动播视频，onSlotTime 每帧把 position 改</span></div>
+      <div class="row meta2"><code class="loc">D:/ClaudeCode/AI_library/app/flip/page.tsx:108-109(primeActive seek) / 273(onSlotTime 写 position) + lib/store.ts:423-426 + lib/supabase/userdata.ts:216-220(media_progress 唯一键 user_id,book_id) + lib/server/flipfeed.ts:217,223(在读置顶)</code></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BUG-8" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BUG-8" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BUG-8" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BUG-8" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="BUG-19" data-group="Bug 修复验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BUG-19</span>
+      <span class="ititle">「我的」已读/进行中计数跨大类去重，点进去的历史列表却只过滤单一大类 → 数字与列表对不上</span>
+      <span class="tag t-lo">低</span>
+      <span class="vmark" data-for="BUG-19"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">触发场景：1) 把书A 用文字稿读到100%；2) 把书B 用视频看到「已读完」(played≥0.9)；3) 回我的，卡片显示「已读 2」；4) 点「已读」卡 → 历史页默认 av 筛选 → 只显示书B，数字与列表不符。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">修复后：上述问题不再复现。修复要点：真实问题（低severity，属统计口径不一致而非数据丢失）：me 页「已读/进行中」计数对全部 history 按 bookId 跨大类去重（page.tsx:62、65），但数据卡只能携带一个 mode（modeFor 优先 av，page.tsx:69-73、76-77），历史页又把列表硬过滤到该单一大类（history/page.tsx:33-35），且无「全部大类」视图。当已读/在读书分布在音视频与文字稿两类时（例：文字读完书</span></div>
+      <div class="row meta2"><code class="loc">D:/ClaudeCode/AI_library/app/me/page.tsx:62-77 (计数与 modeFor) + app/me/history/page.tsx:33-35 (列表过滤)</code></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BUG-19" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BUG-19" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BUG-19" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BUG-19" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="BUG-20" data-group="Bug 修复验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BUG-20</span>
+      <span class="ititle">「我的」统计在登录后数据加载窗口期闪「0」（缺 library.hydrated 门禁）</span>
+      <span class="tag t-lo">低</span>
+      <span class="vmark" data-for="BUG-20"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">触发场景：在我的页未登录→点登录→登录成功瞬间观察四个统计卡，会先显示 0 再跳到真实数值（弱网下更明显）。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">修复后：上述问题不再复现。修复要点：真实但轻微：统计卡值随 user 一旦置位即渲染，忽略 useLibrary 是否完成 load。signInLoad 先置 user 再 await load()，而 load() 起始 hydrated=false 且数据仍是登录前 EMPTY 基线，导致登录成功/冷启恢复会话瞬间四卡先闪 0/0/0/0分 再跳真实值（窗口=loadUserData 网络时长）。注：claim 称「load 入口清空到 EMPTY」不准确——loa</span></div>
+      <div class="row meta2"><code class="loc">D:/ClaudeCode/AI_library/app/me/page.tsx:55-79</code></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BUG-20" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BUG-20" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BUG-20" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BUG-20" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="BUG-21" data-group="Bug 修复验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BUG-21</span>
+      <span class="ititle">乱翻续拉换轮时同一本书可能紧挨着自己重复出现；且洗牌用 sort(()=&gt;Math.random()-0.5) 分布有偏</span>
+      <span class="tag t-lo">低</span>
+      <span class="vmark" data-for="BUG-21"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">触发场景：池子较小时（如某账号 feed 仅几本）一直竖滑，跨轮边界较易观察到相邻重复同一本书。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">修复后：上述问题不再复现。修复要点：准确描述：getFlip 续拉对整池做全排列后整批追加，轮与轮之间无衔接去重，导致「上一轮最后一本」与「下一轮第一本」有约 1/N 概率为同一 realId（id 不同、内容相同），竖滑跨轮边界偶发连刷同书；池子越小越明显（新馆视频书少时尤甚）。洗牌用随机比较器 sort，分布非均匀。属低危体验问题，无数据/功能影响。</span></div>
+      <div class="row meta2"><code class="loc">D:/ClaudeCode/AI_library/lib/api.ts:199-203 (getFlip 续拉洗牌)</code></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BUG-21" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BUG-21" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BUG-21" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BUG-21" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div></div><div class="submod"><h3>UX边界 <span class="cnt">6</span></h3><div class="item" data-id="BUG-9" data-group="Bug 修复验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BUG-9</span>
+      <span class="ititle">initAuth 无异常/超时兜底：getSession 抛错或卡死会让全站永久卡在加载态</span>
+      <span class="tag t-mid">中</span>
+      <span class="vmark" data-for="BUG-9"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">触发场景：隐私模式/被策略禁用 storage、或本地 sb-*-auth-token 被写坏、或多标签并发把 Web Lock 拖住时打开 App，首屏即卡死在加载态。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">修复后：上述问题不再复现。修复要点：真实但触发概率偏低、影响高且无恢复：首屏 initAuth 把全站登录门禁 hydrated 押在未受保护的 `await supabase.auth.getSession()` 上，缺 finally/超时/.catch。当 getSession 因 Web Lock 跨标签争用而长期不 resolve（或意外 reject）时，useAuth.hydrated 与 useLibrary.hydrated 双双恒为 false，导致所</span></div>
+      <div class="row meta2"><code class="loc">D:/ClaudeCode/AI_library/lib/store.ts:70-102（关键 71、80）；触发面 components/providers.tsx:18-22</code></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BUG-9" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BUG-9" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BUG-9" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BUG-9" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="BUG-10" data-group="Bug 修复验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BUG-10</span>
+      <span class="ititle">搜索页返回后查询词与结果丢失，用户需重新输入</span>
+      <span class="tag t-mid">中</span>
+      <span class="vmark" data-for="BUG-10"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">触发场景：搜索「认知」得到列表 → 点进某本 → 浏览器/手势返回 → 搜索页变回空白落地态，结果与输入都没了。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">修复后：上述问题不再复现。修复要点：真实问题:搜索页查询态(input/q/结果/滚动)完全只活在组件 useState 中,App Router 软导航进入书详情后 /search 被卸载;浏览器/手势返回时页面重挂载,input、q 复位为空字符串,直接回到「最近/热门」落地态,之前结果列表与输入框内容均不复现,autoFocus 还会再次弹键盘。recentSearches 仅为弱弥补:受 line 44-50 的 1.2s 延迟 + 卸载 clearTimeout</span></div>
+      <div class="row meta2"><code class="loc">D:/ClaudeCode/AI_library/app/search/page.tsx:12-14（input/q 用本地 useState，无 URL/缓存持久化）、71（autoFocus）</code></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BUG-10" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BUG-10" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BUG-10" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BUG-10" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="BUG-22" data-group="Bug 修复验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BUG-22</span>
+      <span class="ititle">返回兜底误判：用外部链接打开时，点返回箭头会直接跳出 App 到来源站</span>
+      <span class="tag t-lo">低</span>
+      <span class="vmark" data-for="BUG-22"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">触发场景：在手机 Chrome/Safari 里从任意外部网页点进 goodcontent.cn/library/book/xxx，点顶栏返回箭头 → 回到外部网页而非泡馆。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">修复后：上述问题不再复现。修复要点：真实但低危的已知局限。准确描述：useGoBack 以 history.length 作为「是否有可退历史」的代理，但该值含跨源来源页，故在标准浏览器「同标签从外站直接点进分享书页」时，返回箭头会 back() 到外站而非注释承诺的站内兜底 /library。注意：这并不影响主场景——微信内打开(X5 每链新 webview,length=1)与新标签打开均按预期落到兜底页；失效仅限同标签跨源进入，且此时退回来源页本就是返回键常规语义、</span></div>
+      <div class="row meta2"><code class="loc">D:/ClaudeCode/AI_library/components/shell/Header.tsx:7-13（判定在 10）；同模式 app/search/page.tsx:57-60、app/library/book/[id]/review/new/page.tsx:50</code></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BUG-22" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BUG-22" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BUG-22" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BUG-22" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="BUG-23" data-group="Bug 修复验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BUG-23</span>
+      <span class="ititle">toast 自动消失定时器 map 从不清理，长会话内存持续增长</span>
+      <span class="tag t-lo">低</span>
+      <span class="vmark" data-for="BUG-23"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">触发场景：长时间使用并触发大量 toast（反复收藏/取消、同步失败重试），观察 toastTimers 键数量只增不减。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">修复后：上述问题不再复现。修复要点：真实但极低危。dismiss 是唯一移除路径、且超时回调也调用 dismiss，故仅需在 dismiss 内补清理即可覆盖「自动消失」与「手动关闭」两种情形：`dismiss: (id) =&gt; { clearTimeout(toastTimers[id]); delete toastTimers[id]; set({ toasts: get().toasts.filter(t =&gt; t.id !== id) }); }`。d</span></div>
+      <div class="row meta2"><code class="loc">D:/ClaudeCode/AI_library/lib/store.ts:186（toastTimers 声明）、209-216（写入）、218（dismiss 未清理）</code></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BUG-23" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BUG-23" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BUG-23" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BUG-23" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="BUG-24" data-group="Bug 修复验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BUG-24</span>
+      <span class="ititle">global-error 兜底页缺移动端 viewport 元信息，崩溃后在手机上缩成桌面宽</span>
+      <span class="tag t-lo">低</span>
+      <span class="vmark" data-for="BUG-24"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">触发场景：构造根布局阶段抛错（如 Providers 初始化异常）触发 global-error，在手机上查看 → 内容缩成一小块。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">修复后：上述问题不再复现。修复要点：真实问题，定级 low。global-error 替换根布局后丢失 viewport meta，移动端兜底页按桌面 ~980px 宽缩放渲染，文字/「重试」按钮变小难点；触发概率低（仅根布局或 Providers 初始化崩溃），且为纯视觉降级、无功能损坏，故非高危。</span></div>
+      <div class="row meta2"><code class="loc">D:/ClaudeCode/AI_library/app/global-error.tsx:5-39（自带 html/body，无 viewport meta，也未引用 layout 的 width 归一脚本）</code></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BUG-24" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BUG-24" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BUG-24" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BUG-24" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div><div class="item" data-id="BUG-25" data-group="Bug 修复验收" data-mod="">
+    <div class="ihead">
+      <span class="iid">BUG-25</span>
+      <span class="ititle">登录抽屉缺少 dialog 无障碍语义与焦点管理，输入框仅靠 placeholder 无 label</span>
+      <span class="tag t-lo">低</span>
+      <span class="vmark" data-for="BUG-25"></span>
+    </div>
+    <div class="ibody">
+      <div class="row"><span class="k">操作</span><span class="v">触发场景：用键盘/读屏打开登录抽屉：焦点仍停在背景，Tab 会跑到被遮挡的页面控件，逐个 input 读不出名称。</span></div>
+      <div class="row"><span class="k">预期</span><span class="v">修复后：上述问题不再复现。修复要点：真实但低危的 a11y 增强缺口（非功能性 bug）。</span></div>
+      <div class="row meta2"><code class="loc">D:/ClaudeCode/AI_library/components/shell/LoginSheet.tsx:116-137（外层 motion.div 无 role=dialog/aria-modal）、157-202（邮箱/昵称/密码 input 仅 placeholder）</code></div>
+      <div class="verdict">
+        <label class="vb pass"><input type="radio" name="v-BUG-25" value="pass"><span>✓ 通过</span></label>
+        <label class="vb fail"><input type="radio" name="v-BUG-25" value="fail"><span>✗ 不通过</span></label>
+        <label class="vb na"><input type="radio" name="v-BUG-25" value="na"><span>– 待定</span></label>
+        <input class="note" data-id="BUG-25" placeholder="备注 / 反馈（不通过时请填写问题）" />
+      </div>
+    </div>
+  </div></div></section>
+  <footer>AI 图书馆 H5 · 前后端验收清单 · 生成于 2026-06-26<br/>东方典雅 · 古书新韵</footer>
+</div>
+
+<div id="exportModal" class="hide" style="position:fixed;inset:0;z-index:80;background:rgba(40,38,32,.5);display:flex;align-items:center;justify-content:center;padding:20px">
+  <div style="background:#fffdf8;border-radius:14px;max-width:760px;width:100%;max-height:80vh;overflow:auto;padding:20px;border:1px solid var(--line)">
+    <h3 style="margin:0 0 8px">验收反馈（复制发我）</h3>
+    <textarea id="exportText" style="width:100%;height:300px;border:1px solid var(--line);border-radius:8px;padding:10px;font-family:Consolas,monospace;font-size:12px"></textarea>
+    <div style="margin-top:10px;text-align:right">
+      <button class="btn" id="copyBtn">复制</button>
+      <button class="chip" id="closeModal">关闭</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const KEY="ail-acceptance-v1";
+const state=JSON.parse(localStorage.getItem(KEY)||"{}");
+const items=[...document.querySelectorAll(".item")];
+function save(){localStorage.setItem(KEY,JSON.stringify(state));}
+function applyItem(el){
+  const id=el.dataset.id; const s=state[id]||{};
+  el.classList.remove("done-pass","done-fail","done-na");
+  el.querySelectorAll(".vb").forEach(b=>b.classList.remove("on"));
+  const mark=el.querySelector(".vmark"); mark.textContent="";
+  if(s.v){
+    el.classList.add("done-"+s.v);
+    const lab=el.querySelector(".vb."+s.v); if(lab)lab.classList.add("on");
+    mark.textContent=s.v==="pass"?"✓":s.v==="fail"?"✗":"–";
+    mark.style.color=s.v==="pass"?"#4a7359":s.v==="fail"?"#b04a3c":"#b08d57";
+    const r=el.querySelector('input[value="'+s.v+'"]'); if(r)r.checked=true;
+  }
+  const note=el.querySelector(".note"); if(note&&s.note!==undefined)note.value=s.note;
+}
+function refreshStats(){
+  let p=0,f=0,n=0;
+  for(const k in state){if(state[k].v==="pass")p++;else if(state[k].v==="fail")f++;else if(state[k].v==="na")n++;}
+  const total=109;
+  document.getElementById("sp").textContent=p;
+  document.getElementById("sf").textContent=f;
+  document.getElementById("sn").textContent=n;
+  document.getElementById("sd").textContent=p+f+n;
+  document.getElementById("bp").style.width=(p/total*100)+"%";
+  document.getElementById("bf").style.width=(f/total*100)+"%";
+  document.getElementById("bn").style.width=(n/total*100)+"%";
+}
+items.forEach(el=>{
+  const id=el.dataset.id;
+  el.querySelectorAll('input[type=radio]').forEach(r=>{
+    r.addEventListener("change",()=>{state[id]=Object.assign({},state[id],{v:r.value});save();applyItem(el);refreshStats();});
+  });
+  const note=el.querySelector(".note");
+  note.addEventListener("input",()=>{state[id]=Object.assign({},state[id],{note:note.value});save();});
+  applyItem(el);
+});
+refreshStats();
+// 筛选
+let filter="all";
+document.querySelectorAll(".chip[data-filter]").forEach(c=>c.addEventListener("click",()=>{
+  document.querySelectorAll(".chip[data-filter]").forEach(x=>x.classList.remove("active"));
+  c.classList.add("active"); filter=c.dataset.filter;
+  items.forEach(el=>{
+    const s=state[el.dataset.id]||{};
+    let show=true;
+    if(filter==="todo")show=!s.v;
+    else if(filter==="fail")show=s.v==="fail";
+    el.classList.toggle("hide",!show);
+  });
+  document.querySelectorAll(".submod").forEach(sm=>{
+    const any=[...sm.querySelectorAll(".item")].some(i=>!i.classList.contains("hide"));
+    sm.classList.toggle("hide",!any);
+  });
+}));
+// 导出
+document.getElementById("export").addEventListener("click",()=>{
+  let out="AI 图书馆 验收反馈 · "+new Date().toLocaleString()+"\n\n";
+  let fails=[],nas=[];
+  items.forEach(el=>{
+    const id=el.dataset.id; const s=state[id]||{};
+    const title=el.querySelector(".ititle").textContent;
+    if(s.v==="fail")fails.push("[不通过] "+id+" "+title+(s.note?" — "+s.note:""));
+    else if(s.v==="na")nas.push("[待定] "+id+" "+title+(s.note?" — "+s.note:""));
+  });
+  out+="【不通过 "+fails.length+" 项】\n"+(fails.join("\n")||"（无）")+"\n\n";
+  out+="【待定 "+nas.length+" 项】\n"+(nas.join("\n")||"（无）");
+  document.getElementById("exportText").value=out;
+  document.getElementById("exportModal").classList.remove("hide");
+});
+document.getElementById("closeModal").addEventListener("click",()=>document.getElementById("exportModal").classList.add("hide"));
+document.getElementById("copyBtn").addEventListener("click",()=>{const t=document.getElementById("exportText");t.select();try{navigator.clipboard.writeText(t.value);}catch(e){document.execCommand("copy");}});
+document.getElementById("reset").addEventListener("click",()=>{if(confirm("确定清空全部勾选？")){for(const k in state)delete state[k];save();items.forEach(applyItem);refreshStats();}});
+</script>
+</body>
+</html>

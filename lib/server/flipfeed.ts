@@ -18,7 +18,7 @@ const CANDIDATE_CAP = 120;  // 送 LLM 的候选上限：feed 才 50 本，120 �
 const TIME_BUDGET_MS = 50_000; // 生成预算（route maxDuration=60s，留 10s 余量收尾返回）
 
 // 北京时区的「今天」（Vercel 跑在 UTC，直接 toISOString 会差 8 小时跨错天）
-export const bjToday = () => new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
+const bjToday = () => new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
 
 interface Candidate { id: string; title: string; tags: string[]; digest: string }
 interface UserSignal {

@@ -17,10 +17,9 @@ import { cutSafe } from "@/lib/server/text";
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
-// 上下文窗口与压缩器对齐（compress.ts KEEP=40）：有压缩信息时按 compressed_until 动态裁剪，
-// 无压缩（游客/新会话）时兜底取最近 40 条——窗口若小于 KEEP 会产生"既不在摘要也不在请求"的黑洞
-const MAX_TURNS = 40;
-const HARD_CAP = 64; // 绝对上限（防异常超长请求）
+// 上下文窗口与压缩器对齐（compress.ts KEEP=40）：摘要覆盖 [0,until)，请求窗口起点绝不能越过 until，
+// 否则 [until, start) 既不在摘要也不在请求 = 上下文黑洞（Bug#2）。仅在未压缩段超长时从尾部兜底截断。
+const HARD_CAP = 64; // 未压缩段窗口上限（防异常超长请求；正常对话 + 压缩跟进时整段未压缩消息都在窗内）
 const MAX_CHARS = 4000; // 单条消息长度护栏
 // 工具循环上限：M3 多步规划能力强（toc→多章细读→出卡是常态），联网搜索(T10)上线后还会再叠轮次；
 // 5 轮经常掐在半路，上调到 8（仍是防失控护栏，正常对话远用不满）
@@ -150,7 +149,11 @@ export async function POST(req: NextRequest) {
   // 游客按 IP 收紧到 8 次/分 + 40 次/时（无身份约束，防脚本滥刷烧 token）
   const lk = limiterKey(uid, req.headers.get("x-forwarded-for"));
   const [perMin, perHour] = uid ? [20, 200] : [8, 40];
-  if (!rateLimit(`m:${lk}`, perMin, 60_000) || !rateLimit(`h:${lk}`, perHour, 3_600_000)) {
+  const [okMin, okHour] = await Promise.all([
+    rateLimit(`m:${lk}`, perMin, 60_000),
+    rateLimit(`h:${lk}`, perHour, 3_600_000),
+  ]);
+  if (!okMin || !okHour) {
     return NextResponse.json({ error: "你问得好快呀——歇口气，一分钟后我们接着聊" }, { status: 429 });
   }
   // T4 单一会话：登录用户一律落在唯一会话 'main'（忽略请求里的 sessionId——旧客户端缓存的
@@ -158,8 +161,13 @@ export async function POST(req: NextRequest) {
   const sessionId = uid ? "main" : null;
   // 变量⑥：本会话更早对话的压缩摘要（T2.6；登录且会话存在才有）
   const comp = uid && sessionId ? await getCompressed(uid, sessionId).catch(() => ({ summary: undefined, until: 0 })) : { summary: undefined as string | undefined, until: 0 };
-  // 裁剪：摘要覆盖 [0,until) → 只送 until 之后的消息；无压缩则取最近 MAX_TURNS 条
-  const msgs = (comp.until > 0 && comp.until < all.length ? all.slice(comp.until) : all.slice(-MAX_TURNS)).slice(-HARD_CAP);
+  // 裁剪：摘要覆盖 [0,until) → 从 until 起送（无压缩则从会话起点起）。关键不变量：窗口起点不越过 until，
+  // 保证 [until, len) 全部进入请求，杜绝"既不在摘要也不在请求"的黑洞（Bug#2）。仅当未压缩段本身超过
+  // HARD_CAP（必伴随压缩滞后）才从尾部截断并记 warn 供观测——正常对话/压缩跟得上时不会触达。
+  const ctxBase = comp.until > 0 && comp.until < all.length ? comp.until : 0;
+  const tail = all.slice(ctxBase);
+  if (tail.length > HARD_CAP) console.warn(`[chat] 未压缩段(${tail.length})超窗(${HARD_CAP})，压缩疑似滞后，尾部截断${tail.length - HARD_CAP}条`);
+  const msgs = tail.length > HARD_CAP ? tail.slice(-HARD_CAP) : tail;
   if (!msgs.length || msgs[msgs.length - 1].role !== "user") {
     return NextResponse.json({ error: "缺少用户消息" }, { status: 400 });
   }

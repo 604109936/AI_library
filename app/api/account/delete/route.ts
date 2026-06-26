@@ -10,9 +10,13 @@ export const maxDuration = 30;
 export async function POST(req: NextRequest) {
   const uid = await getUid(req.headers.get("authorization"));
   if (!uid) return NextResponse.json({ error: "未登录或登录态已失效" }, { status: 401 });
-  // 共享体验账号不允许注销（前端已拦 UI 入口，这里防直接调 API——Review P0）
-  const { data: who } = await admin.auth.admin.getUserById(uid);
-  if (who?.user?.email === DEMO_EMAIL) {
+  // 共享体验账号不允许注销（前端已拦 UI 入口，这里防直接调 API——Review P0）。
+  // fail-closed：getUserById 抖动/返回空时绝不放行，否则全员共用的 demo 账号可能在那一瞬被删（Bug#5）
+  const { data: who, error: whoErr } = await admin.auth.admin.getUserById(uid);
+  if (whoErr || !who?.user) {
+    return NextResponse.json({ error: "无法确认账号身份，请稍后重试" }, { status: 503 });
+  }
+  if (who.user.email === DEMO_EMAIL) {
     return NextResponse.json({ error: "体验账号是大家共用的，不能注销" }, { status: 403 });
   }
   // 头像存储无级联，必须主动清：注销承诺「云端数据全部清除」，公开桶里残留头像属隐私不闭环。

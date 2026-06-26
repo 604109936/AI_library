@@ -43,10 +43,6 @@ export function formatTime(sec: number): string {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-export function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
 /** 章节展示名：no=0 视为「前言」(第一章之前的单独一章)，否则「第N章」(可带标题)。 */
 export function chapterLabel(no: number, title = ""): string {
   if (no === 0) return "前言";

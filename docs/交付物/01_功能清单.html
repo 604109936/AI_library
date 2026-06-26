@@ -1,0 +1,1026 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>AI 图书馆 · 功能清单（产品视角）</title>
+<style>
+:root{
+  --paper:#f4efe4; --paper2:#fbf8f1; --card:#fffdf8;
+  --ink:#33302a; --ink2:#6b6459; --ink3:#928a7b;
+  --celadon:#4a7359; --gold:#b08d57; --cinnabar:#b04a3c; --line:#e2d9c6;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font-family:"Noto Serif SC","Songti SC","Source Han Serif SC",ui-serif,Georgia,serif;
+  line-height:1.7;font-size:15px}
+.wrap{max-width:1180px;margin:0 auto;padding:0 20px}
+code{font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace;font-size:.8em;
+  background:#f0e9d8;color:#6a5b3e;padding:1px 5px;border-radius:4px;word-break:break-all}
+
+/* hero */
+.hero{background:linear-gradient(135deg,#3f6452,#4a7359 60%,#5a8068);color:#f6f2e8;
+  border-bottom:3px solid var(--gold)}
+.hero .wrap{padding:38px 20px 30px}
+.hero .kicker{letter-spacing:.35em;font-size:12px;opacity:.8;margin:0 0 8px}
+.hero h1{margin:0;font-size:30px;font-weight:700;letter-spacing:.04em}
+.hero .pos{margin:12px 0 0;max-width:780px;opacity:.95;font-size:15px}
+.hero .stat{display:flex;gap:26px;margin-top:22px;flex-wrap:wrap}
+.hero .stat b{font-size:26px;display:block;font-weight:700}
+.hero .stat span{font-size:12px;opacity:.85}
+.bar{height:12px;border-radius:6px;overflow:hidden;display:flex;background:rgba(255,255,255,.18);margin-top:18px;max-width:560px}
+.seg{display:block}
+.s-done{background:#7bb083}.s-part{background:#e0b463}.s-mock{background:#b9b09c}.s-todo{background:#d6776a}.s-other{background:#9a9486}
+.legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:12px;opacity:.95}
+.legend .dot{width:10px;height:10px;border-radius:3px;display:inline-block;margin-right:5px;vertical-align:middle}
+.legend .lg b{font-weight:700}
+
+/* overview cards */
+.over{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:26px 0}
+@media(max-width:760px){.over{grid-template-columns:1fr}}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px;
+  box-shadow:0 1px 0 #fff inset,0 6px 18px -14px rgba(80,60,20,.4)}
+.panel h3{margin:0 0 10px;font-size:15px;color:var(--celadon);letter-spacing:.05em;
+  display:flex;align-items:center;gap:8px}
+.panel h3::before{content:"";width:14px;height:14px;border-radius:3px;background:var(--gold);transform:rotate(45deg)}
+.panel p{margin:0;color:var(--ink2);font-size:14px}
+.tech-wrap{grid-column:1/-1}
+.tech{display:inline-block;background:#eef3ec;color:#3f6452;border:1px solid #d6e2d3;
+  border-radius:20px;padding:4px 12px;margin:4px 6px 0 0;font-size:12.5px}
+
+/* toolbar */
+.toolbar{position:sticky;top:0;z-index:20;background:rgba(244,239,228,.92);
+  backdrop-filter:blur(8px);border-bottom:1px solid var(--line);padding:12px 0}
+.toolbar .wrap{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.chip{border:1px solid var(--line);background:var(--paper2);color:var(--ink2);
+  border-radius:20px;padding:6px 13px;font:inherit;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:.15s}
+.chip b{color:var(--ink);font-weight:700}
+.chip.active{background:var(--celadon);color:#fff;border-color:var(--celadon)}
+.chip.active b{color:#fff}
+.chip:hover{border-color:var(--celadon)}
+.seal{width:18px;height:18px;border-radius:5px;color:#fff;font-size:11px;
+  display:inline-flex;align-items:center;justify-content:center;font-weight:700}
+#q{flex:1;min-width:160px;border:1px solid var(--line);background:#fff;border-radius:20px;
+  padding:7px 14px;font:inherit;font-size:13px;color:var(--ink)}
+#q:focus{outline:none;border-color:var(--celadon)}
+.st-filter{display:flex;gap:6px}
+.st-chip{font-size:12px;padding:5px 11px}
+.st-chip .dot{width:9px;height:9px;border-radius:3px;display:inline-block}
+
+/* module */
+.module{margin:34px 0 8px;scroll-margin-top:70px}
+.mod-head{display:flex;gap:14px;align-items:flex-start;padding:14px 16px;border-radius:14px 14px 0 0;
+  background:linear-gradient(180deg,var(--soft),transparent);border:1px solid var(--line);border-bottom:none}
+.seal.lg-seal{width:42px;height:42px;border-radius:10px;font-size:22px;flex:none;
+  box-shadow:0 4px 12px -4px rgba(0,0,0,.3)}
+.mod-head h2{margin:0;font-size:21px;letter-spacing:.03em}
+.mod-head .count{font-size:12px;color:var(--ink3);font-weight:400;margin-left:6px}
+.mod-sum{margin:6px 0 0;font-size:13px;color:var(--ink2);line-height:1.65}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;padding:16px;
+  border:1px solid var(--line);border-top:none;border-radius:0 0 14px 14px;background:rgba(255,255,255,.35)}
+@media(max-width:760px){.grid{grid-template-columns:1fr}}
+
+.feat{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--accent);
+  border-radius:10px;padding:14px 15px;transition:.15s}
+.feat:hover{box-shadow:0 8px 22px -16px rgba(60,40,10,.6);transform:translateY(-1px)}
+.feat-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.feat-head h4{margin:0;font-size:15.5px;font-weight:700;letter-spacing:.02em}
+.badge{font-size:11px;padding:2px 9px;border-radius:20px;color:#fff;white-space:nowrap;flex:none;font-family:system-ui}
+.badge.s-done{background:var(--celadon)}.badge.s-part{background:var(--gold)}
+.badge.s-mock{background:#9a9486}.badge.s-todo{background:var(--cinnabar)}.badge.s-other{background:#9a9486}
+.desc{margin:8px 0 0;font-size:13.5px;color:var(--ink);line-height:1.7}
+.value{margin:9px 0 0;font-size:12.5px;color:#5a6e4a;background:#eef3ea;border-radius:8px;padding:7px 10px}
+.value span{display:inline-block;font-size:10.5px;font-weight:700;color:var(--celadon);
+  background:#fff;border-radius:4px;padding:0 6px;margin-right:7px;font-family:system-ui;letter-spacing:.05em}
+.meta{margin-top:10px;border-top:1px dashed var(--line);padding-top:9px;font-size:12px}
+.m-row{display:flex;gap:8px;margin-top:5px;align-items:baseline}
+.m-row .k{flex:none;width:34px;color:var(--ink3);font-size:11px;font-family:system-ui}
+.be{color:var(--ink2);font-size:12px}
+.files{margin-top:8px}
+.files summary{cursor:pointer;color:var(--ink3);font-size:11.5px;font-family:system-ui}
+.files-list{margin-top:6px;display:flex;flex-wrap:wrap;gap:4px}
+
+/* cross-cutting */
+.xsec{margin:40px 0}
+.xsec h2{font-size:21px;margin:0 0 4px;display:flex;align-items:center;gap:10px}
+.xsec h2::before{content:"";width:22px;height:22px;background:var(--gold);border-radius:6px;transform:rotate(45deg);display:inline-block}
+.xsec .sub{color:var(--ink2);font-size:13px;margin:0 0 16px}
+.cc-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+@media(max-width:760px){.cc-grid{grid-template-columns:1fr}}
+.cc{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:13px;color:var(--ink2)}
+.cc b{display:block;color:var(--celadon);font-size:13.5px;margin-bottom:4px}
+
+.empty{text-align:center;color:var(--ink3);padding:50px;display:none}
+
+footer{margin:50px 0 30px;text-align:center;color:var(--ink3);font-size:12px}
+footer .gold{color:var(--gold)}
+
+@media print{
+  .toolbar{display:none}.feat:hover{transform:none;box-shadow:none}
+  .hero{background:#4a7359 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .feat,.panel,.cc,.module{break-inside:avoid}
+}
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="wrap">
+    <p class="kicker">AI 图书馆 · 产品功能清单</p>
+    <h1>一座「会回答问题」的图书馆</h1>
+    <p class="pos">「AI 图书馆」是一款面向中文读书人的移动端(H5) App，已上线 goodcontent.cn。它把四件事装进一个手机壳里：向 AI 读书伙伴「小涤」要书/答疑/解读原文(智学)、在分类书库里读文字稿·听音频·看竖屏解读视频(泡馆)、像刷抖音一样竖滑发现新书(乱翻)、在个人中心沉淀收藏/笔记/书评/进度/时长(我的)。核心价值是&quot;被懂&quot;——AI 与每日推荐都结合你读过/在读/收藏/笔记的真实数据做个性化，所有阅读痕迹经 Supabase 跨设备云同步、登出即清不串号。游客可零门槛浏览全部书库与刷视频，登录后解锁个性化与数据沉淀，适合想被引导着读书、碎片化发现好书的普通读者。</p>
+    <div class="stat">
+      <div><b>5</b><span>核心模块</span></div>
+      <div><b>63</b><span>功能点</span></div>
+      <div><b>59</b><span>已实现</span></div>
+      <div><b>4</b><span>部分/占位</span></div>
+    </div>
+    <div class="bar"><span class="seg s-done" style="flex:59" title="已实现 59"></span><span class="seg s-part" style="flex:3" title="部分实现 3"></span><span class="seg s-mock" style="flex:1" title="Mock占位 1"></span></div>
+    <div class="legend"><span class="lg"><i class="dot s-done"></i>已实现 <b>59</b></span><span class="lg"><i class="dot s-part"></i>部分实现 <b>3</b></span><span class="lg"><i class="dot s-mock"></i>Mock占位 <b>1</b></span></div>
+  </div>
+</div>
+
+<div class="wrap">
+  <div class="over">
+    <div class="panel">
+      <h3>架构与数据流</h3>
+      <p>数据分两条链路。【目录类只读数据】(书库/分类/章节/搜索/乱翻池)：前端用 Supabase anon key 直连 Postgres 公开读(lib/api.ts)，TanStack Query 缓存渲染，游客即可浏览。【用户私有数据】(收藏/笔记/高亮/进度/书评/历史/时长/对话)：登录后 loadUserData 一次性把本人多表灌进 Zustand 内存(useLibrary 不本地持久化、Supabase 为唯一事实源)，各操作走『本地乐观更新 + 异步写穿透 Supabase、失败 Toast』；三道护栏贯穿全篇——canSync(uid+hydrated 双门禁防空基线洗云端)、世代校验(uid 比对防换号串档)、节流(媒体 5s/计时 30s)。安全主防线是数据库 RLS：目录表公开读、用户表 per-user 策略，service_role 仅服务端云函数用。【AI 链路】智学问答前端带 Bearer access_token 调 /api/chat，服务端组装 system(全馆书单+读者画像+长期记忆+压缩摘要)→MiniMax M3 工具循环(荐书/目录/章节/引用/联网)→NDJSON 流式逐块返回，答完经 waitUntil 后台跑上下文压缩(chat_sessions)与长期记忆(user_memory)。【个性化推荐】Vercel Cron 每日 04:00 调 /api/cron/flip-feed，用 MiniMax 按画像为每人排出乱翻书单写 flip_feed。【触发器/RPC/pg_cron】数据库侧自动维护收藏数/评分/在读人数与多设备进度合并。仅 3 个 API 路由(对话/注销/Cron)，其余 CRUD 全走 supabase-js 直连。</p>
+    </div>
+    <div class="panel">
+      <h3>怎么读这份清单</h3>
+      <p>按 <b>智 / 泡 / 乱 / 我 / 全</b> 五大板块组织，共 63 个功能点。每个卡片含：大白话说明、对用户的价值、代码入口、后端依赖。顶部工具条可按<b>模块 / 状态 / 关键词</b>筛选。状态条：<i>绿=已实现、黄=部分实现、灰=Mock占位</i>。这是给产品经理理解项目用的，不需要懂代码。</p>
+    </div>
+    <div class="panel tech-wrap">
+      <h3>技术栈</h3>
+      <div><span class="tech">Next.js 14 App Router + TypeScript(前端框架/路由/SSR)</span><span class="tech">Tailwind CSS(原子化样式，视觉锁定『东方典雅·古书新韵』青瓷/宣纸/朱砂色板)</span><span class="tech">Zustand + persist(客户端状态：5 个 store 切片 useAuth/useUI/useLibrary/useReader/useChat)</span><span class="tech">TanStack Query(目录类数据缓存/预取/防抖搜索)</span><span class="tech">Supabase 直连：Postgres(16 表) + Auth(邮箱密码) + RLS(安全主防线) + Storage(avatars 头像桶) + RPC + pg_cron</span><span class="tech">MiniMax TokenPlan(M3 大模型 /v1/chat/completions 对话·压缩·记忆·feed 排序 + /v1/coding_plan/search 联网搜索，仅服务端)</span><span class="tech">阿里云 OSS(书籍封面/音频/视频，仅存公开 URL)</span><span class="tech">Vercel(Serverless 云函数 + Cron 每日北京 04:00 + @vercel/functions waitUntil 后台任务)</span><span class="tech">react-markdown + remark-gfm + remark-cjk-friendly(正文渲染)</span><span class="tech">framer-motion(动效) + lucide-react(图标)</span><span class="tech">浏览器原生能力：SpeechRecognition(语音输入) / MediaSession(锁屏控制) / IntersectionObserver(无限滚动)</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="toolbar">
+  <div class="wrap">
+    <button class="chip mod-chip active" data-mod="all">全部模块 <b>63</b></button>
+    <button class="chip mod-chip" data-mod="chat"><i class="seal" style="background:#4a7359">智</i>智学 <b>17</b></button><button class="chip mod-chip" data-mod="library"><i class="seal" style="background:#b08d57">泡</i>泡馆 <b>11</b></button><button class="chip mod-chip" data-mod="flip"><i class="seal" style="background:#b04a3c">乱</i>乱翻 <b>9</b></button><button class="chip mod-chip" data-mod="me"><i class="seal" style="background:#4f7a8c">我</i>我的 <b>9</b></button><button class="chip mod-chip" data-mod="global"><i class="seal" style="background:#6b6459">全</i>全局与基础设施(外壳/鉴权/搜索/状态/数据/后端) <b>17</b></button>
+    <span class="st-filter">
+      <button class="chip st-chip active" data-st="all">全部状态</button>
+      <button class="chip st-chip" data-st="已实现"><i class="dot s-done"></i>已实现</button>
+      <button class="chip st-chip" data-st="部分实现"><i class="dot s-part"></i>部分</button>
+      <button class="chip st-chip" data-st="Mock占位"><i class="dot s-mock"></i>Mock</button>
+    </span>
+    <input id="q" type="search" placeholder="搜索功能 / 关键词…"/>
+  </div>
+</div>
+
+<div class="wrap" id="content">
+  <section class="module" id="mod-chat" data-mod="chat" style="--accent:#4a7359;--soft:#e7f0e8">
+      <header class="mod-head">
+        <i class="seal lg-seal" style="background:#4a7359">智</i>
+        <div>
+          <h2>智学 / AI 问答助手「小涤」 <span class="count">17 项功能</span></h2>
+          <p class="mod-sum">整个 App 的 AI 读书伙伴。单页单一会话(main)，前端 POST /api/chat 与服务端 Agent 流式交互：服务端注入全馆书单+这位读者的个人数据+长期记忆+历史摘要，直连 MiniMax-M3 做真流式输出 + 工具循环(荐书/读目录/读章节/引用/联网)，以 NDJSON 事件推给前端，前端用追赶打字机渐显并把卡片交错插进正文真实位置。会话云端持久化、答完后台跑压缩与记忆。链路完整、已上线。</p>
+        </div>
+      </header>
+      <div class="grid"><article class="feat" data-mod="chat" data-status="已实现" data-text="sse 真流式回答 + 追赶打字机 提问后回答以 ndjson 逐行流式吐出，前端用追赶打字机平滑渐显(落后越多追越快)，后台标签页直接全量上屏；流正常结束却零文字零卡片时给错误占位而非空气泡。服务端 ndjson agent 是整条对话的承载云函数(post /api/chat)。 回答即时连续涌现，长答也不卡顿，体感像真人在打字">
+    <div class="feat-head">
+      <h4>SSE 真流式回答 + 追赶打字机</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">提问后回答以 NDJSON 逐行流式吐出，前端用追赶打字机平滑渐显(落后越多追越快)，后台标签页直接全量上屏；流正常结束却零文字零卡片时给错误占位而非空气泡。服务端 NDJSON Agent 是整条对话的承载云函数(POST /api/chat)。</p>
+    <p class="value"><span>用户价值</span>回答即时连续涌现，长答也不卡顿，体感像真人在打字</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/chat/page.tsx:211 send / app/api/chat/route.ts:136 POST / :196</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">MiniMax-M3 /v1/chat/completions(stream:true)；getUid 经 admin.auth.getUser 验 token，游客可用</span></div>
+      <details class="files"><summary>相关文件 (3)</summary><div class="files-list"><code>app/chat/page.tsx</code> <code>app/api/chat/route.ts</code> <code>lib/server/minimax.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="chat" data-status="已实现" data-text="agent 工具循环 + 失配兜底补救轮 服务端 runagent 循环：模型流式产出→有 tool_calls 则执行并回灌→直到纯文本收尾，上限 8 轮 + 105s 时间预算。结束后做三类失配兜底(承诺了卡片却没出/细读过章节却没引用/有荐书意图提了馆藏书名却零卡片)，追加一轮『只许出卡』补救调用。 模型说『为你推荐/依据如下』时一定真出现可点击卡片，避免说了卡片却没卡的失信">
+    <div class="feat-head">
+      <h4>Agent 工具循环 + 失配兜底补救轮</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">服务端 runAgent 循环：模型流式产出→有 tool_calls 则执行并回灌→直到纯文本收尾，上限 8 轮 + 105s 时间预算。结束后做三类失配兜底(承诺了卡片却没出/细读过章节却没引用/有荐书意图提了馆藏书名却零卡片)，追加一轮『只许出卡』补救调用。</p>
+    <p class="value"><span>用户价值</span>模型说『为你推荐/依据如下』时一定真出现可点击卡片，避免说了卡片却没卡的失信</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/api/chat/route.ts:32 runAgent / :99 失配兜底</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">MiniMax-M3 + Supabase(books/chapters)</span></div>
+      <details class="files"><summary>相关文件 (3)</summary><div class="files-list"><code>app/api/chat/route.ts</code> <code>lib/server/minimax.ts</code> <code>lib/server/tools.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="chat" data-status="已实现" data-text="推荐书目卡片(recommend_books) 模型决定荐书时调 recommend_books，服务端按模型顺序重排、校验 id 真实存在(≤5 本)，回 recs 事件直带 {id,title}。前端解析成完整书目，横滑卡组展示封面并叠『懂你』徽标(已读完/在读n%/在书架)，点击直达书籍详情页。 正文书名点不了，卡片是进入书的唯一入口，徽标让人感到『它知道我读到哪了』">
+    <div class="feat-head">
+      <h4>推荐书目卡片(recommend_books)</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">模型决定荐书时调 recommend_books，服务端按模型顺序重排、校验 id 真实存在(≤5 本)，回 recs 事件直带 {id,title}。前端解析成完整书目，横滑卡组展示封面并叠『懂你』徽标(已读完/在读N%/在书架)，点击直达书籍详情页。</p>
+    <p class="value"><span>用户价值</span>正文书名点不了，卡片是进入书的唯一入口，徽标让人感到『它知道我读到哪了』</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">components/chat/ChatMessage.tsx:64 RecsBlock / lib/server/tools.ts:124</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase books 表 + 本地 store(favorites/progress 算徽标)</span></div>
+      <details class="files"><summary>相关文件 (4)</summary><div class="files-list"><code>components/chat/ChatMessage.tsx</code> <code>app/chat/page.tsx</code> <code>lib/server/tools.ts</code> <code>lib/chatMarkers.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="chat" data-status="已实现" data-text="引用章节卡片(cite_chapters) 答疑/解读原文时模型末尾调 cite_chapters，服务端一次取齐书名/封面/章题/开头 60 字摘要(前端零查询直渲)，列出『依据原文n处』并与读者进度缝合标注『你正读到这里/你读过这章』，点击直达原文对应章。 回答有据可查，可一键跳到原文核对，且贴合自己的阅读进度">
+    <div class="feat-head">
+      <h4>引用章节卡片(cite_chapters)</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">答疑/解读原文时模型末尾调 cite_chapters，服务端一次取齐书名/封面/章题/开头 60 字摘要(前端零查询直渲)，列出『依据原文N处』并与读者进度缝合标注『你正读到这里/你读过这章』，点击直达原文对应章。</p>
+    <p class="value"><span>用户价值</span>回答有据可查，可一键跳到原文核对，且贴合自己的阅读进度</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">components/chat/ChatMessage.tsx:95 CitesBlock / lib/server/tools.ts:169</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase books/chapters 表 + 本地 store(progress)</span></div>
+      <details class="files"><summary>相关文件 (3)</summary><div class="files-list"><code>components/chat/ChatMessage.tsx</code> <code>app/chat/page.tsx</code> <code>lib/server/tools.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="chat" data-status="已实现" data-text="联网搜索 + 来源卡片(web_search) 问题带时效性(新闻/近况/最新)且超出馆藏时模型调 web_search，服务端直调 minimax tokenplan /v1/coding_plan/search(前 5 条、snippet≤200 字)，回 web 事件渲染『来源n处』外链卡(域名+日期、仅 http/https 白名单、新开页)。系统提示严格限制仅时效问题可联网。 时效问题不被过时知识误导，能查到最新信息并附可信来源溯源">
+    <div class="feat-head">
+      <h4>联网搜索 + 来源卡片(web_search)</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">问题带时效性(新闻/近况/最新)且超出馆藏时模型调 web_search，服务端直调 MiniMax TokenPlan /v1/coding_plan/search(前 5 条、snippet≤200 字)，回 web 事件渲染『来源N处』外链卡(域名+日期、仅 http/https 白名单、新开页)。系统提示严格限制仅时效问题可联网。</p>
+    <p class="value"><span>用户价值</span>时效问题不被过时知识误导，能查到最新信息并附可信来源溯源</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">lib/server/websearch.ts:17 searchWeb / components/chat/ChatMessage.tsx:126 WebBlock</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">MiniMax TokenPlan 联网搜索端点(MINIMAX_API_KEY)</span></div>
+      <details class="files"><summary>相关文件 (4)</summary><div class="files-list"><code>lib/server/websearch.ts</code> <code>lib/server/tools.ts</code> <code>components/chat/ChatMessage.tsx</code> <code>app/chat/page.tsx</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="chat" data-status="已实现" data-text="等待期过程提示(工具状态 + 思考提示 + 本地兜底) 三层等待陪伴：①工具执行时服务端发 status 事件拼成『翻开《某书》/细读第n章/在网上帮你查』，前端水波纹扫光呈现；②m3 思考流被剥离不直出，但用零成本规则从思考增量提取≤20 字第一人称过程短句也作 status；③无服务端提示时本地句池每 2.6s 轮换文案(登录/游客两套)，服务端提示优先则停轮换。 把模型思考转成温暖人话的进度提示，替代廉价转圈，等待期有确定感不冷场">
+    <div class="feat-head">
+      <h4>等待期过程提示(工具状态 + 思考提示 + 本地兜底)</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">三层等待陪伴：①工具执行时服务端发 status 事件拼成『翻开《某书》/细读第N章/在网上帮你查』，前端水波纹扫光呈现；②M3 思考流被剥离不直出，但用零成本规则从思考增量提取≤20 字第一人称过程短句也作 status；③无服务端提示时本地句池每 2.6s 轮换文案(登录/游客两套)，服务端提示优先则停轮换。</p>
+    <p class="value"><span>用户价值</span>把模型思考转成温暖人话的进度提示，替代廉价转圈，等待期有确定感不冷场</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">lib/server/tools.ts:21 toolStatus / lib/server/thinkhint.ts:11 makeThinkHint / components/chat/ChatMessage.tsx:22 ThinkingNote</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">MiniMax-M3(&lt;think&gt; 思考流) + Supabase books(取书名)</span></div>
+      <details class="files"><summary>相关文件 (6)</summary><div class="files-list"><code>lib/server/tools.ts</code> <code>lib/server/thinkhint.ts</code> <code>lib/server/minimax.ts</code> <code>components/chat/ShimmerText.tsx</code> <code>components/chat/ChatMessage.tsx</code> <code>app/api/chat/route.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="chat" data-status="已实现" data-text="卡片交错渲染(占位标记) 工具事件到达时前端把占位标记 [[recs/cites/web:from,to]] 插进正文当前位置(正好在两轮模型文字之间)，打字机一步跨过标记不露半截；渲染端按标记切段，卡片自然出现在『理由→卡片→后话』的真实位置，老消息无标记则回退末尾不丢卡。 卡片出现在它该出现的话语位置，阅读顺序自然不突兀">
+    <div class="feat-head">
+      <h4>卡片交错渲染(占位标记)</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">工具事件到达时前端把占位标记 [[recs/cites/web:from,to]] 插进正文当前位置(正好在两轮模型文字之间)，打字机一步跨过标记不露半截；渲染端按标记切段，卡片自然出现在『理由→卡片→后话』的真实位置，老消息无标记则回退末尾不丢卡。</p>
+    <p class="value"><span>用户价值</span>卡片出现在它该出现的话语位置，阅读顺序自然不突兀</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">lib/chatMarkers.ts:19 splitCardSegments / app/chat/page.tsx:272 pushMarker</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">无(前端渲染逻辑)</span></div>
+      <details class="files"><summary>相关文件 (3)</summary><div class="files-list"><code>lib/chatMarkers.ts</code> <code>app/chat/page.tsx</code> <code>components/chat/ChatMessage.tsx</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="chat" data-status="已实现" data-text="个性化变量注入(这位读者) buildsystem 为登录用户注入 6 类个人数据(全馆书单/已读完书单含笔记书评/收藏/在读书单/学习总时长/压缩摘要)再加长期记忆；任一路查询失败降级为明示『本轮看不到你的阅读记录』，绝不让模型断言反事实。游客无个人数据。 小涤结合你读过/在读/收藏/笔记给出『被懂』的个性化荐书与答疑">
+    <div class="feat-head">
+      <h4>个性化变量注入(这位读者)</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">buildSystem 为登录用户注入 6 类个人数据(全馆书单/已读完书单含笔记书评/收藏/在读书单/学习总时长/压缩摘要)再加长期记忆；任一路查询失败降级为明示『本轮看不到你的阅读记录』，绝不让模型断言反事实。游客无个人数据。</p>
+    <p class="value"><span>用户价值</span>小涤结合你读过/在读/收藏/笔记给出『被懂』的个性化荐书与答疑</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">lib/server/agent.ts:116 buildSystem / :50 userVars</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase favorites/notes/reviews/text_progress/media_progress/profiles/books/categories(service_role 查)</span></div>
+      <details class="files"><summary>相关文件 (1)</summary><div class="files-list"><code>lib/server/agent.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="chat" data-status="已实现" data-text="长期记忆(t7) 每轮答完后台异步(waituntil)：攒够 4 条新消息才跑，由 m3 对照『记忆现值+新对话』判断 7 维度(身份/阅读偏好/兴趣/聊天风格/事实/近期关注/待跟进)增量更新写 user_memory(每维≤120 字)，注入 system 让小涤『记得这位读者』。 跨会话记得你的偏好/近况，越聊越懂你，问候和推荐更贴心">
+    <div class="feat-head">
+      <h4>长期记忆(T7)</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">每轮答完后台异步(waitUntil)：攒够 4 条新消息才跑，由 M3 对照『记忆现值+新对话』判断 7 维度(身份/阅读偏好/兴趣/聊天风格/事实/近期关注/待跟进)增量更新写 user_memory(每维≤120 字)，注入 system 让小涤『记得这位读者』。</p>
+    <p class="value"><span>用户价值</span>跨会话记得你的偏好/近况，越聊越懂你，问候和推荐更贴心</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">lib/server/memory.ts:41 maybeUpdateMemory / :120 memoryVar</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">MiniMax-M3 + Supabase user_memory(RLS 仅本人读，写走 service_role)</span></div>
+      <details class="files"><summary>相关文件 (4)</summary><div class="files-list"><code>lib/server/memory.ts</code> <code>lib/server/agent.ts</code> <code>app/api/chat/route.ts</code> <code>docs/后端_T7记忆表SQL.md</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="chat" data-status="已实现" data-text="上下文压缩(t2.6) 会话过长时后台 maybecompress(waituntil)：保最近 40 条(20 轮)不压，更早的由 m3 压成≤3500 字接续摘要写 chat_sessions.compressed_history，compressed_until 记进度(原始 messages 永久保留)；route 据 until 动态裁剪请求消息防『既不在摘要也不在请求』黑洞。 超长对话也不丢上下文、不爆窗口，小涤始终记得早先聊过的内容">
+    <div class="feat-head">
+      <h4>上下文压缩(T2.6)</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">会话过长时后台 maybeCompress(waitUntil)：保最近 40 条(20 轮)不压，更早的由 M3 压成≤3500 字接续摘要写 chat_sessions.compressed_history，compressed_until 记进度(原始 messages 永久保留)；route 据 until 动态裁剪请求消息防『既不在摘要也不在请求』黑洞。</p>
+    <p class="value"><span>用户价值</span>超长对话也不丢上下文、不爆窗口，小涤始终记得早先聊过的内容</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">lib/server/compress.ts:30 maybeCompress / :105 getCompressed</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">MiniMax-M3 + Supabase chat_sessions(compressed_history/compressed_until)</span></div>
+      <details class="files"><summary>相关文件 (3)</summary><div class="files-list"><code>lib/server/compress.ts</code> <code>app/api/chat/route.ts</code> <code>lib/server/agent.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="chat" data-status="已实现" data-text="语音输入(长按说话) 长按输入框 350ms 触发：浏览器原生 speechrecognition(zh-cn/continuous/interim)实时识别，松手把文字回填输入框可改可删再发，上滑&gt;90px 取消；录音浮层带实时文本+音量波形(getusermedia 频谱驱动 7 柱)+计时，处理自动续录/权限拒绝引导/指针 capture/双指竞态。minimax 无 asr 故选原生方案。 不方便打字时长按说话即可提问，识别文本可确认后再发更稳">
+    <div class="feat-head">
+      <h4>语音输入(长按说话)</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">长按输入框 350ms 触发：浏览器原生 SpeechRecognition(zh-CN/continuous/interim)实时识别，松手把文字回填输入框可改可删再发，上滑&gt;90px 取消；录音浮层带实时文本+音量波形(getUserMedia 频谱驱动 7 柱)+计时，处理自动续录/权限拒绝引导/指针 capture/双指竞态。MiniMax 无 ASR 故选原生方案。</p>
+    <p class="value"><span>用户价值</span>不方便打字时长按说话即可提问，识别文本可确认后再发更稳</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">lib/useVoiceInput.ts:29 useVoiceInput / app/chat/page.tsx:478 onInputPointerDown</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">浏览器原生 SpeechRecognition + getUserMedia(无服务端)</span></div>
+      <details class="files"><summary>相关文件 (2)</summary><div class="files-list"><code>lib/useVoiceInput.ts</code> <code>app/chat/page.tsx</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="chat" data-status="已实现" data-text="个性化欢迎区与示例问题 空会话时：登录显示时段问候喊昵称 + 小涤『汇报近况』开场白(已读n小时/某书进度，含继续读/给我荐一本按钮) + 按读者数据动态生成的专属示例问题；游客用真实馆藏书名拼问题 + 登录钩子。全部纯前端拼装(0 token)。 一进来就被认出、被点出在读的书，照着示例问题点一下就能开聊">
+    <div class="feat-head">
+      <h4>个性化欢迎区与示例问题</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">空会话时：登录显示时段问候喊昵称 + 小涤『汇报近况』开场白(已读N小时/某书进度，含继续读/给我荐一本按钮) + 按读者数据动态生成的专属示例问题；游客用真实馆藏书名拼问题 + 登录钩子。全部纯前端拼装(0 token)。</p>
+    <p class="value"><span>用户价值</span>一进来就被认出、被点出在读的书，照着示例问题点一下就能开聊</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/chat/page.tsx:683 Welcome / lib/chatWelcome.ts:33 buildQuestions</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">本地 store(history/progress/favorites/notes/readSeconds) + getHome 馆藏缓存</span></div>
+      <details class="files"><summary>相关文件 (2)</summary><div class="files-list"><code>app/chat/page.tsx</code> <code>lib/chatWelcome.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="chat" data-status="已实现" data-text="点赞/点踩反馈 + 踩原因留痕 + 重新生成生效 每条回答可赞/踩，踩弹反馈浮层选标签(推荐偏差/答疑有误/解读没用/其它可自填≤200 字)随消息落库；踩过常驻『已反馈·原因』可改；被踩回答点重新生成时把踩的原因作为一次性指示喂回模型(regenhint)当场可感知生效。 能告诉小涤哪里没说好，重新生成时立刻看到『它听进去了』">
+    <div class="feat-head">
+      <h4>点赞/点踩反馈 + 踩原因留痕 + 重新生成生效</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">每条回答可赞/踩，踩弹反馈浮层选标签(推荐偏差/答疑有误/解读没用/其它可自填≤200 字)随消息落库；踩过常驻『已反馈·原因』可改；被踩回答点重新生成时把踩的原因作为一次性指示喂回模型(regenHint)当场可感知生效。</p>
+    <p class="value"><span>用户价值</span>能告诉小涤哪里没说好，重新生成时立刻看到『它听进去了』</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">components/chat/ChatMessage.tsx:266 操作栏 / app/chat/page.tsx:417 setFeedback / :434 regenerate</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase chat_sessions(反馈写穿透消息)</span></div>
+      <details class="files"><summary>相关文件 (2)</summary><div class="files-list"><code>components/chat/ChatMessage.tsx</code> <code>app/chat/page.tsx</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="chat" data-status="已实现" data-text="重新生成 / 复制 / 停止生成 重新生成截掉旧回答用同一问题重发(显式传 base 防旧闭包复读)；复制剥卡片标记后复制纯文本(兼容非安全上下文 execcommand 回退)；停止 abort 当前请求并保留已流出正文与卡片。 答得不满意可换一版、随时叫停、一键复制收藏好内容">
+    <div class="feat-head">
+      <h4>重新生成 / 复制 / 停止生成</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">重新生成截掉旧回答用同一问题重发(显式传 base 防旧闭包复读)；复制剥卡片标记后复制纯文本(兼容非安全上下文 execCommand 回退)；停止 abort 当前请求并保留已流出正文与卡片。</p>
+    <p class="value"><span>用户价值</span>答得不满意可换一版、随时叫停、一键复制收藏好内容</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/chat/page.tsx:396 stop / :434 regenerate / components/chat/ChatMessage.tsx:297 复制</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">无(前端控制流)</span></div>
+      <details class="files"><summary>相关文件 (2)</summary><div class="files-list"><code>app/chat/page.tsx</code> <code>components/chat/ChatMessage.tsx</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="chat" data-status="已实现" data-text="会话续存与历史回显(单一会话) 单一会话 main：模块级缓存按账号隔离切 tab 保活，登录态云端 chat_sessions 持久化(loadcloud 水合/persist 消息级并集去重防覆盖)，超长会话只渲染最近 120 条、更早的『已收进小涤的记忆』，流式中间态归一化防永久『思考中』，离开页面快照落库防丢提问。 聊天记录跨页面、跨设备、跨刷新都在，回来接着聊不丢内容">
+    <div class="feat-head">
+      <h4>会话续存与历史回显(单一会话)</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">单一会话 main：模块级缓存按账号隔离切 Tab 保活，登录态云端 chat_sessions 持久化(loadCloud 水合/persist 消息级并集去重防覆盖)，超长会话只渲染最近 120 条、更早的『已收进小涤的记忆』，流式中间态归一化防永久『思考中』，离开页面快照落库防丢提问。</p>
+    <p class="value"><span>用户价值</span>聊天记录跨页面、跨设备、跨刷新都在，回来接着聊不丢内容</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/chat/page.tsx:71 chatLive / :186 persist / lib/store.ts:532 loadCloud</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase chat_sessions 表(messages 整段 jsonb)</span></div>
+      <details class="files"><summary>相关文件 (3)</summary><div class="files-list"><code>app/chat/page.tsx</code> <code>lib/store.ts</code> <code>lib/supabase/userdata.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="chat" data-status="已实现" data-text="贴底跟随 / 回到最新 / 输入区交互 流式期间贴底自动跟随(离底&lt;80px)，用户上滑回看即停跟随并浮出『回到最新』；输入区 textarea 多行自适应(封顶 96px)、enter 发送(ime 选词不打断)、500 字上限提醒、字数计数(≥450 字显示)。 看长回答时能自由上滑回看不被打断，一键回到最新，输入顺手">
+    <div class="feat-head">
+      <h4>贴底跟随 / 回到最新 / 输入区交互</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">流式期间贴底自动跟随(离底&lt;80px)，用户上滑回看即停跟随并浮出『回到最新』；输入区 textarea 多行自适应(封顶 96px)、Enter 发送(IME 选词不打断)、500 字上限提醒、字数计数(≥450 字显示)。</p>
+    <p class="value"><span>用户价值</span>看长回答时能自由上滑回看不被打断，一键回到最新，输入顺手</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/chat/page.tsx:138 贴底检测 / :588 回到最新 / :609 textarea</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">无(前端)</span></div>
+      <details class="files"><summary>相关文件 (1)</summary><div class="files-list"><code>app/chat/page.tsx</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="chat" data-status="已实现" data-text="markdown 渲染 + 表格降级 + 安全外链 回答用 react-markdown+remark-gfm 渲染(加粗/引用/列表)；system 禁表格、渲染端再兜底把漏出的 table 降级为行式列表；正文链接强制新开页+青瓷下划线、危险协议过滤；memo+稳定回调避免打字机每拍全量重解析卡顿。 回答排版清晰、手机不挤爆、外链安全，长会话不卡顿">
+    <div class="feat-head">
+      <h4>Markdown 渲染 + 表格降级 + 安全外链</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">回答用 react-markdown+remark-gfm 渲染(加粗/引用/列表)；System 禁表格、渲染端再兜底把漏出的 table 降级为行式列表；正文链接强制新开页+青瓷下划线、危险协议过滤；memo+稳定回调避免打字机每拍全量重解析卡顿。</p>
+    <p class="value"><span>用户价值</span>回答排版清晰、手机不挤爆、外链安全，长会话不卡顿</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">components/chat/ChatMessage.tsx:46 MD_COMPONENTS / :175 memo</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">无(前端渲染)</span></div>
+      <details class="files"><summary>相关文件 (1)</summary><div class="files-list"><code>components/chat/ChatMessage.tsx</code></div></details>
+    </div>
+  </article></div>
+    </section><section class="module" id="mod-library" data-mod="library" style="--accent:#b08d57;--soft:#f4ecdb">
+      <header class="mod-head">
+        <i class="seal lg-seal" style="background:#b08d57">泡</i>
+        <div>
+          <h2>泡馆 / 分类书库 + 三种阅读器 <span class="count">11 项功能</span></h2>
+          <p class="mod-sum">分类书库 + 文字稿/音频伴读/竖屏视频三种阅读形态。目录类数据全部接通 Supabase 真实公开读、匿名可浏览；阅读痕迹(收藏/笔记/高亮/进度/已读章/媒体进度/书评/时长)走 Zustand 本地即时更新 + 登录后写穿透 Supabase。文字稿独立路由 /read，音频/视频在详情页媒体台内联播放。完成度很高、已上线，仅『他人书评』一处为 mock 且本版不展示。</p>
+        </div>
+      </header>
+      <div class="grid"><article class="feat" data-mod="library" data-status="已实现" data-text="泡馆首页(banner/继续阅读/分类网格/热门好书) 落地页：横滑 banner(每分类最新入库一本)、继续阅读(仅文字稿未读完、本地历史驱动、水合后才渲染防闪烁)、6 宫格分类入口(带每类书数)、热门好书列表(按入库时间排序、过滤已读完取 20 本)。 一屏完成『找书/接着读/逛分类』，新入馆与个人进度首屏可达">
+    <div class="feat-head">
+      <h4>泡馆首页(Banner/继续阅读/分类网格/热门好书)</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">落地页：横滑 Banner(每分类最新入库一本)、继续阅读(仅文字稿未读完、本地历史驱动、水合后才渲染防闪烁)、6 宫格分类入口(带每类书数)、热门好书列表(按入库时间排序、过滤已读完取 20 本)。</p>
+    <p class="value"><span>用户价值</span>一屏完成『找书/接着读/逛分类』，新入馆与个人进度首屏可达</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/library/page.tsx:21</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase getHome(categories+books 公开读)；继续阅读取自 useLibrary.history</span></div>
+      <details class="files"><summary>相关文件 (2)</summary><div class="files-list"><code>app/library/page.tsx</code> <code>lib/api.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="library" data-status="已实现" data-text="分类书库页(阅读类型切换 + 状态筛选 + 无限滚动) 按分类列书：顶部『音视频/文字稿』下拉切换(决定查 has_video|has_audio 还是 has_text)，右侧『全部/进行中/已读/未读』状态 pill(非全部需登录)；intersectionobserver 无限滚动 + 稀疏筛选自动续拉、按 id 去重防跨页重复；非法分类给 404。 按媒介与阅读状态精准筛书，长列表流畅加载不重复">
+    <div class="feat-head">
+      <h4>分类书库页(阅读类型切换 + 状态筛选 + 无限滚动)</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">按分类列书：顶部『音视频/文字稿』下拉切换(决定查 has_video|has_audio 还是 has_text)，右侧『全部/进行中/已读/未读』状态 pill(非全部需登录)；IntersectionObserver 无限滚动 + 稀疏筛选自动续拉、按 id 去重防跨页重复；非法分类给 404。</p>
+    <p class="value"><span>用户价值</span>按媒介与阅读状态精准筛书，长列表流畅加载不重复</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/library/category/[id]/page.tsx:24</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase getBooks(offset 分页, shelved_at desc + id 兜底排序)；状态判定取本地 progress 与 mediaPlayed</span></div>
+      <details class="files"><summary>相关文件 (3)</summary><div class="files-list"><code>app/library/category/[id]/page.tsx</code> <code>components/library/BookCard.tsx</code> <code>lib/api.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="library" data-status="已实现" data-text="书籍详情页 顶部媒体台(音视频内联播放/纯文字显示立体书封)+氛围背景；题名作者标签字数；收藏药丸(爱心爆裂动效，写穿透 favorites)；简介展开收起；文字全文章节目录(在读/已读真实态)；我的评价区(只展示本人一条)；底部 sticky 续读 cta。书不存在区分 404 与网络错误两套出路。 一页看全一本书并据进度一键续读，收藏与本人书评闭环">
+    <div class="feat-head">
+      <h4>书籍详情页</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">顶部媒体台(音视频内联播放/纯文字显示立体书封)+氛围背景；题名作者标签字数；收藏药丸(爱心爆裂动效，写穿透 favorites)；简介展开收起；文字全文章节目录(在读/已读真实态)；我的评价区(只展示本人一条)；底部 sticky 续读 CTA。书不存在区分 404 与网络错误两套出路。</p>
+    <p class="value"><span>用户价值</span>一页看全一本书并据进度一键续读，收藏与本人书评闭环</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/library/book/[id]/page.tsx:20</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase getBook + getChapterList(不取正文)；收藏/我的书评/已读章来自 useLibrary</span></div>
+      <details class="files"><summary>相关文件 (3)</summary><div class="files-list"><code>app/library/book/[id]/page.tsx</code> <code>components/library/Players.tsx</code> <code>components/ui/BookCover.tsx</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="library" data-status="已实现" data-text="文字稿阅读器(markdown + 章节切换 + 沉浸模式 + 阅读设置) 独立路由 /read：reactmarkdown(gfm+cjk 友好)按章 memo 渲染；上一/下一章 + 同步 ?ch；点正文中部切换顶/底栏沉浸模式；阅读设置面板(字号四档/四种背景白·米黄·护眼·深灰/亮度滑杆，存 usereader 持久化)；最后一章读毕显示『读毕』印章 + 写书评 cta；按章整棵 key 重挂载规避命令式高亮与 react diff 冲突白屏。 专注、可个性化(字号/背景/亮度)的中式排版阅读体验，读毕有成就感">
+    <div class="feat-head">
+      <h4>文字稿阅读器(Markdown + 章节切换 + 沉浸模式 + 阅读设置)</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">独立路由 /read：ReactMarkdown(GFM+CJK 友好)按章 memo 渲染；上一/下一章 + 同步 ?ch；点正文中部切换顶/底栏沉浸模式；阅读设置面板(字号四档/四种背景白·米黄·护眼·深灰/亮度滑杆，存 useReader 持久化)；最后一章读毕显示『读毕』印章 + 写书评 CTA；按章整棵 key 重挂载规避命令式高亮与 React diff 冲突白屏。</p>
+    <p class="value"><span>用户价值</span>专注、可个性化(字号/背景/亮度)的中式排版阅读体验，读毕有成就感</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/library/book/[id]/read/page.tsx:87</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase getChapters(全量含 content)；阅读偏好走 useReader 本地持久化不入库</span></div>
+      <details class="files"><summary>相关文件 (3)</summary><div class="files-list"><code>app/library/book/[id]/read/page.tsx</code> <code>lib/utils.ts</code> <code>lib/api.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="library" data-status="已实现" data-text="音频伴读播放器 详情页媒体台内唱片台座：旋转封面圆盘、进度条(拖动只移滑块、松手 commitseek 才定位)、倍速 0.75~2x、±15 秒、环形进度大播放钮、缓冲转圈、失败重试；mediasession 接通锁屏/控制中心；续播按已存 media_progress 定位；卸载/切台 pause+removeattribute(src)+load 停声释放资源。 可后台/锁屏的全本朗读伴读，断点续听不丢位置">
+    <div class="feat-head">
+      <h4>音频伴读播放器</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">详情页媒体台内唱片台座：旋转封面圆盘、进度条(拖动只移滑块、松手 commitSeek 才定位)、倍速 0.75~2x、±15 秒、环形进度大播放钮、缓冲转圈、失败重试；MediaSession 接通锁屏/控制中心；续播按已存 media_progress 定位；卸载/切台 pause+removeAttribute(src)+load 停声释放资源。</p>
+    <p class="value"><span>用户价值</span>可后台/锁屏的全本朗读伴读，断点续听不丢位置</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">components/library/Players.tsx:320</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">audioUrl 来自 OSS；setMediaProgress/setMediaPlayed 写穿透 media_progress(5 秒节流)</span></div>
+      <details class="files"><summary>相关文件 (2)</summary><div class="files-list"><code>components/library/Players.tsx</code> <code>lib/utils.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="library" data-status="已实现" data-text="竖屏视频解读播放器 详情页媒体台内 3:4 竖屏视频：播放/暂停、静音、自绘竖屏全屏(锁滚动+pushstate 接管系统返回仅退全屏不退页)、进度条松手定位、倍速循环、缓冲转圈、失败占位重试；未播放时显示书封(首次播放才 seek 防跳帧)；视频/音频双媒介书提供 tab 切换；卸载停声释放资源。 沉浸的竖屏读书解读视频，断点续看、全屏手势自然">
+    <div class="feat-head">
+      <h4>竖屏视频解读播放器</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">详情页媒体台内 3:4 竖屏视频：播放/暂停、静音、自绘竖屏全屏(锁滚动+pushState 接管系统返回仅退全屏不退页)、进度条松手定位、倍速循环、缓冲转圈、失败占位重试；未播放时显示书封(首次播放才 seek 防跳帧)；视频/音频双媒介书提供 Tab 切换；卸载停声释放资源。</p>
+    <p class="value"><span>用户价值</span>沉浸的竖屏读书解读视频，断点续看、全屏手势自然</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">components/library/Players.tsx:128</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">videoUrl 来自 OSS；进度同 media_progress 写穿透；mediaPlayed 真实播放覆盖决定已读</span></div>
+      <details class="files"><summary>相关文件 (1)</summary><div class="files-list"><code>components/library/Players.tsx</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="library" data-status="已实现" data-text="章节目录(详情页清单 + 阅读器抽屉) 详情页列出全部章节(在读高亮+已读勾，第 0 章统一『前言』)；阅读器内左滑目录抽屉，打开把当前章 scrollintoview 居中，点击跳转回顶并清旧章选区菜单防幽灵笔记。 快速跳章、清楚看到读到哪、哪些读过">
+    <div class="feat-head">
+      <h4>章节目录(详情页清单 + 阅读器抽屉)</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">详情页列出全部章节(在读高亮+已读勾，第 0 章统一『前言』)；阅读器内左滑目录抽屉，打开把当前章 scrollIntoView 居中，点击跳转回顶并清旧章选区菜单防幽灵笔记。</p>
+    <p class="value"><span>用户价值</span>快速跳章、清楚看到读到哪、哪些读过</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/library/book/[id]/read/page.tsx:750 / app/library/book/[id]/page.tsx:171</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">getChapterList(详情页轻量)/getChapters(阅读器全量)；已读/在读取 useLibrary.readChapters 与 progress</span></div>
+      <details class="files"><summary>相关文件 (3)</summary><div class="files-list"><code>app/library/book/[id]/read/page.tsx</code> <code>app/library/book/[id]/page.tsx</code> <code>lib/api.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="library" data-status="已实现" data-text="高亮划线与笔记 长按选词弹工具条(四色青瓷/黄铜/胭脂/淡墨、记住上次用色)：划线/写笔记/复制。用 treewalker 把 range 映射到 textcontent 坐标系，支持跨段落/跨粗体精确包裹落库 excerpt+start+end；与既有划线重叠时『并集合并』删旧建新杜绝幽灵笔记；点已有划线可换色/写想法/删除(带撤销 toast)；本章笔记列表浮层；从『我的笔记』带 ?mark 轮询定位并高亮闪烁。 在正文里完整可见、可改色可合并的划线批注，跨设备同步且不丢位置">
+    <div class="feat-head">
+      <h4>高亮划线与笔记</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">长按选词弹工具条(四色青瓷/黄铜/胭脂/淡墨、记住上次用色)：划线/写笔记/复制。用 TreeWalker 把 Range 映射到 textContent 坐标系，支持跨段落/跨粗体精确包裹落库 excerpt+start+end；与既有划线重叠时『并集合并』删旧建新杜绝幽灵笔记；点已有划线可换色/写想法/删除(带撤销 toast)；本章笔记列表浮层；从『我的笔记』带 ?mark 轮询定位并高亮闪烁。</p>
+    <p class="value"><span>用户价值</span>在正文里完整可见、可改色可合并的划线批注，跨设备同步且不丢位置</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/library/book/[id]/read/page.tsx:372</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">addNote/removeNote/updateNote 写穿透 notes(offset 取整)；游客经 requireLogin 引导登录后落库</span></div>
+      <details class="files"><summary>相关文件 (3)</summary><div class="files-list"><code>app/library/book/[id]/read/page.tsx</code> <code>lib/store.ts</code> <code>lib/supabase/userdata.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="library" data-status="已实现" data-text="阅读进度与续读 文字稿进度=(已读完章数+当前章滚动比例)/总章数，滚到底≥95% 或不足一屏记本章读毕；进入先续读决议(等水合，按 ?ch&gt;本地章内比例&gt;全书 pct 反解三级兜底)，resolved 前不上报防抢跑写脏；5 秒定时 + onscroll 双路只由活着的容器判读毕。音视频真实播放区间并集≥90% 记 100%，progress 与媒体分列互不覆盖；pushhistory 写阅读历史(按书+大类去重，10 分钟刷新口子)。 任何时候退出回来都能精确接着读/看，进度跨设备一致且不被误判读完">
+    <div class="feat-head">
+      <h4>阅读进度与续读</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">文字稿进度=(已读完章数+当前章滚动比例)/总章数，滚到底≥95% 或不足一屏记本章读毕；进入先续读决议(等水合，按 ?ch&gt;本地章内比例&gt;全书 pct 反解三级兜底)，resolved 前不上报防抢跑写脏；5 秒定时 + onScroll 双路只由活着的容器判读毕。音视频真实播放区间并集≥90% 记 100%，progress 与媒体分列互不覆盖；pushHistory 写阅读历史(按书+大类去重，10 分钟刷新口子)。</p>
+    <p class="value"><span>用户价值</span>任何时候退出回来都能精确接着读/看，进度跨设备一致且不被误判读完</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/library/book/[id]/read/page.tsx:202</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">setProgress/markChapterRead→text_progress；pushHistory→reading_history；mediaPlayed/Progress→media_progress；hydrated 双门禁防空基线</span></div>
+      <details class="files"><summary>相关文件 (3)</summary><div class="files-list"><code>app/library/book/[id]/read/page.tsx</code> <code>components/library/Players.tsx</code> <code>lib/store.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="library" data-status="已实现" data-text="写 / 更新书评 独立编辑页：门禁外壳等 auth+lib 水合再初始化表单防直刷洗空；星级打分(伴文案)+选填标题(ime 友好)+正文(≥10 字可发、≤2000)；既有书评进『更新』模式预填保留原发表时间；提交锁防双击、未保存改动离开二次确认；未登录先登录回调再发。 读完即可一键记录/修改自己的评价与评分，不丢内容不重复发">
+    <div class="feat-head">
+      <h4>写 / 更新书评</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">独立编辑页：门禁外壳等 auth+lib 水合再初始化表单防直刷洗空；星级打分(伴文案)+选填标题(IME 友好)+正文(≥10 字可发、≤2000)；既有书评进『更新』模式预填保留原发表时间；提交锁防双击、未保存改动离开二次确认；未登录先登录回调再发。</p>
+    <p class="value"><span>用户价值</span>读完即可一键记录/修改自己的评价与评分，不丢内容不重复发</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/library/book/[id]/review/new/page.tsx:19</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">upsertReview 写穿透 reviews(onConflict user_id,book_id 单本一条)</span></div>
+      <details class="files"><summary>相关文件 (3)</summary><div class="files-list"><code>app/library/book/[id]/review/new/page.tsx</code> <code>lib/store.ts</code> <code>components/ui/Stars.tsx</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="library" data-status="Mock占位" data-text="读者评价(他人书评)展示 getbookreviews 仍读 mock 的 reviewsbybook(支持热门/最新排序)，本版数据-only 不在任何书库 ui 展示——详情页『我的评价』只读本人，他人书评未接 supabase 也未渲染。全仓无任何 ui 调用 getbookreviews，属预留接口。 (暂无用户可见价值，为后续读者评价/社区化预留)">
+    <div class="feat-head">
+      <h4>读者评价(他人书评)展示</h4>
+      <span class="badge s-mock">Mock占位</span>
+    </div>
+    <p class="desc">getBookReviews 仍读 mock 的 reviewsByBook(支持热门/最新排序)，本版数据-only 不在任何书库 UI 展示——详情页『我的评价』只读本人，他人书评未接 Supabase 也未渲染。全仓无任何 UI 调用 getBookReviews，属预留接口。</p>
+    <p class="value"><span>用户价值</span>(暂无用户可见价值，为后续读者评价/社区化预留)</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">lib/api.ts:238 getBookReviews</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">mock(lib/mock/data.ts reviewsByBook)；后续接 reviews 表公开读时替换</span></div>
+      <details class="files"><summary>相关文件 (2)</summary><div class="files-list"><code>lib/api.ts</code> <code>lib/mock/data.ts</code></div></details>
+    </div>
+  </article></div>
+    </section><section class="module" id="mod-flip" data-mod="flip" style="--accent:#b04a3c;--soft:#f6e6e2">
+      <header class="mod-head">
+        <i class="seal lg-seal" style="background:#b04a3c">乱</i>
+        <div>
+          <h2>乱翻 / 竖滑视频信息流(类抖音) <span class="count">9 项功能</span></h2>
+          <p class="mod-sum">类抖音竖滑读书短视频流：全屏一条、上下滑切书、自动播下一条。三大工程亮点——①3 槽位视频池虚拟化(全程只复用 3 个 &lt;video&gt;、永不新建卸载、支持 100+ 本)；②个性化 feed 由 Cron 每日北京 04:00 用 MiniMax 按画像为每人生成写入 flip_feed；③大量边界打磨(微信带声解锁/静音兜底、play() 竞态守卫、续播与详情页双向同步)。已上线、无 Mock。</p>
+        </div>
+      </header>
+      <div class="grid"><article class="feat" data-mod="flip" data-status="已实现" data-text="信息流加载与个性化书池 进入先从模块级缓存(按账号隔离、5 分钟新鲜)秒显上次位置；无缓存则 getflip→flippool 取数：登录用户读自己最近一期 flip_feed.book_ids 严格按序还原成带视频书，游客或无 feed 回退最新入库 50 本带视频书。 打开即看到为自己量身排序的读书短视频流，离开再回来保持原位">
+    <div class="feat-head">
+      <h4>信息流加载与个性化书池</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">进入先从模块级缓存(按账号隔离、5 分钟新鲜)秒显上次位置；无缓存则 getFlip→flipPool 取数：登录用户读自己最近一期 flip_feed.book_ids 严格按序还原成带视频书，游客或无 feed 回退最新入库 50 本带视频书。</p>
+    <p class="value"><span>用户价值</span>打开即看到为自己量身排序的读书短视频流，离开再回来保持原位</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/flip/page.tsx:138 load / lib/api.ts:169 flipPool / :196 getFlip</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase flip_feed + books(has_video/video_url) + categories；含 owner 戳与 5min 内存缓存</span></div>
+      <details class="files"><summary>相关文件 (2)</summary><div class="files-list"><code>app/flip/page.tsx</code> <code>lib/api.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="flip" data-status="已实现" data-text="上下滑切条 + scroll-snap + 位置记忆 竖向 css scroll-snap 每屏一条；滚动落点用 raf + scrollend 确定 activeidx；切新条时收尾旧条进度、清零计数基准、还原新书续播位置再播；离开/返回经 flipcache 恢复滚动位置。 像抖音一样顺滑上下滑换书，跟手、不串台、回来还在原处">
+    <div class="feat-head">
+      <h4>上下滑切条 + scroll-snap + 位置记忆</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">竖向 CSS scroll-snap 每屏一条；滚动落点用 rAF + scrollend 确定 activeIdx；切新条时收尾旧条进度、清零计数基准、还原新书续播位置再播；离开/返回经 flipCache 恢复滚动位置。</p>
+    <p class="value"><span>用户价值</span>像抖音一样顺滑上下滑换书，跟手、不串台、回来还在原处</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/flip/page.tsx:210 滚动落点 / :296 snap 容器 / :173 切条</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">无(进度落 media_progress 见续播项)</span></div>
+      <details class="files"><summary>相关文件 (1)</summary><div class="files-list"><code>app/flip/page.tsx</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="flip" data-status="已实现" data-text="自动播放(含微信解锁/静音兜底) playactive 播当前槽暂停其余；带声被拦截则自动静音继续播并弹『轻点开启声音』chip 4 秒自隐；手势内与 weixinjsbridgeready 主动 kick 满足微信 x5 带声解锁；play() promise 带 stillactive 守卫防快滑切条后旧槽后台复活。 滑到哪条自动播哪条，微信里也能带声播，断网/快滑不会出现幽灵后台声音">
+    <div class="feat-head">
+      <h4>自动播放(含微信解锁/静音兜底)</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">playActive 播当前槽暂停其余；带声被拦截则自动静音继续播并弹『轻点开启声音』chip 4 秒自隐；手势内与 WeixinJSBridgeReady 主动 kick 满足微信 X5 带声解锁；play() Promise 带 stillActive 守卫防快滑切条后旧槽后台复活。</p>
+    <p class="value"><span>用户价值</span>滑到哪条自动播哪条，微信里也能带声播，断网/快滑不会出现幽灵后台声音</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/flip/page.tsx:113 playActive / :227 手势 kick / :237 WeixinJSBridge</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">OSS video_url；无服务端逻辑</span></div>
+      <details class="files"><summary>相关文件 (1)</summary><div class="files-list"><code>app/flip/page.tsx</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="flip" data-status="已实现" data-text="3 槽位视频池虚拟化窗口 slots=3 只复用 3 个 &lt;video&gt;(当前条 ±1)永不新建卸载→全程仅 3 个解码器；当前槽 preload=auto 全量预载、相邻槽只拉 metadata；overlay 仅 activeidx±2 渲染、封面垫底仅 ±1，滚动高度由占位 div 撑起，注释明确支持 100+ 本。 书再多也不卡、不爆内存，滑动相邻条几乎零缓冲等待">
+    <div class="feat-head">
+      <h4>3 槽位视频池虚拟化窗口</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">SLOTS=3 只复用 3 个 &lt;video&gt;(当前条 ±1)永不新建卸载→全程仅 3 个解码器；当前槽 preload=auto 全量预载、相邻槽只拉 metadata；overlay 仅 activeIdx±2 渲染、封面垫底仅 ±1，滚动高度由占位 div 撑起，注释明确支持 100+ 本。</p>
+    <p class="value"><span>用户价值</span>书再多也不卡、不爆内存，滑动相邻条几乎零缓冲等待</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/flip/page.tsx:25 SLOTS/slotOf / :318 视频池渲染 / :346 overlay 虚拟化</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">无(前端渲染优化)</span></div>
+      <details class="files"><summary>相关文件 (1)</summary><div class="files-list"><code>app/flip/page.tsx</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="flip" data-status="已实现" data-text="个性化 feed cron 日更生成 vercel cron 每天北京 04:00(utc 20:00)调 get /api/cron/flip-feed(cron_secret bearer 鉴权)；generateflipfeeds 排除已读完、在读置顶，其余候选(≤120)交 minimax 按读者画像排序，每用户≤50 本写 flip_feed；按批生成+50s 时间预算+幂等续做，llm 失败退默认序，新用户不写行(前端回退最新池)，?force=1 强制重生成。 每天醒来乱翻就有一批结合你近期阅读口味的新推荐，越用越懂你">
+    <div class="feat-head">
+      <h4>个性化 feed Cron 日更生成</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">Vercel Cron 每天北京 04:00(UTC 20:00)调 GET /api/cron/flip-feed(CRON_SECRET Bearer 鉴权)；generateFlipFeeds 排除已读完、在读置顶，其余候选(≤120)交 MiniMax 按读者画像排序，每用户≤50 本写 flip_feed；按批生成+50s 时间预算+幂等续做，LLM 失败退默认序，新用户不写行(前端回退最新池)，?force=1 强制重生成。</p>
+    <p class="value"><span>用户价值</span>每天醒来乱翻就有一批结合你近期阅读口味的新推荐，越用越懂你</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/api/cron/flip-feed/route.ts:11 GET / lib/server/flipfeed.ts:172 generateFlipFeeds</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase flip_feed/profiles/books/favorites/text_progress/media_progress/reviews/notes/chat_sessions(画像信号) + MiniMax-M3 + Vercel Cron</span></div>
+      <details class="files"><summary>相关文件 (4)</summary><div class="files-list"><code>app/api/cron/flip-feed/route.ts</code> <code>lib/server/flipfeed.ts</code> <code>vercel.json</code> <code>lib/api.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="flip" data-status="已实现" data-text="无限续拉(loadmore) 当 activeidx 进入末尾 2 条内自动 loadmore：getflip(已看 ids) 把同一书池打乱、附唯一 id 后缀(防 key 冲突)续接到列表尾；fetching ref 防并发，弱网失败静默下次滑动重试，append 不触发切条逻辑。 可以一直往下刷不到底，看完一轮自动换序重发">
+    <div class="feat-head">
+      <h4>无限续拉(loadMore)</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">当 activeIdx 进入末尾 2 条内自动 loadMore：getFlip(已看 ids) 把同一书池打乱、附唯一 id 后缀(防 key 冲突)续接到列表尾；fetching ref 防并发，弱网失败静默下次滑动重试，append 不触发切条逻辑。</p>
+    <p class="value"><span>用户价值</span>可以一直往下刷不到底，看完一轮自动换序重发</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/flip/page.tsx:158 loadMore / :167 临近末尾触发 / lib/api.ts:200</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase(复用 flipPool 缓存，不二次查库)</span></div>
+      <details class="files"><summary>相关文件 (2)</summary><div class="files-list"><code>app/flip/page.tsx</code> <code>lib/api.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="flip" data-status="已实现" data-text="进度条/续播位置与详情页双向同步 底部抖音式细线进度条(raf 直写 dom 零重渲染)，按下变粗可拖动定位、显示当前/总时长气泡、松手 seek(锁定目标视频防串台)；ontimeupdate/onseeked 把位置写入 media_progress，详情页与乱翻共享同一本书进度；mediaplayed 真实播放秒数只增防 seek 跳变污染。 拖动精确定位，文字/视频两种入口看同一本书进度互通不重复看">
+    <div class="feat-head">
+      <h4>进度条/续播位置与详情页双向同步</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">底部抖音式细线进度条(rAF 直写 DOM 零重渲染)，按下变粗可拖动定位、显示当前/总时长气泡、松手 seek(锁定目标视频防串台)；onTimeUpdate/onSeeked 把位置写入 media_progress，详情页与乱翻共享同一本书进度；mediaPlayed 真实播放秒数只增防 seek 跳变污染。</p>
+    <p class="value"><span>用户价值</span>拖动精确定位，文字/视频两种入口看同一本书进度互通不重复看</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/flip/page.tsx:532 FlipProgress / :99 primeActive / :263 onSlotTime</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase media_progress(经 useLibrary store 落账)</span></div>
+      <details class="files"><summary>相关文件 (1)</summary><div class="files-list"><code>app/flip/page.tsx</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="flip" data-status="已实现" data-text="条内互动(收藏/写书评/双击点赞动画) 右侧心形收藏(togglefav，未登录走 requirelogin)、写/编辑书评跳转；双击正文触发心形爆发+小心心散开动画(280ms 单/双击辨别，快滑切条不误暂停)；底部展示书名/标签/简介与『读这本书』跳详情。 刷到喜欢的书一键收藏/双击点赞/写书评，无缝跳到正文阅读">
+    <div class="feat-head">
+      <h4>条内互动(收藏/写书评/双击点赞动画)</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">右侧心形收藏(toggleFav，未登录走 requireLogin)、写/编辑书评跳转；双击正文触发心形爆发+小心心散开动画(280ms 单/双击辨别，快滑切条不误暂停)；底部展示书名/标签/简介与『读这本书』跳详情。</p>
+    <p class="value"><span>用户价值</span>刷到喜欢的书一键收藏/双击点赞/写书评，无缝跳到正文阅读</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/flip/page.tsx:430 FlipOverlay / :463 favOnly / :496 右侧 Action 列</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase favorites/reviews(经 useLibrary store)</span></div>
+      <details class="files"><summary>相关文件 (1)</summary><div class="files-list"><code>app/flip/page.tsx</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="flip" data-status="已实现" data-text="加载/错误/空态与视频出错兜底 flipskeleton 骨架屏；整体拉流失败 errorstate 可重试；无带视频书 emptystate 引导去泡馆；单条视频源坏显示『暂时无法播放』+重试(reload+续播)/看图文详情双按钮；缓冲转圈；仅用户主动暂停才显播放按钮(杜绝暂停显示却在放)。 弱网/坏视频不会白屏或一直转圈，总有重试或转图文详情的出路">
+    <div class="feat-head">
+      <h4>加载/错误/空态与视频出错兜底</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">FlipSkeleton 骨架屏；整体拉流失败 ErrorState 可重试；无带视频书 EmptyState 引导去泡馆；单条视频源坏显示『暂时无法播放』+重试(reload+续播)/看图文详情双按钮；缓冲转圈；仅用户主动暂停才显播放按钮(杜绝暂停显示却在放)。</p>
+    <p class="value"><span>用户价值</span>弱网/坏视频不会白屏或一直转圈，总有重试或转图文详情的出路</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/flip/page.tsx:284 loading/error/empty / :355 vErr 兜底 / :376 播放按钮</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">无(前端状态机)</span></div>
+      <details class="files"><summary>相关文件 (1)</summary><div class="files-list"><code>app/flip/page.tsx</code></div></details>
+    </div>
+  </article></div>
+    </section><section class="module" id="mod-me" data-mod="me" style="--accent:#4f7a8c;--soft:#e4eef2">
+      <header class="mod-head">
+        <i class="seal lg-seal" style="background:#4f7a8c">我</i>
+        <div>
+          <h2>我的 / 个人中心 <span class="count">9 项功能</span></h2>
+          <p class="mod-sum">用户数据中心，聚合收藏/笔记/书评/历史/设置/资料/法律/注销共 8 个二级页 + 1 个删号云函数。两条链路：业务数据(收藏/笔记/书评/历史/进度/时长)由 useLibrary 统一托管、登录后一次性 loadUserData 拉取、各页只读 store、增删改『本地乐观更新+异步写穿透+hydrated 门禁』；账号/资料直连 Supabase Auth+profiles+avatars 桶。二级页统一 RequireAuth 守卫，未登录显示引导。除法律页纯静态外全部真实接后端。</p>
+        </div>
+      </header>
+      <div class="grid"><article class="feat" data-mod="me" data-status="已实现" data-text="个人中心首页(资料 + 数据卡 + 菜单 + 拉绳台灯) 按三态渲染头像区(已登录头像昵称简介+编辑入口/未水合骨架/未登录登录注册 cta，专修冷启动闪现登录按钮 bug)；4 张数据卡(阅读时长真实累计/已读去重计数/进行中/收藏)，已读·进行中卡 href 带『有记录的大类』避免点进历史页空；菜单(书评/笔记/设置/关于)，未登录点需登录项挂起目标登录后跳过去；右上角彩蛋 lamppull 拉绳台灯下拉切浅/深主题。 一屏看清阅读成就(时长/已读/进行中/收藏)，并作为收藏/笔记/书评/设置总入口">
+    <div class="feat-head">
+      <h4>个人中心首页(资料 + 数据卡 + 菜单 + 拉绳台灯)</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">按三态渲染头像区(已登录头像昵称简介+编辑入口/未水合骨架/未登录登录注册 CTA，专修冷启动闪现登录按钮 bug)；4 张数据卡(阅读时长真实累计/已读去重计数/进行中/收藏)，已读·进行中卡 href 带『有记录的大类』避免点进历史页空；菜单(书评/笔记/设置/关于)，未登录点需登录项挂起目标登录后跳过去；右上角彩蛋 LampPull 拉绳台灯下拉切浅/深主题。</p>
+    <p class="value"><span>用户价值</span>一屏看清阅读成就(时长/已读/进行中/收藏)，并作为收藏/笔记/书评/设置总入口</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/me/page.tsx:50</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase profiles + 各业务表统计；统计全由前端从 useLibrary store 实时算</span></div>
+      <details class="files"><summary>相关文件 (4)</summary><div class="files-list"><code>app/me/page.tsx</code> <code>lib/store.ts</code> <code>components/shell/BottomNav.tsx</code> <code>components/ui/Avatar.tsx</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="me" data-status="已实现" data-text="我的收藏(=点赞) 网格展示收藏书，book_id 列表来自 uselibrary.favorites，用 getbooksbyids 批量查 books 解析；querykey 固定+placeholderdata 避免每次取消收藏闪骨架；『最新/最早收藏』排序；每卡取消按钮单击即取消+4s 撤销窗口+退场动画；区分网络失败(可重试)与真空态(引导去泡馆)。 集中管理收藏的好书，一键进入详情或取消收藏，误删可撤销">
+    <div class="feat-head">
+      <h4>我的收藏(=点赞)</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">网格展示收藏书，book_id 列表来自 useLibrary.favorites，用 getBooksByIds 批量查 books 解析；queryKey 固定+placeholderData 避免每次取消收藏闪骨架；『最新/最早收藏』排序；每卡取消按钮单击即取消+4s 撤销窗口+退场动画；区分网络失败(可重试)与真空态(引导去泡馆)。</p>
+    <p class="value"><span>用户价值</span>集中管理收藏的好书，一键进入详情或取消收藏，误删可撤销</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/me/favorites/page.tsx:19</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase favorites(读 book_id) + books(批量解析)；toggleFav 写穿透 addFav(upsert ignoreDuplicates)/removeFav</span></div>
+      <details class="files"><summary>相关文件 (4)</summary><div class="files-list"><code>app/me/favorites/page.tsx</code> <code>lib/store.ts</code> <code>lib/api.ts</code> <code>lib/supabase/userdata.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="me" data-status="已实现" data-text="阅读历史(含已读/进行中视图) 同页面三种视图由 ?status= 决定(read=已读/reading=进行中/缺省=历史)，胶囊切『音视频/文字稿』；每条显示封面书名作者进度条最后阅读时间，右侧继续/重读按 mode 跳阅读器或详情，删除单击即删+4s 撤销；数据来自 uselibrary.history 按书+大类去重。 随时续读上次进度、回看读过哪些书，进度可视化，误删可撤销">
+    <div class="feat-head">
+      <h4>阅读历史(含已读/进行中视图)</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">同页面三种视图由 ?status= 决定(read=已读/reading=进行中/缺省=历史)，胶囊切『音视频/文字稿』；每条显示封面书名作者进度条最后阅读时间，右侧继续/重读按 mode 跳阅读器或详情，删除单击即删+4s 撤销；数据来自 useLibrary.history 按书+大类去重。</p>
+    <p class="value"><span>用户价值</span>随时续读上次进度、回看读过哪些书，进度可视化，误删可撤销</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/me/history/page.tsx:19</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase reading_history(mode_category=av/text,progress,last_at)；10 分钟阈值去重+hydrated 门禁</span></div>
+      <details class="files"><summary>相关文件 (3)</summary><div class="files-list"><code>app/me/history/page.tsx</code> <code>lib/store.ts</code> <code>lib/supabase/userdata.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="me" data-status="已实现" data-text="我的笔记 按书分组可折叠列表(默认展开第一组)，组头封面+书名+n 条；顶部搜索按笔记内容/原文摘录/书名过滤；每条展示带颜色左边框的原文摘录+笔记正文+章节标题+时间，点击跳回阅读器定位高亮(?ch=&amp;mark=)；支持就地编辑(仅改 note 不动摘录)与删除(+4s 撤销)；书名封面用创建时快照字段。 集中查看/搜索/编辑读书划线写下的笔记，一键跳回原文定位高亮">
+    <div class="feat-head">
+      <h4>我的笔记</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">按书分组可折叠列表(默认展开第一组)，组头封面+书名+N 条；顶部搜索按笔记内容/原文摘录/书名过滤；每条展示带颜色左边框的原文摘录+笔记正文+章节标题+时间，点击跳回阅读器定位高亮(?ch=&amp;mark=)；支持就地编辑(仅改 note 不动摘录)与删除(+4s 撤销)；书名封面用创建时快照字段。</p>
+    <p class="value"><span>用户价值</span>集中查看/搜索/编辑读书划线写下的笔记，一键跳回原文定位高亮</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/me/notes/page.tsx:13</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase notes(excerpt/note/color/start_offset/end_offset/chapter_id)；偏移强制整数</span></div>
+      <details class="files"><summary>相关文件 (3)</summary><div class="files-list"><code>app/me/notes/page.tsx</code> <code>lib/store.ts</code> <code>lib/supabase/userdata.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="me" data-status="已实现" data-text="我的书评 按时间倒序展示书评卡(封面+书名+星级+可选标题+两行正文)，编辑跳书评页、删除走底部弹层二次确认；本版明确『读者评价只存数据不展示/不显示点赞数/卡片不可点进列表』；书名封面用快照字段。 管理自己写过的书评，可重新编辑评分/内容或删除(防误删二次确认)">
+    <div class="feat-head">
+      <h4>我的书评</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">按时间倒序展示书评卡(封面+书名+星级+可选标题+两行正文)，编辑跳书评页、删除走底部弹层二次确认；本版明确『读者评价只存数据不展示/不显示点赞数/卡片不可点进列表』；书名封面用快照字段。</p>
+    <p class="value"><span>用户价值</span>管理自己写过的书评，可重新编辑评分/内容或删除(防误删二次确认)</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/me/reviews/page.tsx:15</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase reviews(onConflict user_id+book_id 单本一条)；review_likes 点赞已闭环但 UI 不展示</span></div>
+      <details class="files"><summary>相关文件 (4)</summary><div class="files-list"><code>app/me/reviews/page.tsx</code> <code>lib/store.ts</code> <code>lib/supabase/userdata.ts</code> <code>components/ui/Stars.tsx</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="me" data-status="已实现" data-text="设置(改密/阅读偏好/主题/注销/反馈/退出) 个人信息(头像昵称简介跳资料页、修改密码=先 signinwithpassword 验旧密再 updateuser 真改非假成功)；阅读偏好(默认字号/背景写 usereader)；主题外观(浅/深)；注销账号(取 token 调 /api/account/delete)；意见反馈(真落库 feedback 表只写无读仅管理员可见)；退出(signout)。四个弹层锁背景滚动防重复提交；体验账号(demo_email)禁改密/注销点击给 toast。 一站式管理密码安全、阅读偏好、外观主题、反馈与账号注销/退出">
+    <div class="feat-head">
+      <h4>设置(改密/阅读偏好/主题/注销/反馈/退出)</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">个人信息(头像昵称简介跳资料页、修改密码=先 signInWithPassword 验旧密再 updateUser 真改非假成功)；阅读偏好(默认字号/背景写 useReader)；主题外观(浅/深)；注销账号(取 token 调 /api/account/delete)；意见反馈(真落库 feedback 表只写无读仅管理员可见)；退出(signOut)。四个弹层锁背景滚动防重复提交；体验账号(DEMO_EMAIL)禁改密/注销点击给 toast。</p>
+    <p class="value"><span>用户价值</span>一站式管理密码安全、阅读偏好、外观主题、反馈与账号注销/退出</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/me/settings/page.tsx:22</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase Auth(signInWithPassword/updateUser/signOut) + feedback 表 + /api/account/delete + useReader 本地持久化</span></div>
+      <details class="files"><summary>相关文件 (4)</summary><div class="files-list"><code>app/me/settings/page.tsx</code> <code>lib/store.ts</code> <code>lib/supabase/client.ts</code> <code>app/api/account/delete/route.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="me" data-status="已实现" data-text="编辑资料(昵称/简介/头像上传) 改昵称(≤16 ime 友好)、简介(≤30 高度自适应)、头像(相册/拍照上传或选 8 个预设)；上传图先本地压缩(最长边≤512、白底转 jpeg85% 防透明染黑)仅本地预览，点保存才真上传 avatars/&lt;uid&gt;/avatar.jpg(upsert+版本参数破 cdn 缓存)并写 profiles.avatar_url；选预设=显式清空云端头像；冷加载回填守卫防直刷洗空；保存失败不假成功可重试。 个性化头像/昵称/简介跨设备同步，上传自动压缩省流量">
+    <div class="feat-head">
+      <h4>编辑资料(昵称/简介/头像上传)</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">改昵称(≤16 IME 友好)、简介(≤30 高度自适应)、头像(相册/拍照上传或选 8 个预设)；上传图先本地压缩(最长边≤512、白底转 JPEG85% 防透明染黑)仅本地预览，点保存才真上传 avatars/&lt;uid&gt;/avatar.jpg(upsert+版本参数破 CDN 缓存)并写 profiles.avatar_url；选预设=显式清空云端头像；冷加载回填守卫防直刷洗空；保存失败不假成功可重试。</p>
+    <p class="value"><span>用户价值</span>个性化头像/昵称/简介跨设备同步，上传自动压缩省流量</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/me/settings/profile/page.tsx:41</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase Storage avatars 桶(策略限本人) + profiles 表(乐观更新+失败回滚)</span></div>
+      <details class="files"><summary>相关文件 (3)</summary><div class="files-list"><code>app/me/settings/profile/page.tsx</code> <code>lib/store.ts</code> <code>lib/supabase/client.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="me" data-status="已实现" data-text="法律/关于页(关于/用户协议/隐私政策) 由 ?doc=about|terms|privacy 切换的三合一静态文档(非法值兜底 about)：about 介绍三大模块+版本号；terms 含服务/账号/版权/ai 免责/变更五条；privacy 含收集/使用/存储保护(提 rls)/用户权利/联系五条。内容硬编码在 docs 常量，suspense 包 usesearchparams。 了解产品定位、阅读用户协议与隐私政策，满足合规告知">
+    <div class="feat-head">
+      <h4>法律/关于页(关于/用户协议/隐私政策)</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">由 ?doc=about|terms|privacy 切换的三合一静态文档(非法值兜底 about)：about 介绍三大模块+版本号；terms 含服务/账号/版权/AI 免责/变更五条；privacy 含收集/使用/存储保护(提 RLS)/用户权利/联系五条。内容硬编码在 DOCS 常量，Suspense 包 useSearchParams。</p>
+    <p class="value"><span>用户价值</span>了解产品定位、阅读用户协议与隐私政策，满足合规告知</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/me/legal/page.tsx:41</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">无(纯前端静态文档)</span></div>
+      <details class="files"><summary>相关文件 (2)</summary><div class="files-list"><code>app/me/legal/page.tsx</code> <code>components/shell/Header.tsx</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="me" data-status="已实现" data-text="注销账号云函数(删号 api) post /api/account/delete(node runtime)：先 bearer token 验身份(无效 401)、再校验体验账号(demo_email 403 防直接打 api)；主动列删 avatars 桶本人目录(存储无级联，失败记日志不阻断)；最后 service_role 调 admin.deleteuser，业务表靠 on delete cascade 级联清除；幂等(用户已不存在 404 视作成功)。maxduration=30。 用户可彻底注销账号、永久删除全部云端数据(收藏/笔记/书评/进度/对话/头像)，符合隐私合规">
+    <div class="feat-head">
+      <h4>注销账号云函数(删号 API)</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">POST /api/account/delete(Node runtime)：先 Bearer token 验身份(无效 401)、再校验体验账号(DEMO_EMAIL 403 防直接打 API)；主动列删 avatars 桶本人目录(存储无级联，失败记日志不阻断)；最后 service_role 调 admin.deleteUser，业务表靠 on delete cascade 级联清除；幂等(用户已不存在 404 视作成功)。maxDuration=30。</p>
+    <p class="value"><span>用户价值</span>用户可彻底注销账号、永久删除全部云端数据(收藏/笔记/书评/进度/对话/头像)，符合隐私合规</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/api/account/delete/route.ts:10 POST</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase service_role(admin.auth.admin.deleteUser) + avatars Storage 列删 + 各业务表 on delete cascade</span></div>
+      <details class="files"><summary>相关文件 (2)</summary><div class="files-list"><code>app/api/account/delete/route.ts</code> <code>lib/server/agent.ts</code></div></details>
+    </div>
+  </article></div>
+    </section><section class="module" id="mod-global" data-mod="global" style="--accent:#6b6459;--soft:#ece7db">
+      <header class="mod-head">
+        <i class="seal lg-seal" style="background:#6b6459">全</i>
+        <div>
+          <h2>全局与基础设施(外壳/鉴权/搜索/状态/数据/后端) <span class="count">17 项功能</span></h2>
+          <p class="mod-sum">H5 应用的骨架层与数据管道：根布局+Providers 统一注入，四大模块共享底部导航/顶栏/转场/错误兜底/PWA 壳与通用 UI 原子组件；鉴权走 Supabase Auth；搜索是独立二级页；状态用 Zustand 5 切片，数据层 lib/api.ts(目录只读)+lib/supabase/userdata.ts(用户 CRUD 写穿透)；后端 Supabase 直连 16 表+RLS+触发器+RPC+pg_cron。视觉锁定『东方典雅·古书新韵』，暗色全覆盖。</p>
+        </div>
+      </header>
+      <div class="grid"><article class="feat" data-mod="global" data-status="已实现" data-text="根布局与视口归一 全站 html 外壳注入 metadata/pwa manifest/主题色；内联脚本在移动端把布局视口锁回手机真实宽度并强制 user-scalable=no(禁双指缩放)，键盘弹起用 interactive-widget=resizes-content 收缩视口避免盖住智学输入框；app-shell 容器在 ≥1024px 桌面居中限宽 480px 成手机壳。 保证微信/添加到主屏等各 webview 下比例一致不误缩放，桌面端也有干净手机预览框">
+    <div class="feat-head">
+      <h4>根布局与视口归一</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">全站 HTML 外壳注入 metadata/PWA manifest/主题色；内联脚本在移动端把布局视口锁回手机真实宽度并强制 user-scalable=no(禁双指缩放)，键盘弹起用 interactive-widget=resizes-content 收缩视口避免盖住智学输入框；app-shell 容器在 ≥1024px 桌面居中限宽 480px 成手机壳。</p>
+    <p class="value"><span>用户价值</span>保证微信/添加到主屏等各 WebView 下比例一致不误缩放，桌面端也有干净手机预览框</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/layout.tsx:34 / :49 视口内联脚本</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">无</span></div>
+      <details class="files"><summary>相关文件 (2)</summary><div class="files-list"><code>app/layout.tsx</code> <code>app/globals.css</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="global" data-status="已实现" data-text="providers 全局供给 单例 queryclient(staletime 30s/retry 1/关窗聚焦重取) + themeapplier(按 store.theme 切 html.dark) + authinit(首屏恢复会话) + toaster + loginsheet 统一挂载在根。 刷新不掉线、全局可弹登录/toast、数据缓存复用减少重复请求">
+    <div class="feat-head">
+      <h4>Providers 全局供给</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">单例 QueryClient(staleTime 30s/retry 1/关窗聚焦重取) + ThemeApplier(按 store.theme 切 html.dark) + AuthInit(首屏恢复会话) + Toaster + LoginSheet 统一挂载在根。</p>
+    <p class="value"><span>用户价值</span>刷新不掉线、全局可弹登录/Toast、数据缓存复用减少重复请求</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">components/providers.tsx:25</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase Auth(AuthInit 触发会话恢复)</span></div>
+      <details class="files"><summary>相关文件 (1)</summary><div class="files-list"><code>components/providers.tsx</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="global" data-status="已实现" data-text="鉴权状态机 useauth + 注册/登录/改密 initauth 首屏 getsession 恢复会话并订阅 onauthstatechange：signed_out 清 user+书库+对话+搜索历史防串号；signed_in/刷新经 signinload 按 uid 在途去重跑『profiles→书库 load→对话 loadcloud』整链。邮箱密码注册(昵称随 metadata 进触发器建档)/登录/登出/改资料(乐观更新+失败回滚)；处理邮箱确认未关时的假用户、改密先验旧密。 跨标签/刷新会话一致，换号不串档，资料修改即时可见且失败可感知">
+    <div class="feat-head">
+      <h4>鉴权状态机 useAuth + 注册/登录/改密</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">initAuth 首屏 getSession 恢复会话并订阅 onAuthStateChange：SIGNED_OUT 清 user+书库+对话+搜索历史防串号；SIGNED_IN/刷新经 signInLoad 按 uid 在途去重跑『profiles→书库 load→对话 loadCloud』整链。邮箱密码注册(昵称随 metadata 进触发器建档)/登录/登出/改资料(乐观更新+失败回滚)；处理邮箱确认未关时的假用户、改密先验旧密。</p>
+    <p class="value"><span>用户价值</span>跨标签/刷新会话一致，换号不串档，资料修改即时可见且失败可感知</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">lib/store.ts:66 useAuth / :70 initAuth / :40 signInLoad</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase Auth(signInWithPassword/signUp/getSession/onAuthStateChange) + profiles 表 + handle_new_user 触发器</span></div>
+      <details class="files"><summary>相关文件 (3)</summary><div class="files-list"><code>lib/store.ts</code> <code>lib/supabase/client.ts</code> <code>components/providers.tsx</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="global" data-status="已实现" data-text="登录/注册弹层 loginsheet + 登录守卫 requireauth/requirelogin 底部抽屉登录注册：邮箱密码登录、注册(昵称+确认密码+协议链接)、密码显隐、supabase 英文报错转中文、体验账号一键登录(demo_email/123456)，loading 中被关闭迟到成功只静默落态。requireauth 包裹个人二级页(未水合『正在打开』/未登录登录引导卡/已登录放行)；requirelogin(action) 把需登录操作挂起 pending、登录成功 finish 后自动回放。 登录即同步收藏/笔记/书评/对话，体验账号零门槛逛全功能，需登录操作无缝引导不丢动作">
+    <div class="feat-head">
+      <h4>登录/注册弹层 LoginSheet + 登录守卫 RequireAuth/requireLogin</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">底部抽屉登录注册：邮箱密码登录、注册(昵称+确认密码+协议链接)、密码显隐、Supabase 英文报错转中文、体验账号一键登录(DEMO_EMAIL/123456)，loading 中被关闭迟到成功只静默落态。RequireAuth 包裹个人二级页(未水合『正在打开』/未登录登录引导卡/已登录放行)；requireLogin(action) 把需登录操作挂起 pending、登录成功 finish 后自动回放。</p>
+    <p class="value"><span>用户价值</span>登录即同步收藏/笔记/书评/对话，体验账号零门槛逛全功能，需登录操作无缝引导不丢动作</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">components/shell/LoginSheet.tsx:27 / components/shell/RequireAuth.tsx:6 / lib/store.ts:609 requireLogin</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase Auth signInWithPassword/signUp + profiles 写昵称</span></div>
+      <details class="files"><summary>相关文件 (3)</summary><div class="files-list"><code>components/shell/LoginSheet.tsx</code> <code>components/shell/RequireAuth.tsx</code> <code>lib/store.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="global" data-status="已实现" data-text="搜索页 独立二级搜索页：自定义顶栏(返回+搜索框+取消)、autofocus、300ms 防抖、placeholderdata 换词不闪骨架、isfetching 旋转指示；结果仅书籍列表；空态展示『最近搜过』(本地 persist 最多 5 条可单删/清空)与『热门搜索』；仅有结果且非 placeholder 才 1.2s 后写历史+上报，过滤零结果/前缀中间态。 按书名/作者/标签快速找书，热门词点出去必有结果，搜索历史登出即清不泄露">
+    <div class="feat-head">
+      <h4>搜索页</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">独立二级搜索页：自定义顶栏(返回+搜索框+取消)、autoFocus、300ms 防抖、placeholderData 换词不闪骨架、isFetching 旋转指示；结果仅书籍列表；空态展示『最近搜过』(本地 persist 最多 5 条可单删/清空)与『热门搜索』；仅有结果且非 placeholder 才 1.2s 后写历史+上报，过滤零结果/前缀中间态。</p>
+    <p class="value"><span>用户价值</span>按书名/作者/标签快速找书，热门词点出去必有结果，搜索历史登出即清不泄露</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/search/page.tsx:11 / lib/api.ts:221 search / :251 getHotSearches</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase books(前端 ilike 不敏感过滤) + search_logs 写入 + get_hot_searches RPC(近 30 天热词不足补真实书目)</span></div>
+      <details class="files"><summary>相关文件 (2)</summary><div class="files-list"><code>app/search/page.tsx</code> <code>lib/api.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="global" data-status="已实现" data-text="开屏页 splash + 路由转场 + 错误边界/404 根路由 / 为开屏页(馆徽+slogan+进度条停留 3 秒可跳过，期间 prefetch 首页数据，到时 replace 进泡馆)；pagetransition 逐页手动包裹淡入+8px 上移(0.26s)与列表错位淡入；error.tsx 应用级错误边界、global-error.tsx 根崩溃自带样式兜底、not-found.tsx 404，文案全中文配青瓷主题。 首启有品牌印象且后台预热进馆瞬间出内容，进页柔和淡入，任何崩溃/坏链都有优雅中文兜底不白屏">
+    <div class="feat-head">
+      <h4>开屏页 Splash + 路由转场 + 错误边界/404</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">根路由 / 为开屏页(馆徽+slogan+进度条停留 3 秒可跳过，期间 prefetch 首页数据，到时 replace 进泡馆)；PageTransition 逐页手动包裹淡入+8px 上移(0.26s)与列表错位淡入；error.tsx 应用级错误边界、global-error.tsx 根崩溃自带样式兜底、not-found.tsx 404，文案全中文配青瓷主题。</p>
+    <p class="value"><span>用户价值</span>首启有品牌印象且后台预热进馆瞬间出内容，进页柔和淡入，任何崩溃/坏链都有优雅中文兜底不白屏</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">app/page.tsx:14 / components/shell/PageTransition.tsx:7 / app/error.tsx:6</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">TanStack Query 预取 getHome</span></div>
+      <details class="files"><summary>相关文件 (5)</summary><div class="files-list"><code>app/page.tsx</code> <code>components/shell/PageTransition.tsx</code> <code>app/error.tsx</code> <code>app/global-error.tsx</code> <code>app/not-found.tsx</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="global" data-status="已实现" data-text="底部主导航 + 二级页顶栏 + 返回兜底 bottomnav 唯一底部 tab 栏(智学/泡馆/乱翻/我的)仅四个根页挂载、选中条本地浮现动画、提供 light/dark 两 variant 供乱翻沉浸态用、含 aria-current 与安全区；header 二级页 sticky 顶栏(返回+居中标题+右操作)，usegoback 处理直链/分享无历史可退时回泡馆，titleshown 支持大标题滚动收起再淡入。 四大模块一键切换选中态清晰，二级页返回永不卡死，标题滚动联动细腻">
+    <div class="feat-head">
+      <h4>底部主导航 + 二级页顶栏 + 返回兜底</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">BottomNav 唯一底部 Tab 栏(智学/泡馆/乱翻/我的)仅四个根页挂载、选中条本地浮现动画、提供 light/dark 两 variant 供乱翻沉浸态用、含 aria-current 与安全区；Header 二级页 sticky 顶栏(返回+居中标题+右操作)，useGoBack 处理直链/分享无历史可退时回泡馆，titleShown 支持大标题滚动收起再淡入。</p>
+    <p class="value"><span>用户价值</span>四大模块一键切换选中态清晰，二级页返回永不卡死，标题滚动联动细腻</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">components/shell/BottomNav.tsx:17 / components/shell/Header.tsx:16</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">无</span></div>
+      <details class="files"><summary>相关文件 (2)</summary><div class="files-list"><code>components/shell/BottomNav.tsx</code> <code>components/shell/Header.tsx</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="global" data-status="已实现" data-text="主题(浅色/深色) + 全局 toast + 通用 ui 原子组件库 useui.theme 持久化(ail-ui)、themeapplier 切 html.dark(仅浅/深二选一不跟随系统)，全套组件含 dark: 适配；toast 队列(success/error/info 三色、最多 3 条、2.8s 自动消失带动作钮则 4s、同文案去重)；原子组件 avatar/bookcover(真实图优先+css 兜底美术)/motif(新中式 svg 纹样)/stars(半星+弹跳)/states(skeleton/empty/error)/backtotop。 夜间护眼且主题跨刷新记忆，操作即时反馈可撤销，图片未就位也有体面占位、空/错/加载态统一优雅">
+    <div class="feat-head">
+      <h4>主题(浅色/深色) + 全局 Toast + 通用 UI 原子组件库</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">useUI.theme 持久化(ail-ui)、ThemeApplier 切 html.dark(仅浅/深二选一不跟随系统)，全套组件含 dark: 适配；Toast 队列(success/error/info 三色、最多 3 条、2.8s 自动消失带动作钮则 4s、同文案去重)；原子组件 Avatar/BookCover(真实图优先+CSS 兜底美术)/Motif(新中式 SVG 纹样)/Stars(半星+弹跳)/States(Skeleton/Empty/Error)/BackToTop。</p>
+    <p class="value"><span>用户价值</span>夜间护眼且主题跨刷新记忆，操作即时反馈可撤销，图片未就位也有体面占位、空/错/加载态统一优雅</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">components/ui/Toaster.tsx:7 / components/ui/BookCover.tsx:16 / lib/store.ts:192 theme</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">无(本地持久化) + 对象存储图片(全有 CSS 兜底)</span></div>
+      <details class="files"><summary>相关文件 (7)</summary><div class="files-list"><code>components/ui/Toaster.tsx</code> <code>components/ui/Avatar.tsx</code> <code>components/ui/BookCover.tsx</code> <code>components/ui/Motif.tsx</code> <code>components/ui/Stars.tsx</code> <code>components/ui/States.tsx</code> <code>lib/store.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="global" data-status="已实现" data-text="状态管理(zustand 5 切片 + 三道护栏) 5 个 store 切片：useauth(登录态) / useui(主题+toast+登录抽屉+搜索历史 persist) / uselibrary(9 类用户数据不持久化、登录 load 灌入退出 reset) / usereader(阅读偏好 persist) / usechat(智学单一会话云同步)。三道护栏贯穿：cansync(uid+hydrated 双门禁防空基线洗云端)、世代校验(uid 比对防换号串档)、节流(媒体 5s/计时 30s)。用户数据走『本地乐观更新+异步写穿透+失败 toast』。 私有数据跨设备同步、登录即见退出即清不串号不丢数据，偏好本地记忆">
+    <div class="feat-head">
+      <h4>状态管理(Zustand 5 切片 + 三道护栏)</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">5 个 store 切片：useAuth(登录态) / useUI(主题+Toast+登录抽屉+搜索历史 persist) / useLibrary(9 类用户数据不持久化、登录 load 灌入退出 reset) / useReader(阅读偏好 persist) / useChat(智学单一会话云同步)。三道护栏贯穿：canSync(uid+hydrated 双门禁防空基线洗云端)、世代校验(uid 比对防换号串档)、节流(媒体 5s/计时 30s)。用户数据走『本地乐观更新+异步写穿透+失败 toast』。</p>
+    <p class="value"><span>用户价值</span>私有数据跨设备同步、登录即见退出即清不串号不丢数据，偏好本地记忆</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">lib/store.ts:66 useAuth / :187 useUI / :285 useLibrary / :468 useReader / :513 useChat / :295 canSync</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase 多表 + localStorage persist(ail-ui/ail-reader/ail-chat)</span></div>
+      <details class="files"><summary>相关文件 (1)</summary><div class="files-list"><code>lib/store.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="global" data-status="已实现" data-text="用户数据写穿透层 + 登录一次性加载(userdata.ts) loaduserdata 两波查询：先并发拉本人 8 表(favorites/notes/reviews/reading_history/text_progress/media_progress/profiles.read_seconds/review_likes，任一路 error 必 throw 防静默吞成空基线)，再批量查 books/chapters 拼书名封面章标题(用户表故意不设外键)；各 crud(收藏 upsert ignoreduplicates/笔记/进度 synctext 整行 upsert/媒体 5s 节流/历史按书+大类去重/书评 onconflict 单条/书评点赞)写穿透对应表。 登录瞬间把全部个人数据一次拉齐带书名封面，各操作即时本地生效再异步同步">
+    <div class="feat-head">
+      <h4>用户数据写穿透层 + 登录一次性加载(userdata.ts)</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">loadUserData 两波查询：先并发拉本人 8 表(favorites/notes/reviews/reading_history/text_progress/media_progress/profiles.read_seconds/review_likes，任一路 error 必 throw 防静默吞成空基线)，再批量查 books/chapters 拼书名封面章标题(用户表故意不设外键)；各 CRUD(收藏 upsert ignoreDuplicates/笔记/进度 syncText 整行 upsert/媒体 5s 节流/历史按书+大类去重/书评 onConflict 单条/书评点赞)写穿透对应表。</p>
+    <p class="value"><span>用户价值</span>登录瞬间把全部个人数据一次拉齐带书名封面，各操作即时本地生效再异步同步</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">lib/supabase/userdata.ts:24 loadUserData / :180+ 各 CRUD</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase 8 张用户表 + books/chapters 批量查 + RLS</span></div>
+      <details class="files"><summary>相关文件 (2)</summary><div class="files-list"><code>lib/supabase/userdata.ts</code> <code>lib/store.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="global" data-status="已实现" data-text="目录数据访问层 lib/api.ts(只读) 书库公开读：gethome(分类计数/每类最新 banner/热门好书)、getcategories、getbooks(分类+音视频/文字筛选+游标分页+id 兜底排序防重复)、getbook/getbooksbyids、getchapters(全量含正文)/getchapterlist(轻量)/getchapter(校验章节确属此书防深链串书)、search、getflip+flippool、logsearch、gethotsearches；tobook/tochapter 做行→前端类型映射，每查询都检查 error 并 throw。 首页/分类/详情/章节/搜索/乱翻的真实书库数据，乱翻个性化日更、热门搜索真实聚合">
+    <div class="feat-head">
+      <h4>目录数据访问层 lib/api.ts(只读)</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">书库公开读：getHome(分类计数/每类最新 Banner/热门好书)、getCategories、getBooks(分类+音视频/文字筛选+游标分页+id 兜底排序防重复)、getBook/getBooksByIds、getChapters(全量含正文)/getChapterList(轻量)/getChapter(校验章节确属此书防深链串书)、search、getFlip+flipPool、logSearch、getHotSearches；toBook/toChapter 做行→前端类型映射，每查询都检查 error 并 throw。</p>
+    <p class="value"><span>用户价值</span>首页/分类/详情/章节/搜索/乱翻的真实书库数据，乱翻个性化日更、热门搜索真实聚合</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">lib/api.ts:66 getHome / :106 getBooks / :196 getFlip / :221 search</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase 公开读 books/categories/chapters/flip_feed/search_logs + RPC get_hot_searches/increment_read_count</span></div>
+      <details class="files"><summary>相关文件 (2)</summary><div class="files-list"><code>lib/api.ts</code> <code>lib/supabase/client.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="global" data-status="已实现" data-text="阅读时长与一次阅读计数(共享 usereadingclock) 跨文字阅读器/音视频播放器/乱翻共用：usereadingclock 可见且 active 时按墙钟秒累加 readseconds，每 30 秒走 add_read_seconds 增量 rpc 落账(切后台/卸载补零头，增量而非绝对值覆盖防多设备 lost update)；usereadcountbump 同书真实可见满 30 秒上报 books.read_count +1(不去重、游客也计、存而不展示)。 『我的-总时长』真实可信、多设备并行不丢时长，运营侧有阅读热度数据">
+    <div class="feat-head">
+      <h4>阅读时长与一次阅读计数(共享 useReadingClock)</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">跨文字阅读器/音视频播放器/乱翻共用：useReadingClock 可见且 active 时按墙钟秒累加 readSeconds，每 30 秒走 add_read_seconds 增量 RPC 落账(切后台/卸载补零头，增量而非绝对值覆盖防多设备 lost update)；useReadCountBump 同书真实可见满 30 秒上报 books.read_count +1(不去重、游客也计、存而不展示)。</p>
+    <p class="value"><span>用户价值</span>『我的-总时长』真实可信、多设备并行不丢时长，运营侧有阅读热度数据</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">lib/useReadingClock.ts:13 / lib/supabase/userdata.ts:169 bumpReadCount / :227 addReadSeconds</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase RPC add_read_seconds(增量累加 profiles.read_seconds) + increment_read_count</span></div>
+      <details class="files"><summary>相关文件 (3)</summary><div class="files-list"><code>lib/useReadingClock.ts</code> <code>lib/supabase/userdata.ts</code> <code>lib/store.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="global" data-status="已实现" data-text="对话限流 ratelimit 滑动窗口内存级限流：登录 20 次/分+200 次/时(按 uid)，游客 8 次/分+40 次/时(按 ip)，超限返回 429 友好文案；分钟桶与小时桶分键，键数超阈值时节流全量清扫+硬上限淘汰最旧键防内存膨胀。serverless 多实例为尽力而为口径(严格全局需 redis)。 防脚本滥刷烧 token，真实读者连续追问不被打断">
+    <div class="feat-head">
+      <h4>对话限流 ratelimit</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">滑动窗口内存级限流：登录 20 次/分+200 次/时(按 uid)，游客 8 次/分+40 次/时(按 IP)，超限返回 429 友好文案；分钟桶与小时桶分键，键数超阈值时节流全量清扫+硬上限淘汰最旧键防内存膨胀。serverless 多实例为尽力而为口径(严格全局需 Redis)。</p>
+    <p class="value"><span>用户价值</span>防脚本滥刷烧 token，真实读者连续追问不被打断</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">lib/server/ratelimit.ts:15 rateLimit / app/api/chat/route.ts:151</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">无(进程内存 Map)</span></div>
+      <details class="files"><summary>相关文件 (2)</summary><div class="files-list"><code>lib/server/ratelimit.ts</code> <code>app/api/chat/route.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="global" data-status="已实现" data-text="数据库结构与自动维护(16 表 + 触发器 + rpc + pg_cron + rls) supabase 直连：anon key 前端直读写、rls 作安全主防线(目录表公开读、用户表 per-user 四类策略、profiles 列级只放行昵称简介头像)；触发器自动维护收藏数(sync_book_fav_count)/评分均分与条数(recalc_book_review_stats)/书评点赞数/多设备进度合并(text/media played 只增、已读章并集)；rpc(add_read_seconds/increment_read_count/get_hot_searches/refresh_books_readers)；pg_cron 日更在读人数(19:30 utc)与清 90 天前 search_logs(20:30 utc)；t1 安全收紧把默认过宽授权收到最小必要、建纵深防御。 用户数据严格隔离任何人只能读写自己的、计数/评分/在读人数自动维护、多设备进度不互相回退，误配也有纵深兜底">
+    <div class="feat-head">
+      <h4>数据库结构与自动维护(16 表 + 触发器 + RPC + pg_cron + RLS)</h4>
+      <span class="badge s-done">已实现</span>
+    </div>
+    <p class="desc">Supabase 直连：anon key 前端直读写、RLS 作安全主防线(目录表公开读、用户表 per-user 四类策略、profiles 列级只放行昵称简介头像)；触发器自动维护收藏数(sync_book_fav_count)/评分均分与条数(recalc_book_review_stats)/书评点赞数/多设备进度合并(text/media played 只增、已读章并集)；RPC(add_read_seconds/increment_read_count/get_hot_searches/refresh_books_readers)；pg_cron 日更在读人数(19:30 UTC)与清 90 天前 search_logs(20:30 UTC)；T1 安全收紧把默认过宽授权收到最小必要、建纵深防御。</p>
+    <p class="value"><span>用户价值</span>用户数据严格隔离任何人只能读写自己的、计数/评分/在读人数自动维护、多设备进度不互相回退，误配也有纵深兜底</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">docs/后端_Supabase建库SQL.md:424 per-user 策略 / docs/后端_T1计数触发器SQL.md / docs/后端_T1安全收紧SQL.md:13</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase Postgres 16 表 + RLS + 触发器 + RPC + pg_cron(均经 scripts/run-sql.mjs 直连执行验收)</span></div>
+      <details class="files"><summary>相关文件 (5)</summary><div class="files-list"><code>docs/后端_Supabase建库SQL.md</code> <code>docs/后端_T1计数触发器SQL.md</code> <code>docs/后端_T1安全收紧SQL.md</code> <code>docs/后端_Review修复SQL.md</code> <code>lib/supabase/client.ts</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="global" data-status="部分实现" data-text="对象存储 oss 封面/音视频(仅存 url，上传无代码) 每本书封面/视频/音频都在阿里云 oss，books.cover_url/video_url/audio_url 直接填公开 url 前端直读，supabase 不建 covers/audio/video 桶；氛围图/海报为按 categoryid 的前端静态装饰图(public/heroes、public/posters 不入库)。仓库内无 oss 上传/签名代码——文件上传与 url 入库靠后台/import-books 脚本手工完成。 封面与音视频走 oss/cdn 加载快、不占 supabase 存储">
+    <div class="feat-head">
+      <h4>对象存储 OSS 封面/音视频(仅存 URL，上传无代码)</h4>
+      <span class="badge s-part">部分实现</span>
+    </div>
+    <p class="desc">每本书封面/视频/音频都在阿里云 OSS，books.cover_url/video_url/audio_url 直接填公开 URL 前端直读，Supabase 不建 covers/audio/video 桶；氛围图/海报为按 categoryId 的前端静态装饰图(public/heroes、public/posters 不入库)。仓库内无 OSS 上传/签名代码——文件上传与 URL 入库靠后台/import-books 脚本手工完成。</p>
+    <p class="value"><span>用户价值</span>封面与音视频走 OSS/CDN 加载快、不占 Supabase 存储</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">lib/api.ts:21 cover/videoUrl/audioUrl 映射</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">阿里云 OSS(公开 URL)；URL 落 books 表由 import-books 脚本/后台维护(无上传代码)</span></div>
+      <details class="files"><summary>相关文件 (2)</summary><div class="files-list"><code>lib/api.ts</code> <code>docs/后端_Supabase建库SQL.md</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="global" data-status="部分实现" data-text="pwa 壳 manifest.webmanifest(standalone/portrait/start_url=/library/scope=/) + layout metadata(applicationname/applewebapp/themecolor)。图标仅提供矢量 /icon.svg(any 与 maskable 都指向同一 svg)，缺真正多尺寸光栅 png(192/512)与 apple-touch-icon png。 可添加到主屏全屏启动，但部分安卓/ios 对纯 svg 图标支持不全主屏图标可能不显示(与记忆中 pwa 图标延后一致)">
+    <div class="feat-head">
+      <h4>PWA 壳</h4>
+      <span class="badge s-part">部分实现</span>
+    </div>
+    <p class="desc">manifest.webmanifest(standalone/portrait/start_url=/library/scope=/) + layout metadata(applicationName/appleWebApp/themeColor)。图标仅提供矢量 /icon.svg(any 与 maskable 都指向同一 SVG)，缺真正多尺寸光栅 PNG(192/512)与 apple-touch-icon PNG。</p>
+    <p class="value"><span>用户价值</span>可添加到主屏全屏启动，但部分安卓/iOS 对纯 SVG 图标支持不全主屏图标可能不显示(与记忆中 PWA 图标延后一致)</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">public/manifest.webmanifest:11 icons</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">无</span></div>
+      <details class="files"><summary>相关文件 (2)</summary><div class="files-list"><code>public/manifest.webmanifest</code> <code>app/layout.tsx</code></div></details>
+    </div>
+  </article><article class="feat" data-mod="global" data-status="部分实现" data-text="书评点赞数据闭环(review_likes，ui 未展示) togglelike 维护 likedreviews 并写穿透 review_likes(add insert/remove delete)，数据库触发器聚合回写 reviews.likes。本版 ui 不展示点赞数(原纯本地实现刷新即丢，先做数据闭环消除鬼影)，留作后续读者互评展示。 为将来读者互评点赞预留已就绪的数据通道(当前界面未露出)">
+    <div class="feat-head">
+      <h4>书评点赞数据闭环(review_likes，UI 未展示)</h4>
+      <span class="badge s-part">部分实现</span>
+    </div>
+    <p class="desc">toggleLike 维护 likedReviews 并写穿透 review_likes(add insert/remove delete)，数据库触发器聚合回写 reviews.likes。本版 UI 不展示点赞数(原纯本地实现刷新即丢，先做数据闭环消除鬼影)，留作后续读者互评展示。</p>
+    <p class="value"><span>用户价值</span>为将来读者互评点赞预留已就绪的数据通道(当前界面未露出)</p>
+    <div class="meta">
+      <div class="m-row"><span class="k">入口</span><code class="entry">lib/store.ts:402 toggleLike / lib/supabase/userdata.ts:222 addReviewLike</code></div>
+      <div class="m-row"><span class="k">后端</span><span class="be">Supabase review_likes 表(per-user RLS) + sync_review_likes 触发器</span></div>
+      <details class="files"><summary>相关文件 (3)</summary><div class="files-list"><code>lib/store.ts</code> <code>lib/supabase/userdata.ts</code> <code>docs/后端_T1计数触发器SQL.md</code></div></details>
+    </div>
+  </article></div>
+    </section>
+
+  <section class="xsec">
+    <h2>横切能力 · 全局基础设施</h2>
+    <p class="sub">贯穿所有模块的工程与体验能力（鉴权 / 安全 / 一致性 / 主题 / 性能 / 兜底等）</p>
+    <div class="cc-grid"><div class="cc"><b>鉴权</b><span>Supabase Auth 邮箱密码 + 体验账号(DEMO_EMAIL) + 会话恢复/自动续期(persistSession/autoRefreshToken)；RequireAuth 守卫个人页、requireLogin 把需登录操作挂起登录后回放(lib/store.ts：609)</span></div><div class="cc"><b>安全主防线 RLS</b><span>全表 enable，目录公开读、用户表 per-user(user_id=auth.uid())；service_role 仅服务端云函数；T1 把默认过宽授权收紧建纵深防御(docs/后端_T1安全收紧SQL.md)</span></div><div class="cc"><b>数据一致性三护栏</b><span>canSync(uid+hydrated 双门禁防空基线洗云端)、世代校验(uid 比对防换号串档)、节流(媒体写 5s/时长计时 30s)，数据库侧触发器再做进度合并(played 只增/已读章并集)</span></div><div class="cc"><b>主题</b><span>浅色/深色二选一(不跟随系统)，useUI.theme 持久化 ail-ui，ThemeApplier 切 html.dark，全组件 dark： 适配；拉绳台灯彩蛋切换</span></div><div class="cc"><b>PWA</b><span>manifest standalone/portrait 可添加到主屏，但仅矢量 icon.svg、缺多尺寸光栅 PNG(部分实现，主屏图标在部分系统可能不显示)</span></div><div class="cc"><b>限流</b><span>/api/chat 滑动窗口内存级(登录 20/分·200/时，游客 IP 8/分·40/时)超限 429，serverless 尽力而为(lib/server/ratelimit.ts)</span></div><div class="cc"><b>错误处理与兜底</b><span>error.tsx/global-error.tsx/not-found.tsx 三级中文兜底不白屏；列表/详情区分网络失败(可重试)与真空态(引导)；视频坏源/弱网有重试或转图文出路；图片缺图回退 CSS 兜底美术</span></div><div class="cc"><b>无障碍与移动适配</b><span>aria-current/aria-label/aria-live、pb-safe 安全区、视口锁手机真实宽度+禁双指缩放(user-scalable=no)+键盘 interactive-widget=resizes-content(app/layout.tsx：49)</span></div><div class="cc"><b>性能</b><span>TanStack Query 缓存(staleTime 30s)/首页预取、乱翻 3 槽位视频池虚拟化(仅 3 解码器)、长会话渲染窗口(120 条)、memo 防打字机重渲染、无限滚动 IntersectionObserver</span></div><div class="cc"><b>外链与内容安全</b><span>正文链接强制新开页、危险协议过滤、联网来源仅 http/https 白名单；System 禁模型输出表格(手机排版)再做渲染端降级兜底</span></div><div class="cc"><b>后台任务托管</b><span>@vercel/functions waitUntil 跑上下文压缩与长期记忆(答完客户端零感知)；Vercel Cron 每日 04：00 生成乱翻 feed；pg_cron 维护在读人数与清理日志</span></div><div class="cc"><b>数据真实性边界</b><span>用户数据与书库目录已 100% 走 Supabase 真实数据；Mock 仅剩『他人书评(未展示)』与『智学示例问题(静态)』两处，lib/mock/data.ts 其余导出为可清理死代码</span></div></div>
+  </section>
+
+  <div class="empty" id="empty">没有匹配的功能，换个筛选试试 🍵</div>
+</div>
+
+<footer>
+  AI 图书馆 H5 · 功能清单（产品视角）· 生成于 2026-06-26 · 基于源码逐项核实<br/>
+  <span class="gold">东方典雅 · 古书新韵</span>
+</footer>
+
+<script>
+const feats=[...document.querySelectorAll('.feat')];
+const empty=document.getElementById('empty');
+let fMod='all',fSt='all',fQ='';
+function apply(){
+  let shown=0;
+  feats.forEach(el=>{
+    const okM=fMod==='all'||el.dataset.mod===fMod;
+    const okS=fSt==='all'||el.dataset.status===fSt;
+    const okQ=!fQ||el.dataset.text.includes(fQ);
+    const ok=okM&&okS&&okQ;
+    el.style.display=ok?'':'none';
+    if(ok)shown++;
+  });
+  document.querySelectorAll('.module').forEach(m=>{
+    const any=[...m.querySelectorAll('.feat')].some(f=>f.style.display!=='none');
+    m.style.display=any?'':'none';
+  });
+  empty.style.display=shown?'none':'block';
+}
+document.querySelectorAll('.mod-chip').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.mod-chip').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');fMod=b.dataset.mod;
+  if(fMod!=='all'){document.getElementById('mod-'+fMod)?.scrollIntoView({behavior:'smooth',block:'start'});}
+  apply();
+});
+document.querySelectorAll('.st-chip').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.st-chip').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');fSt=b.dataset.st;apply();
+});
+document.getElementById('q').oninput=e=>{fQ=e.target.value.trim().toLowerCase();apply();};
+</script>
+</body>
+</html>

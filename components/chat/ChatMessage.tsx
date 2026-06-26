@@ -253,6 +253,10 @@ export const ChatMessage = memo(function ChatMessage({
           {!msg.streaming && !citesInFlow && !!msg.citations?.length && <CitesBlock cites={msg.citations} />}
           {!msg.streaming && !recsInFlow && !!msg.recommendations?.length && <RecsBlock books={msg.recommendations} />}
           {!msg.streaming && !webInFlow && !!msg.webSources?.length && <WebBlock sources={msg.webSources} />}
+          {/* 断线截断尾注：与正文解耦，仅展示用、不进回灌上下文（Bug#11） */}
+          {msg.truncated && (
+            <p className="mt-2 border-t border-line pt-2 text-[11px] text-ink-300 dark:border-white/10">（后面断线了，回答可能不完整——可以点「重新生成」补全）</p>
+          )}
         </div>
       )}
 

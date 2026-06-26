@@ -41,14 +41,3 @@ export function BookRow({ book, progress, statusLabel }: { book: Book; progress?
     </Link>
   );
 }
-
-/** 网格卡片（收藏/推荐） */
-export function BookGridCard({ book, sub }: { book: Book; sub?: string }) {
-  return (
-    <Link href={`/library/book/${book.id}`} className="block transition active:scale-[0.98]">
-      <BookCover title={book.title} author={book.author} seed={book.coverSeed} src={book.cover} className="w-full" />
-      <h3 className="mt-2 truncate font-serif text-sm text-ink dark:text-dark-text">{book.title}</h3>
-      <p className="truncate text-xs text-ink-300">{sub ?? book.author}</p>
-    </Link>
-  );
-}

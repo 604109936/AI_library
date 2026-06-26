@@ -17,6 +17,9 @@ import type { Book } from "@/lib/types";
 let flipCache: { books: Book[]; idx: number; uid: string } | null = null;
 const cacheUid = () => useAuth.getState().user?.id ?? "guest";
 let mutedHintShown = false; // 静音兜底提示：module 级标记，每次会话仅提示一次
+// 乱翻自有的视频续播位置（按 realId 存分数）：与详情页 media_progress.position 解耦，避免乱翻自动播放
+// 改写/污染详情页续播点、音视频共用一个分数导致落点错位、loop 回卷把位置清回 0（Bug#8）
+const flipPos = new Map<string, number>();
 function validCache() {
   if (flipCache && flipCache.uid !== cacheUid()) flipCache = null;
   return flipCache;
@@ -57,7 +60,6 @@ export default function FlipPage() {
   const lastReport = useRef(0);
 
   const setMediaPlayed = useLibrary((s) => s.setMediaPlayed);
-  const setMediaProgress = useLibrary((s) => s.setMediaProgress);
   const pushHistory = useLibrary((s) => s.pushHistory);
 
   useEffect(() => { booksRef.current = books; }, [books]);
@@ -74,8 +76,8 @@ export default function FlipPage() {
     lastT.current = null;
     const v = videoRefs.current[slotOf(activeIdxRef.current)];
     const b = booksRef.current[activeIdxRef.current];
-    if (v && v.duration && b) setMediaProgress(b.id.split("__")[0], v.currentTime / v.duration);
-  }, [setMediaProgress]);
+    if (v && v.duration && b) flipPos.set(b.id.split("__")[0], v.currentTime / v.duration); // 写乱翻自有位置，不污染详情页（Bug#8）
+  }, []);
 
   // 写阅读历史（不依赖视频元素：卸载时 ref 已被 React 置空也要能落账）；played>0 已保证"真实播过才记"
   const writeMedia = useCallback((force = false) => {
@@ -104,8 +106,8 @@ export default function FlipPage() {
     const st = useLibrary.getState();
     playedSec.current = (st.mediaPlayed[rid] ?? 0) * v.duration;
     lastT.current = null; // seek 跳变不计入真实播放
-    // 续播位置与详情页共享（双向同步）：详情页看到哪，乱翻滑到这本就从哪播；反之亦然
-    const p = st.mediaProgress[rid] ?? 0;
+    // 续播位置用乱翻自有记录（与详情页解耦）：避免详情页音频位置被错当成视频位置、或被乱翻反向污染（Bug#8）
+    const p = flipPos.get(rid) ?? 0;
     if (p > 0 && p < 0.99) { try { v.currentTime = p * v.duration; } catch {} }
   }, []);
 
@@ -270,7 +272,7 @@ export default function FlipPage() {
     const rid = b.id.split("__")[0];
     if (lastT.current !== null) { const d = cur - lastT.current; if (d > 0 && d < 1.5) { playedSec.current += d; setMediaPlayed(rid, playedSec.current / dur); } }
     lastT.current = cur;
-    setMediaProgress(rid, cur / dur); // 续播位置与详情页双向同步（循环回卷时如实记当前位置）
+    flipPos.set(rid, cur / dur); // 续播位置记到乱翻自有 map（与详情页解耦，loop 回卷不再污染详情续播点·Bug#8）
     writeMedia();
   };
   const onSlotMeta = (s: number) => {

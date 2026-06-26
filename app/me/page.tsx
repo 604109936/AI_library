@@ -54,6 +54,7 @@ export default function MePage() {
   const openLogin = useUI((s) => s.openLogin);
   const history = useLibrary((s) => s.history);
   const favorites = useLibrary((s) => s.favorites);
+  const libHydrated = useLibrary((s) => s.hydrated); // 登录后数据加载完成才显示统计，避免窗口期闪 0（Bug#20）
 
   const readSeconds = useLibrary((s) => s.readSeconds);
   // 阅读时长=真实累计阅读/收听时长（音视频+文字之和）
@@ -71,11 +72,13 @@ export default function MePage() {
     const hasAv = rows.some((h) => h.mode !== "text");
     return hasAv ? "av" : rows.some((h) => h.mode === "text") ? "text" : "av";
   };
+  // 登录态 + 库数据已水合 才显示真值，否则占位"—"：避免登录/冷启动恢复会话瞬间四卡先闪 0 再跳真值（Bug#20）
+  const ready = !!user && libHydrated;
   const stats = [
-    { label: "阅读时长", value: user ? durLabel : "—", icon: Clock, href: undefined as string | undefined },
-    { label: "已读", value: user ? String(readCount) : "—", icon: BookCheck, href: `/me/history?status=read&mode=${modeFor(true)}` },
-    { label: "进行中", value: user ? String(ongoing) : "—", icon: BookOpen, href: `/me/history?status=reading&mode=${modeFor(false)}` },
-    { label: "收藏", value: user ? String(favorites.length) : "—", icon: Heart, href: "/me/favorites" },
+    { label: "阅读时长", value: ready ? durLabel : "—", icon: Clock, href: undefined as string | undefined },
+    { label: "已读", value: ready ? String(readCount) : "—", icon: BookCheck, href: `/me/history?status=read&mode=${modeFor(true)}` },
+    { label: "进行中", value: ready ? String(ongoing) : "—", icon: BookOpen, href: `/me/history?status=reading&mode=${modeFor(false)}` },
+    { label: "收藏", value: ready ? String(favorites.length) : "—", icon: Heart, href: "/me/favorites" },
   ];
 
   const menu = [

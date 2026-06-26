@@ -68,16 +68,26 @@ export const useAuth = create<AuthState>()((set, get) => ({
   hydrated: false,
   // 首屏：恢复 Supabase 会话（刷新不掉线）+ 订阅登录态变化
   initAuth: async () => {
-    const { data } = await supabase.auth.getSession();
-    if (data.session?.user) {
-      try {
-        await signInLoad(data.session.user);
-      } catch {}
-    } else {
+    try {
+      // getSession 可能因跨标签 Web Lock 争用长期不 resolve（或意外 reject）：加 8s 超时兜底，
+      // 绝不能让全站 hydrated 永久卡在 false → RequireAuth/我的页/阅读器续读全部锁死且无重试入口（Bug#9）
+      const res: any = await Promise.race([
+        supabase.auth.getSession(),
+        new Promise((r) => setTimeout(() => r({ data: { session: null } }), 8000)),
+      ]);
+      const data = res?.data ?? { session: null };
+      if (data.session?.user) {
+        try { await signInLoad(data.session.user); } catch {}
+      } else {
+        useLibrary.getState().setHydrated();
+        useChat.getState().purgeForeign(); // 会话失效（token 过期等）：清掉上一账号残留对话，仅保留真·游客会话，防换号串档
+      }
+    } catch (e) {
+      console.error("[auth] initAuth 异常，降级为未登录态放行首屏：", e);
       useLibrary.getState().setHydrated();
-      useChat.getState().purgeForeign(); // 会话失效（token 过期等）：清掉上一账号残留对话，仅保留真·游客会话，防换号串档
+    } finally {
+      set({ hydrated: true }); // 无论成功/失败/超时都必须放行，否则全站卡死在加载态
     }
-    set({ hydrated: true });
     if (!authSubscribed) {
       authSubscribed = true;
       supabase.auth.onAuthStateChange((event, sess) => {
@@ -215,7 +225,7 @@ export const useUI = create<UIState>()(
         // 带动作的 toast 多留一会儿（撤销窗口 4s）
         toastTimers[id] = setTimeout(() => get().dismiss(id), action ? 4000 : 2800);
       },
-      dismiss: (id) => set({ toasts: get().toasts.filter((t) => t.id !== id) }),
+      dismiss: (id) => { clearTimeout(toastTimers[id]); delete toastTimers[id]; set({ toasts: get().toasts.filter((t) => t.id !== id) }); }, // 清理定时器引用防长会话内存泄漏（Bug#23）
       loginOpen: false,
       pending: null,
       openLogin: (pending) => set({ loginOpen: true, pending: pending ?? null }),
@@ -285,10 +295,11 @@ const EMPTY = {
 export const useLibrary = create<LibState>()((set, get) => {
   const uid = () => useAuth.getState().user?.id;
   const fail = (label: string) => useUI.getState().toast(`${label}同步失败`, "error");
-  const sync = (p: any, label: string) => {
+  // rollback：DB 写失败时回滚乐观值，避免"乐观 UI 与失败 toast 自相矛盾"、且下次 load 以云端为准时本地凭空跳变（Bug#12）
+  const sync = (p: any, label: string, rollback?: () => void) => {
     Promise.resolve(p)
-      .then((res: any) => { if (res?.error) { console.error(`[同步失败:${label}]`, res.error); fail(label); } })
-      .catch((e: any) => { console.error(`[同步异常:${label}]`, e); fail(label); });
+      .then((res: any) => { if (res?.error) { console.error(`[同步失败:${label}]`, res.error); rollback?.(); fail(label); } })
+      .catch((e: any) => { console.error(`[同步异常:${label}]`, e); rollback?.(); fail(label); });
   };
   // 【hydrated 门禁】未完成 load() 前严禁写穿透：此时本地是空基线，绝对值覆盖会把云端进度/已读章/时长洗掉
   // （登录态下刷新阅读器/乱翻页是最常见触发路径——Review P0）
@@ -343,26 +354,30 @@ export const useLibrary = create<LibState>()((set, get) => {
     isFav: (id) => get().favorites.includes(real(id)),
     toggleFav: (id) => {
       const r = real(id);
-      const has = get().favorites.includes(r);
-      set({ favorites: has ? get().favorites.filter((x) => x !== r) : [r, ...get().favorites] });
+      const prev = get().favorites;
+      const has = prev.includes(r);
+      set({ favorites: has ? prev.filter((x) => x !== r) : [r, ...prev] });
       const u = uid();
-      if (u) sync(has ? db.removeFav(u, r) : db.addFav(u, r), "收藏");
+      if (u) sync(has ? db.removeFav(u, r) : db.addFav(u, r), "收藏", () => set({ favorites: prev }));
       return !has;
     },
     addNote: (n) => {
-      set({ notes: [n, ...get().notes] });
+      const prev = get().notes;
+      set({ notes: [n, ...prev] });
       const u = uid();
-      if (u) sync(db.addNote(u, { ...n, bookId: real(n.bookId) }), "笔记");
+      if (u) sync(db.addNote(u, { ...n, bookId: real(n.bookId) }), "笔记", () => set({ notes: prev }));
     },
     removeNote: (id) => {
-      set({ notes: get().notes.filter((n) => n.id !== id) });
+      const prev = get().notes;
+      set({ notes: prev.filter((n) => n.id !== id) });
       const u = uid();
-      if (u) sync(db.removeNote(id), "笔记");
+      if (u) sync(db.removeNote(id), "笔记", () => set({ notes: prev }));
     },
     updateNote: (id, note) => {
-      set({ notes: get().notes.map((n) => (n.id === id ? { ...n, note } : n)) });
+      const prev = get().notes;
+      set({ notes: prev.map((n) => (n.id === id ? { ...n, note } : n)) });
       const u = uid();
-      if (u) sync(db.updateNote(id, note), "笔记");
+      if (u) sync(db.updateNote(id, note), "笔记", () => set({ notes: prev }));
     },
     notesOfChapter: (bookId, chapterId) =>
       get().notes.filter((n) => n.bookId === real(bookId) && n.chapterId === chapterId),
@@ -400,24 +415,27 @@ export const useLibrary = create<LibState>()((set, get) => {
     },
     // 书评点赞：写穿透 review_likes（本版 UI 不展示，数据先闭环——原实现纯本地，刷新即丢，与登录加载的云端数据形成鬼影）
     toggleLike: (id) => {
-      const has = get().likedReviews.includes(id);
-      set({ likedReviews: has ? get().likedReviews.filter((x) => x !== id) : [id, ...get().likedReviews] });
+      const prev = get().likedReviews;
+      const has = prev.includes(id);
+      set({ likedReviews: has ? prev.filter((x) => x !== id) : [id, ...prev] });
       const u = uid();
-      if (u) sync(has ? db.removeReviewLike(u, id) : db.addReviewLike(u, id), "点赞");
+      if (u) sync(has ? db.removeReviewLike(u, id) : db.addReviewLike(u, id), "点赞", () => set({ likedReviews: prev }));
     },
     // addReview 已删除：全站书评写入收敛到 upsertReview 单入口（原 addReview 本地前插不去重、
     // 云端却 onConflict 单行，一旦被误用即产生本地/云端漂移的死代码陷阱）
     removeReview: (id) => {
-      const rev = get().myReviews.find((r) => r.id === id);
-      set({ myReviews: get().myReviews.filter((r) => r.id !== id) });
+      const prev = get().myReviews;
+      const rev = prev.find((r) => r.id === id);
+      set({ myReviews: prev.filter((r) => r.id !== id) });
       const u = uid();
-      if (u && rev) sync(db.removeReview(u, real(rev.bookId)), "书评");
+      if (u && rev) sync(db.removeReview(u, real(rev.bookId)), "书评", () => set({ myReviews: prev }));
     },
     upsertReview: (r) => {
       const id = real(r.bookId);
-      set({ myReviews: [{ ...r, bookId: id }, ...get().myReviews.filter((x) => x.bookId !== id)] });
+      const prev = get().myReviews;
+      set({ myReviews: [{ ...r, bookId: id }, ...prev.filter((x) => x.bookId !== id)] });
       const u = uid();
-      if (u) sync(db.upsertReview(u, { ...r, bookId: id }), "书评");
+      if (u) sync(db.upsertReview(u, { ...r, bookId: id }), "书评", () => set({ myReviews: prev }));
     },
     myReviewOf: (bookId) => get().myReviews.find((r) => r.bookId === real(bookId)),
     setMediaProgress: (bookId, pct) => {
@@ -521,6 +539,9 @@ export const useChat = create<ChatState>()(
         set({ sessions: [stamped] }); // 单一会话：永远只有这一条
         const u = chatUid();
         if (!u) return;
+        // 共享体验账号(demo)是全体访客共用的同一 auth 用户：只读云端、绝不回写，否则任一访客的发言会写进
+        // 共享 main 行被下一个访客 loadCloud 拉到——跨访客串档/隐私泄露（Bug#1；与 loadCloud 的 isSharedDemo 同口径）
+        if (useAuth.getState().user?.email === DEMO_EMAIL) return;
         // 【云端门禁——Review P0】chatDb.upsert 是整段 jsonb 覆盖写：云端历史尚未成功拉到本地
         // （loadCloud 失败/未完成）时绝不能上云，否则一条新发言就把几百条历史洗成本地短列表。
         // 改为补拉一次：loadCloud 成功后会把本地新增按 id 并入并自动回传
@@ -580,7 +601,12 @@ export const useChat = create<ChatState>()(
       name: "ail-chat",
       version: 2,
       // cloudLoaded 是会话期内存标记，绝不能持久化：否则刷新后带着旧 uid 复活，门禁形同虚设
-      partialize: (s) => ({ sessions: s.sessions, hiddenSamples: s.hiddenSamples }) as any,
+      // 整段 transcript 持久化在重度用户会撑爆 localStorage 配额、令 setItem 抛错；本地只留近 200 条，
+      // 云端是全量事实源，loadCloud 进入时会把云端完整历史补回（Bug#14）
+      partialize: (s) => ({
+        sessions: s.sessions.map((sess) => ({ ...sess, messages: (sess.messages ?? []).slice(-200) })),
+        hiddenSamples: s.hiddenSamples,
+      }) as any,
       migrate: (state: any, version: number) => {
         // 脏数据护栏：localStorage 被外部写坏混入 null/非对象项时，下面取 s.ownerUid 会 throw，
         // zustand 对 migrate 异常的处理是放弃水合回初始态（本地缓存全丢）

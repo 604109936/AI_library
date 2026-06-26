@@ -4,6 +4,11 @@
 export default function GlobalError({ reset }: { error: Error & { digest?: string }; reset: () => void }) {
   return (
     <html lang="zh-CN">
+      <head>
+        {/* global-error 替换根布局后会丢失 layout 的 viewport；客户端组件不能用 export const viewport，
+            必须手写 meta，否则崩溃兜底页在手机上按桌面 ~980px 缩放、文字与「重试」按钮被缩到难以点中（Bug#24） */}
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+      </head>
       <body style={{ margin: 0, background: "#F4F2ED", color: "#2A2C2E", fontFamily: "-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif" }}>
         <main
           style={{

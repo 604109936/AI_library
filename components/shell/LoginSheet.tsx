@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { useAuth, useUI } from "@/lib/store";
@@ -43,6 +43,16 @@ export function LoginSheet() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
   const [info, setInfo] = useState(""); // 非错误提示（如注册成功待邮箱确认），与 err 区分配色
+  const emailRef = useRef<HTMLInputElement>(null);
+  // a11y：打开时聚焦邮箱、Esc 关闭（配合 dialog 语义 + 焦点管理，读屏/纯键盘可用·Bug#25）
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { close(); reset(); } };
+    window.addEventListener("keydown", onKey);
+    const t = setTimeout(() => emailRef.current?.focus(), 80);
+    return () => { window.removeEventListener("keydown", onKey); clearTimeout(t); };
+    // eslint-disable-next-line
+  }, [open]);
 
   const emailOk = /\S+@\S+\.\S+/.test(email.trim());
   const pwdOk = pwd.length >= 6;
@@ -127,6 +137,9 @@ export function LoginSheet() {
             }}
           />
           <motion.div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="login-title"
             initial={{ y: "100%" }}
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
@@ -140,7 +153,7 @@ export function LoginSheet() {
               <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-celadon-soft dark:bg-celadon/20">
                 <BookHeart className="text-celadon" size={24} />
               </div>
-              <h2 className="font-serif text-xl text-ink dark:text-dark-text">
+              <h2 id="login-title" className="font-serif text-xl text-ink dark:text-dark-text">
                 {mode === "login" ? "登录 / 注册" : "注册新账号"}
               </h2>
               <button
@@ -155,6 +168,8 @@ export function LoginSheet() {
             <form onSubmit={(e) => { e.preventDefault(); submit(); }} className="space-y-3">
               <Field icon={<Mail size={16} />}>
                 <input
+                  ref={emailRef}
+                  aria-label="邮箱"
                   className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-ink-300 dark:text-dark-text"
                   placeholder="邮箱"
                   type="email"
@@ -168,6 +183,7 @@ export function LoginSheet() {
                 <Field icon={<User size={16} />}>
                   <input
                     className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-ink-300 dark:text-dark-text"
+                    aria-label="昵称"
                     placeholder="昵称"
                     type="text"
                     maxLength={16}
@@ -179,6 +195,7 @@ export function LoginSheet() {
               <Field icon={<Lock size={16} />}>
                 <input
                   className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-ink-300 dark:text-dark-text"
+                  aria-label="密码"
                   placeholder="密码（至少 6 位）"
                   type={show ? "text" : "password"}
                   autoComplete={mode === "login" ? "current-password" : "new-password"}
@@ -193,6 +210,7 @@ export function LoginSheet() {
                 <Field icon={<Lock size={16} />}>
                   <input
                     className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-ink-300 dark:text-dark-text"
+                    aria-label="确认密码"
                     placeholder="确认密码"
                     type={show ? "text" : "password"}
                     autoComplete="new-password"

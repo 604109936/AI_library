@@ -1,9 +1,8 @@
 // 数据访问层。
 // 目录类读取（首页/分类/详情/章节/搜索/乱翻）已接 Supabase（真实数据，公开读）。
-// 读者评价(getBookReviews)暂留 mock（本版数据-only 不展示）；热门搜索过渡期由真实书目动态生成（T3.4 改 search_logs 聚合）。
+// 热门搜索过渡期由真实书目动态生成（T3.4 改 search_logs 聚合）。
 import { supabase } from "@/lib/supabase/client";
-import { reviewsByBook, exampleQuestions } from "@/lib/mock/data";
-import type { Book, Category, Chapter, Paged, Review } from "@/lib/types";
+import type { Book, Category, Chapter, Paged } from "@/lib/types";
 
 const PAGE = 6;
 
@@ -155,13 +154,6 @@ export async function getChapterList(bookId: string): Promise<Chapter[]> {
   return (data ?? []).map(toChapter);
 }
 
-export async function getChapter(bookId: string, chapterId: string): Promise<Chapter | null> {
-  // 必须校验章节确属此书：否则拼错的深链会静默取到别本书的正文，进而把进度/笔记写错书
-  const { data, error } = await supabase.from("chapters").select("*").eq("id", chapterId).eq("book_id", bookId.split("__")[0]).maybeSingle();
-  if (error) throw error;
-  return data ? toChapter(data) : null;
-}
-
 // 乱翻书池（T3.2）：登录读者优先读个性化日更 flip_feed（Cron 每天用 minimax 按阅读偏好生成，
 // 排除已读、在读优先）；新用户/游客/当天未生成 → 回退最新入库 50 本有视频的书。
 // 模块级短缓存：续拉（loadMore）每次都会进来，5 分钟内不重复打库；按 uid 隔离防换号串池。
@@ -198,7 +190,17 @@ export async function getFlip(seenIds: string[]): Promise<{ books: Book[]; owner
   if (pool.length === 0) return { books: [], owner };
   // 首批按 feed 顺序（个性化排序生效）；划完一轮后续拉打乱重发，并赋唯一 id 后缀防 key 冲突
   if (seenIds.length === 0) return { books: pool, owner };
-  const shuffled = [...pool].sort(() => Math.random() - 0.5);
+  // Fisher–Yates 均匀洗牌（替换分布有偏的 sort(()=>Math.random()-0.5)）；
+  // 并消除跨轮相邻重复：上一轮最后一本与本轮第一本若同书(realId 相同)则与后一项交换（Bug#21）
+  const shuffled = [...pool];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  const lastReal = seenIds[seenIds.length - 1]?.split("__")[0];
+  if (shuffled.length > 1 && lastReal && shuffled[0].id === lastReal) {
+    [shuffled[0], shuffled[1]] = [shuffled[1], shuffled[0]];
+  }
   return { books: shuffled.map((b) => ({ ...b, id: `${b.id}__f${seenIds.length}_${b.coverSeed}` })), owner };
 }
 
@@ -233,17 +235,6 @@ export async function search(q: string): Promise<SearchResult> {
   return { books: bk };
 }
 
-// ---- 以下暂留 mock，待后续阶段替换 ----
-
-export async function getBookReviews(bookId: string, sort: "hot" | "new"): Promise<Review[]> {
-  // 读者评价（他人书评）本版数据-only、不前端展示；保留 mock 备用，接用户数据阶段改 Supabase。
-  const real = bookId.split("__")[0];
-  const list = (reviewsByBook[real] ?? []).slice();
-  if (sort === "hot") list.sort((a, b) => b.likes - a.likes);
-  else list.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
-  return list;
-}
-
 // 热门搜索（T3.4）：第一优先 = 全站搜索热词 Top20（RPC get_hot_searches 聚合近 30 天 search_logs，
 // 仅保留仍命中现有馆藏 书名/作者/标签 的词，点出去必有结果）；冷启动热词不足 12 个时，
 // 用真实书目（书名 + 高频标签）补足——保证上线第一天热门区也不空。
@@ -273,5 +264,3 @@ export async function getHotSearches(): Promise<string[]> {
   hotCache = { words, at: Date.now() };
   return words;
 }
-
-export { exampleQuestions };

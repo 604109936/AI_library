@@ -3,11 +3,16 @@ import { useRouter } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-/** 返回兜底：直链/分享打开时无历史可退，裸 back() 会毫无反应——退不动就去兜底页（默认泡馆） */
+// 本次会话内是否在 App 内导航过：history.length 含跨源来源页，单标签从外站直接进分享页时它 >1，
+// 但 back() 会跳出 App 到来源站；改用本标志判断「站内确有可退处」才 back()，否则去兜底页（Bug#22）
+let inAppNavs = 0;
+export function markInAppNav() { inAppNavs++; }
+
+/** 返回兜底：站内导航过则 back()，否则（直链/分享/外站进入）去兜底页（默认泡馆） */
 export function useGoBack(fallback = "/library") {
   const router = useRouter();
   return () => {
-    if (typeof window !== "undefined" && window.history.length > 1) router.back();
+    if (inAppNavs > 0) router.back();
     else router.push(fallback);
   };
 }
