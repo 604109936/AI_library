@@ -19,10 +19,8 @@ export function BottomNav({ active, variant = "light" }: { active: TabKey; varia
   return (
     <nav
       className={cn(
-        "app-width fixed bottom-0 left-1/2 z-40 -translate-x-1/2 border-t pb-safe backdrop-blur",
-        dark
-          ? "border-white/10 bg-black/35"
-          : "border-line bg-snow/95 dark:border-white/5 dark:bg-dark-card/95"
+        "app-width fixed bottom-0 left-1/2 z-40 -translate-x-1/2 pb-safe backdrop-blur",
+        dark ? "bg-black/35" : "bg-snow/95 dark:bg-dark-card/95"
       )}
     >
       <div className="grid grid-cols-4">
@@ -38,8 +36,6 @@ export function BottomNav({ active, variant = "light" }: { active: TabKey; varia
               aria-label={label}
               className="relative flex flex-col items-center gap-1 py-2.5 transition-transform active:scale-90"
             >
-              {/* 选中条：切页是整页跳转，layoutId 跨页动画无效，改为本地浮现动画 */}
-              {on && <span className="absolute top-0 h-0.5 w-7 animate-scale-in rounded-full bg-celadon" />}
               <Icon
                 size={22}
                 strokeWidth={on ? 2.4 : 1.8}

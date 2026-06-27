@@ -4,36 +4,21 @@ import "server-only";
 import { admin } from "@/lib/server/agent";
 import { searchWeb, type WebHit } from "@/lib/server/websearch";
 import { cutSafe } from "@/lib/server/text";
+import { readOverride } from "@/lib/server/agentConfig";
 import type { MMTool } from "@/lib/server/minimax";
 
-// 工具执行中的等待文案：要有"它真的在替我翻书"的画面感（UI Review C16）。
-// T8：进行感由前端水波纹扫光传达，文案一律不带省略号
+// 工具执行中的等待文案（前端水波纹扫光呈现，不带省略号）：每个工具一句固定短语，对用户隐去工具本身。
 export const TOOL_STATUS: Record<string, string> = {
-  recommend_books: "在书架间为你找书",
-  read_book_toc: "翻开这本书",
-  read_chapter: "细读章节",
-  cite_chapters: "整理原文出处",
-  web_search: "正在网上帮你查",
+  recommend_books: "查找书籍",
+  read_book_toc: "翻阅图书",
+  read_chapter: "章节浏览",
+  cite_chapters: "章节浏览",
+  web_search: "联网搜索",
 };
 
-// 状态文案带书名：「翻开《认知觉醒》」比「翻开这本书」更有"它真的在替我翻书"的实感。
-// 查询失败/参数缺失时回落通用文案；书名查询极轻（主键单行），不拖慢工具执行
-export async function toolStatus(name: string, argsJson: string): Promise<string> {
-  const base = TOOL_STATUS[name] ?? "查阅资料";
-  if (name !== "read_book_toc" && name !== "read_chapter") return base;
-  try {
-    const args = JSON.parse(argsJson || "{}");
-    const id = String(args.book_id ?? "");
-    if (!id) return base;
-    const { data } = await admin.from("books").select("title").eq("id", id).maybeSingle();
-    const title = (data as any)?.title;
-    if (!title) return base;
-    if (name === "read_book_toc") return `翻开《${title}》`;
-    const no = Number(args.chapter_no);
-    return Number.isFinite(no) ? (no === 0 ? `细读《${title}》前言` : `细读《${title}》第${no}章`) : `细读《${title}》`;
-  } catch {
-    return base;
-  }
+// 取工具的固定等待短语（不再带书名/章号——更简洁、也不暴露细节）；未知工具回落「思考中」。
+export function toolStatus(name: string): string {
+  return TOOL_STATUS[name] ?? "思考中";
 }
 
 export const AGENT_TOOLS: MMTool[] = [
@@ -109,11 +94,22 @@ export const AGENT_TOOLS: MMTool[] = [
   },
 ];
 
-// 卡片事件直带展示数据（T3 加固）：recs 带 {id,title} 供前端拉不到完整书目时降级渲染保底可点；
+// 运行时构建工具组：每个工具的 description 可被后台在线覆盖（参数 schema 固定不变）。
+// route 改用本函数取代直接引用 AGENT_TOOLS——这样后台改描述即时生效。
+export async function getAgentTools(): Promise<MMTool[]> {
+  const ov = await readOverride();
+  const desc = ov.toolDescriptions ?? {};
+  return AGENT_TOOLS.map((t) => {
+    const o = desc[t.function.name];
+    return o && o.trim() ? { ...t, function: { ...t.function, description: o } } : t;
+  });
+}
+
+// 卡片事件直带展示数据（T3 加固）：recs 带 {id,title,author,封面种子cs,封面图cv}——前端零查询直接成完整卡片；
 // cites 直带 书名/章题/snippet——前端不再为 60 字摘要拉整本书正文（原性能黑洞），也消除"拉数据失败丢卡"失配；
 // web 直带来源列表（标题/链接/日期），前端渲染「来源」卡组（T10）
 export type ToolEvent =
-  | { t: "recs"; v: { id: string; title: string }[] }
+  | { t: "recs"; v: { id: string; title: string; author: string; cv: string; cs: number }[] }
   | { t: "cites"; v: { b: string; c: number; bt: string; ct: string; sn: string; cs: number; cv: string }[] }
   | { t: "web"; v: { q: string; items: { t: string; u: string; d: string }[] } };
 
@@ -123,7 +119,9 @@ export async function execTool(name: string, argsJson: string): Promise<{ result
   try {
     if (name === "recommend_books") {
       const ids: string[] = Array.isArray(args.book_ids) ? args.book_ids.map(String) : [];
-      const { data } = await admin.from("books").select("id,title").in("id", ids);
+      // 直带 作者/封面种子/封面图：前端零查询即可成完整卡片（不再二次 getBook 拉书目），
+      // 彻底消除"降级空封面"与富化竞态——谁的封面都不会缺
+      const { data } = await admin.from("books").select("id,title,author,cover_url,cover_seed").in("id", ids);
       // 必须按模型传入的顺序重排：.in() 返回行序是 DB 扫描序，与推荐优先级无关——
       // 正文说"最推荐第一本《A》"而卡组第一张是《B》即失配；超 5 本时砍掉的也该是模型排最后的
       const order = new Map(ids.map((id, i) => [id, i]));
@@ -133,7 +131,7 @@ export async function execTool(name: string, argsJson: string): Promise<{ result
       if (!valid.length) return { result: "失败：这些 book_id 在馆藏中不存在，卡片没有展示。请用〔图书馆书单〕里的 [id] 重试；若不重试，正文中不得提及卡片。" };
       return {
         result: `推荐卡片已展示给用户：${valid.map((b: any) => `《${b.title}》`).join("、")}。正文中自然衔接即可，不要再重复罗列书名清单。`,
-        event: { t: "recs", v: valid.map((b: any) => ({ id: b.id, title: b.title })) },
+        event: { t: "recs", v: valid.map((b: any) => ({ id: b.id, title: b.title, author: b.author ?? "", cv: b.cover_url ?? "", cs: b.cover_seed ?? 1 })) },
       };
     }
     if (name === "read_book_toc") {

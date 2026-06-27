@@ -71,9 +71,11 @@ const config: Config = {
         shimmer: {
           "100%": { transform: "translateX(100%)" },
         },
+        // 仅淡入、不再上移：切 Tab 时列表/卡片每次重挂载都会重播入场动画，translateY 会造成「抖一下」的位移感；
+        // 去掉位移后内容直接就位、只做平滑淡入（淡入不产生布局位移），全局杜绝切换抖动（用户口径）
         "fade-up": {
-          "0%": { opacity: "0", transform: "translateY(8px)" },
-          "100%": { opacity: "1", transform: "translateY(0)" },
+          "0%": { opacity: "0" },
+          "100%": { opacity: "1" },
         },
         "scale-in": {
           "0%": { opacity: "0", transform: "scale(0.96)" },

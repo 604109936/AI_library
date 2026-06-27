@@ -113,6 +113,7 @@ export interface ChatMessage {
   feedbackReasons?: string[]; // 踩反馈原因标签（推荐偏差/答疑有误/解读没用/其它）
   feedbackText?: string; // 「其它」自定义反馈文本
   streaming?: boolean;
+  voicePending?: boolean; // 语音输入占位：松手后用户气泡先显「…」，识别完替换成语音文字（不进上下文）
   toolNote?: string; // 工具调用中文案（查找书籍…/翻阅图书…/章节浏览…），仅流式期间展示
   error?: boolean; // 错误/中断占位消息：组装上下文时剔除（防模型把报错文案当成自己说过的话）
   truncated?: boolean; // 断线截断：content 仅存模型真实正文（不含尾注），尾注由渲染层据此追加，绝不进回灌上下文（Bug#11）

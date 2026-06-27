@@ -7,12 +7,17 @@ import "server-only";
 import { admin } from "@/lib/server/agent";
 import { chatOnce } from "@/lib/server/minimax";
 import { stripCardMarkers } from "@/lib/chatMarkers";
+import { readOverride, DEFAULT_COMPRESS_KEEP, DEFAULT_COMPRESS_BATCH_MIN, DEFAULT_COMPRESS_TEMPERATURE } from "@/lib/server/agentConfig";
 
-const KEEP = 40; // 最近 20 轮（40 条）不压缩
-const BATCH_MIN = 8; // 新增未压缩消息攒够这个数才值得跑一次压缩
+// KEEP（保留最近多少条不压）/ BATCH_MIN（攒够多少才压）/ 温度 / 提示词 已移到后台可调（readOverride，默认见 agentConfig）
 const CATCH_UP = 60; // 单轮最多消化的消息数：存量长会话首压（until=0）若不设上限，part 可达数十万字必超时，
 //                      且失败不推进 until → 每轮白烧一次百秒长调用永不自愈；分多轮滚动合并追平
 const COMPRESS_MODEL = process.env.MINIMAX_COMPRESS_MODEL || "MiniMax-M3"; // 任务书 T5：全部调用统一 M3
+// 出厂默认压缩指令（后台可覆盖）
+export const BASE_COMPRESS_PROMPT =
+  "你是对话压缩器。把读者与 AI 读书伙伴的旧对话压缩成接续摘要，供 AI 后续对话时回忆上下文。" +
+  "保留：读者的阅读偏好与个人情况、讨论过的书与章节、给过的建议与结论、未完成的话题。" +
+  "去掉：寒暄、重复、格式装饰。直接输出摘要正文（不要任何前后缀），10000 字以内。";
 
 // 「请求口径」视图：与前端组装上下文的过滤规则完全一致（剔除 error 占位 → 剥卡片标记 → 滤空）。
 // compressed_until 必须按这套口径计数：若按 DB 原始数组下标计数，前端请求数组比 DB 短 k 条
@@ -47,11 +52,14 @@ async function compress(uid: string, sessionId: string, budgetMs: number) {
     .maybeSingle();
   if (readErr) { console.error("[compress] 读会话失败：", readErr); return; }
   if (!row) return;
+  const ov = await readOverride();
+  const keep = ov.compressKeep ?? DEFAULT_COMPRESS_KEEP;
+  const batchMin = ov.compressBatchMin ?? DEFAULT_COMPRESS_BATCH_MIN;
   // 统一按「请求口径」计数与切片（详见 requestView 注释）：摘要覆盖范围与请求裁剪范围严格互补
   const msgs = requestView(Array.isArray(row.messages) ? row.messages : []);
   const until = row.compressed_until ?? 0;
-  const cut = Math.min(msgs.length - KEEP, until + CATCH_UP); // 压到这条为止（保住最近 20 轮；单轮限量追赶）
-  if (cut - until < BATCH_MIN) return; // 没攒够，不值得跑
+  const cut = Math.min(msgs.length - keep, until + CATCH_UP); // 压到这条为止（保住最近 keep 条；单轮限量追赶）
+  if (cut - until < batchMin) return; // 没攒够，不值得跑
   // 预算检查：afterAnswer 在回答完成后才启动，长回答后剩余窗口可能放不下一次百秒长调用——
   // 跑到一半被平台硬杀比不跑更糟（白烧 token 且无日志），不足则留待下轮
   const timeoutMs = Math.min(100_000, budgetMs - (Date.now() - t0) - 5_000);
@@ -70,10 +78,7 @@ async function compress(uid: string, sessionId: string, budgetMs: number) {
     [
       {
         role: "system",
-        content:
-          "你是对话压缩器。把读者与 AI 读书伙伴的旧对话压缩成接续摘要，供 AI 后续对话时回忆上下文。" +
-          "保留：读者的阅读偏好与个人情况、讨论过的书与章节、给过的建议与结论、未完成的话题。" +
-          "去掉：寒暄、重复、格式装饰。直接输出摘要正文（不要任何前后缀），3500 字以内。",
+        content: (ov.compressPrompt ?? "").trim() || BASE_COMPRESS_PROMPT,
       },
       {
         role: "user",
@@ -82,7 +87,7 @@ async function compress(uid: string, sessionId: string, budgetMs: number) {
     ],
     // timeoutMs 上限 100s：M3 长思考 + 3500 字摘要远超 chatOnce 默认 60s（曾导致压缩永远超时、until 停滞）；
     // 实际取「整请求剩余预算」与 100s 的较小者（见上方预算检查）
-    { model: COMPRESS_MODEL, maxTokens: 8192, temperature: 0.3, timeoutMs }
+    { model: COMPRESS_MODEL, maxTokens: 24576, temperature: ov.compressTemperature ?? DEFAULT_COMPRESS_TEMPERATURE, timeoutMs }
   );
   // 产物校验：输出被截断在思考段内时 stripThink 会剥成空串——空/过短摘要绝不能写库，
   // 否则 until 推进 + 旧摘要被覆盖 = 不可逆的上下文黑洞；不写库留待下轮重试
@@ -94,7 +99,7 @@ async function compress(uid: string, sessionId: string, budgetMs: number) {
   // 写库失败必须留痕：这条链路全程后台静默，无日志的写失败=「until 停滞」类故障的观测盲区
   const { error: writeErr } = await admin
     .from("chat_sessions")
-    .update({ compressed_history: summary.slice(0, 16000), compressed_until: cut })
+    .update({ compressed_history: summary.slice(0, 20000), compressed_until: cut })
     .eq("user_id", uid)
     .eq("id", sessionId);
   if (writeErr) console.error("[compress] 写摘要失败：", writeErr);

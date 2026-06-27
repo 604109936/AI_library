@@ -1,44 +1,35 @@
 "use client";
-import { memo, useEffect, useState } from "react";
+import { memo, useState, useEffect } from "react";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
-import { ThumbsUp, ThumbsDown, Copy, RotateCw, Pencil, ExternalLink } from "lucide-react";
+import { ThumbsUp, ThumbsDown, Copy, RotateCw, Pencil, ExternalLink, ChevronDown, Globe } from "lucide-react";
 import { BookCover } from "@/components/ui/BookCover";
 import { ShimmerText } from "@/components/chat/ShimmerText";
 import { splitCardSegments, stripCardMarkers, hasCardMarker } from "@/lib/chatMarkers";
-import { useAuth, useLibrary, useUI } from "@/lib/store";
+import { useUI } from "@/lib/store";
 import type { Book, Citation, WebSource, ChatMessage as TMsg } from "@/lib/types";
 
 // 反馈标签（对齐补充文档：推荐偏差 / 答疑有误 / 解读没用 / 其它，「其它」可个性化输入）
 const FEEDBACK = ["推荐偏差", "答疑有误", "解读没用", "其它"];
 
-// 等待文案轮换：思考过程提示（服务端 status 事件）优先；没有提示时本地句池轮换兜底。
-// 登录/游客两套（游客没有书架，"翻了翻你的书架"是谎言）；走到尾后在最后两句间交替，不会卡死在"快好了"。
-// 全部以水波纹扫光呈现（T8 统一等待表达）
-const THINKING_USER = ["让我想想", "翻了翻你的书架", "正在组织语言", "内容有点多，再等等我", "快好了"];
-const THINKING_GUEST = ["让我想想", "在馆里找了找", "正在组织语言", "内容有点多，再等等我", "快好了"];
-function ThinkingNote({ override }: { override?: string }) {
-  const logged = useAuth((s) => !!s.user);
-  const list = logged ? THINKING_USER : THINKING_GUEST;
+// 纯思考态的递进文案：按思考已持续时长，从「思考中」逐段推进到「用心作答」后停住（不循环）。
+// 顺着小涤组织回答的过程，越等越显"在认真作答"。真内容/工具状态一出现即被父级切走（随时打断）。
+const THINK_HINTS = ["思考中", "梳理思路", "组织语言", "用心作答"];
+const THINK_STEPS_MS = [4000, 9000, 15000]; // 进入第 2/3/4 段的时延阈值
+function ThinkingHints() {
   const [i, setI] = useState(0);
   useEffect(() => {
-    if (override) return; // 服务端过程提示优先，不轮换
-    const t = setInterval(() => setI((x) => x + 1), 2600);
-    return () => clearInterval(t);
-  }, [override]);
-  const idx = i < list.length ? i : list.length - 2 + ((i - list.length) % 2); // 尾部两句循环交替
-  return <ShimmerText text={override || list[idx]} />;
+    const ts = THINK_STEPS_MS.map((ms, idx) => setTimeout(() => setI(idx + 1), ms));
+    return () => ts.forEach(clearTimeout);
+  }, []);
+  return <ShimmerText text={THINK_HINTS[i]} />;
 }
 
-// 推荐卡"懂你"徽标：已读完 > 在读 N% > 在书架（数据全在本地 store，游客自然为空）
-function recBadge(bookId: string, fav: boolean, pct: number, played: number): { text: string; done?: boolean } | null {
-  const p = Math.max(pct, played * 100);
-  if (pct >= 100 || played >= 0.9) return { text: "已读完", done: true };
-  if (p > 0) return { text: `在读 ${Math.round(p)}%` };
-  if (fav) return { text: "在书架" };
-  return null;
+// 等待文案：有工具状态（override，如「查找书籍」「联网搜索」）就显示它；纯思考态走 4 段递进 think hint。
+function ThinkingNote({ override }: { override?: string }) {
+  return override ? <ShimmerText text={override} /> : <ThinkingHints />;
 }
 
 // 表格在手机气泡里必然挤爆（用户明确不要表格）：System 已禁止小涤输出表格，
@@ -62,61 +53,41 @@ const MD_COMPONENTS: Components = {
 /* 推荐书目卡组：封面叠"懂你"徽标（已读完 / 在读 N% / 在书架）。
    交错渲染后卡组出现在工具调用的真实位置（理由之后、后话之前），fade-up 让它"亮相"而非"闪现" */
 function RecsBlock({ books }: { books: Book[] }) {
-  const favorites = useLibrary((s) => s.favorites);
-  const progress = useLibrary((s) => s.progress);
-  const mediaPlayed = useLibrary((s) => s.mediaPlayed);
   return (
     <div className="my-3 animate-fade-up first:mt-0 last:mb-0">
       <p className="mb-2 text-xs font-medium text-ink-700 dark:text-dark-text/70">为你挑的书</p>
       <div className="-mx-1 flex gap-2.5 overflow-x-auto px-1 pb-1 no-scrollbar">
-        {books.map((b) => {
-          const badge = recBadge(b.id, favorites.includes(b.id), progress[b.id]?.pct ?? 0, mediaPlayed[b.id] ?? 0);
-          return (
-            <Link key={b.id} href={`/library/book/${b.id}`} className="w-[88px] shrink-0">
-              <div className="relative">
-                <BookCover title={b.title} seed={b.coverSeed} src={b.cover} className="w-[88px]" showText={false} />
-                {badge && (
-                  <span className={"absolute left-1 top-1 rounded-full px-1.5 py-0.5 text-[10px] leading-none text-snow " + (badge.done ? "bg-ink/55" : "bg-celadon/90")}>
-                    {badge.text}
-                  </span>
-                )}
-              </div>
-              <p className="mt-1.5 truncate text-xs text-ink dark:text-dark-text">{b.title}</p>
-              <p className="truncate text-[10px] text-ink-300">{b.author}</p>
-            </Link>
-          );
-        })}
+        {books.map((b) => (
+          <Link key={b.id} href={`/library/book/${b.id}`} className="w-[88px] shrink-0">
+            <BookCover title={b.title} seed={b.coverSeed} src={b.cover} className="w-[88px]" showText={false} />
+            {/* 书名/作者左右居中；不再显示任何阅读状态徽标（音视频/文字稿两套进度，标"在读"会歧义·用户口径） */}
+            <p className="mt-1.5 truncate text-center text-xs text-ink dark:text-dark-text">{b.title}</p>
+            <p className="truncate text-center text-[10px] text-ink-300">{b.author}</p>
+          </Link>
+        ))}
       </div>
     </div>
   );
 }
 
-/* 引用章节卡组：出处与读者进度缝起来（"你正读到这里/你读过这章"），点击直达原文 */
+/* 引用章节卡组：列出答疑/解读所依据的章节，点击直达原文（不再标注个人阅读进度·用户口径） */
 function CitesBlock({ cites }: { cites: Citation[] }) {
-  const progress = useLibrary((s) => s.progress);
   return (
     <div className="my-3 animate-fade-up space-y-2 first:mt-0 last:mb-0">
       <p className="text-[11px] text-ink-300">依据原文 {cites.length} 处，点击可直达</p>
-      {cites.map((c, i) => {
-        const myCh = progress[c.bookId]?.chapterNo ?? 0;
-        const mark = myCh === c.chapterNo ? "你正读到这里" : myCh > c.chapterNo ? "你读过这章" : null;
-        return (
-          <Link
-            key={i}
-            href={`/library/book/${c.bookId}/read?ch=${c.bookId}-c${c.chapterNo}`}
-            className="flex gap-2 rounded-xl border border-line p-2 active:bg-moon/50 dark:border-white/10 dark:active:bg-white/5"
-          >
-            <BookCover title={c.bookTitle} seed={c.coverSeed} src={c.cover} className="w-9 shrink-0" showText={false} />
-            <div className="min-w-0 flex-1">
-              <div className="flex items-start gap-1.5">
-                <p className="min-w-0 flex-1 truncate text-xs font-medium text-ink dark:text-dark-text">《{c.bookTitle}》第{c.chapterNo}章 {c.chapterTitle}</p>
-                {mark && <span className="shrink-0 text-[10px] text-celadon-700 dark:text-celadon-300">{mark}</span>}
-              </div>
-              <p className="mt-0.5 line-clamp-2 text-[11px] text-ink-500 dark:text-dark-text/55">{c.snippet}</p>
-            </div>
-          </Link>
-        );
-      })}
+      {cites.map((c, i) => (
+        <Link
+          key={i}
+          href={`/library/book/${c.bookId}/read?ch=${c.bookId}-c${c.chapterNo}`}
+          className="flex gap-2 rounded-xl border border-line p-2 active:bg-moon/50 dark:border-white/10 dark:active:bg-white/5"
+        >
+          <BookCover title={c.bookTitle} seed={c.coverSeed} src={c.cover} className="w-9 shrink-0" showText={false} />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xs font-medium text-ink dark:text-dark-text">《{c.bookTitle}》第{c.chapterNo}章 {c.chapterTitle}</p>
+            <p className="mt-0.5 line-clamp-2 text-[11px] text-ink-500 dark:text-dark-text/55">{c.snippet}</p>
+          </div>
+        </Link>
+      ))}
     </div>
   );
 }
@@ -124,10 +95,22 @@ function CitesBlock({ cites }: { cites: Citation[] }) {
 /* 联网来源卡组（T10）：与引用章节卡同风格的列表卡，点击外链新开页。
    域名 + 日期给可信度参照；不渲染 snippet（正文已综合作答，来源卡只管溯源） */
 function WebBlock({ sources }: { sources: WebSource[] }) {
+  const [open, setOpen] = useState(false); // 默认折叠，点击展开来源列表（参考豆包）
   return (
-    <div className="my-3 animate-fade-up space-y-2 first:mt-0 last:mb-0">
-      <p className="text-[11px] text-ink-300">来源 {sources.length} 处，点击可查看</p>
-      {sources.map((s, i) => {
+    <div className="my-3 animate-fade-up first:mt-0 last:mb-0">
+      {/* 折叠头：默认收起，仅显示「参考 N 篇资料」，点击展开来源列表 */}
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-1.5 rounded-xl border border-line bg-snow/60 px-3 py-2 text-xs text-ink-500 active:bg-moon/50 dark:border-white/10 dark:bg-white/5 dark:text-dark-text/60 dark:active:bg-white/10"
+      >
+        <Globe size={13} className="shrink-0 text-celadon" />
+        <span>联网搜索 · 参考 {sources.length} 篇资料</span>
+        <ChevronDown size={14} className={"ml-auto shrink-0 text-ink-300 transition-transform " + (open ? "rotate-180" : "")} />
+      </button>
+      {open && (
+        <div className="mt-2 space-y-2">
+          {sources.map((s, i) => {
         // 协议白名单（纵深防御）：历史 jsonb 或上游若混入 javascript:/data: 协议，不渲染为可点链接
         let host = "";
         let safe = false;
@@ -164,8 +147,21 @@ function WebBlock({ sources }: { sources: WebSource[] }) {
             <ExternalLink size={13} className="shrink-0 text-ink-300" />
           </a>
         );
-      })}
+          })}
+        </div>
+      )}
     </div>
+  );
+}
+
+// 语音占位「…」：三个跳动点（与气泡同青瓷色系），识别完即被语音文字替换
+function VoiceDots() {
+  return (
+    <span className="inline-flex items-center gap-1 py-1" aria-label="识别中">
+      {[0, 1, 2].map((i) => (
+        <span key={i} className="h-1.5 w-1.5 animate-bounce rounded-full bg-celadon-700 dark:bg-celadon-300" style={{ animationDelay: `${i * 0.15}s` }} />
+      ))}
+    </span>
   );
 }
 
@@ -194,7 +190,8 @@ export const ChatMessage = memo(function ChatMessage({
       <div className="flex justify-end">
         {/* whitespace-pre-wrap：用户消息里的换行必须保留（多行提问挤成一行没法读） */}
         <div className="max-w-[80%] whitespace-pre-wrap break-words rounded-2xl rounded-tr-sm bg-celadon-soft px-3.5 py-2.5 text-sm leading-6 text-ink transition dark:bg-celadon/20 dark:text-dark-text">
-          {msg.content}
+          {/* 语音占位：松手后先显三个跳动点「…」，识别完替换成语音文字 */}
+          {msg.voicePending ? <VoiceDots /> : msg.content}
         </div>
       </div>
     );

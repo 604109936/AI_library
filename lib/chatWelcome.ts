@@ -3,6 +3,14 @@
 // 铁律：示例问题里出现的书必须真实在馆（写死书名的老 mock 因《终身成长》等不在馆，点击即尴尬）。
 import type { Book, Category, HistoryItem, NoteItem, Progress } from "@/lib/types";
 
+// Fisher–Yates 洗牌 / 随机取一：示例问题每次随机从馆藏挑书、随机选措辞，进来一次换一批
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+function pick<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)]; }
+
 // 按时段问候：第一眼的"被认出"仪式感
 export function greeting(): string {
   const h = new Date().getHours();
@@ -27,6 +35,7 @@ export interface PersonalData {
   favorites: string[];
   notes: NoteItem[];
   books: Book[]; // 全馆书目（getHome().recommend 即全量），用于把收藏 id 解析成书名
+  categories: Category[]; // 个性化不足时用「随机馆藏」问题补足（新登录用户也看到鲜活引导）
 }
 
 // 登录读者：按「在读 > 刚读完 > 收藏未开读 > 有笔记」优先级生成专属问题，不足补通用
@@ -54,21 +63,29 @@ export function buildQuestions(d: PersonalData | null): string[] {
   const noted = d.notes.find((n) => n.bookTitle);
   if (noted && out.length < 4) out.push(`结合我做过的笔记，帮我把《${noted.bookTitle}》串成一条主线`);
 
-  for (const g of GENERIC) {
+  // 个性化不足 4 条时，用「随机馆藏」示例问题补足（而非干巴巴的通用句）——新登录用户也能看到鲜活引导
+  for (const q of buildGuestQuestions(d.books, d.categories)) {
     if (out.length >= 4) break;
-    if (!out.includes(g)) out.push(g);
+    if (!out.includes(q)) out.push(q);
   }
   return out.slice(0, 4);
 }
 
-// 游客：从真实馆藏拼问题（点出去必有答案）
+// 游客/新用户：从真实馆藏「随机」挑书拼问题，每次进来不一样；并体现读书伙伴「荐书 · 答疑 · 解读原文」三大能力。
 export function buildGuestQuestions(books: Book[], categories: Category[]): string[] {
   if (!books.length) return GENERIC;
+  const ps = shuffle(books);
+  const a = ps[0]?.title, b = ps[1]?.title, c = ps[2]?.title;
+  const cat = categories.length ? pick(categories).name : "";
   const out = [
-    "推荐一本适合我现在读的书",
-    books[0] ? `《${books[0].title}》讲了什么` : "",
-    categories[0]?.name ? `馆里有哪些「${categories[0].name}」的书` : "",
-    books[1] ? `《${books[1].title}》值得读吗` : "",
+    // ① 荐书
+    cat ? pick([`有什么好看的「${cat}」书，荐我一本`, `「${cat}」类里有哪些值得读的，给我推荐`]) : pick(["随便给我荐一本好书", "推荐一本适合我现在读的书"]),
+    // ② 答疑
+    a ? pick([`《${a}》主要讲了什么`, `《${a}》的核心观点是什么`]) : "",
+    // ③ 解读原文
+    b ? pick([`带我精读《${b}》的开篇`, `帮我解读《${b}》最精华的部分`]) : "",
+    // ④ 荐书 + 答疑
+    c ? pick([`《${c}》值得读吗、适合我吗`, `《${c}》好在哪，讲讲看`]) : "",
   ].filter(Boolean);
   for (const g of GENERIC) {
     if (out.length >= 4) break;

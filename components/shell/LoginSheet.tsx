@@ -5,10 +5,6 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useAuth, useUI } from "@/lib/store";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { Mail, Lock, Eye, EyeOff, BookHeart, User } from "lucide-react";
-import { DEMO_EMAIL } from "@/lib/utils";
-
-// 体验账号（真实 Supabase 用户，由 scripts/create-demo-user.mjs 建）
-const DEMO_PWD = "123456";
 
 // Supabase 英文报错 → 中文
 function zhError(msg: string): string {
@@ -101,23 +97,32 @@ export function LoginSheet() {
     finish(mode === "login" ? "欢迎回来" : "注册成功，已自动登录");
   }
 
-  // 体验账号：填入即自动提交登录，无需再点登录按钮
+  // 体验账号：每次点击都在后台为你新建一个**独立**的体验账号（昵称：体验书友N），数据各自独立、互不串档
   async function demoLogin() {
     if (loading) return;
     setMode("login");
-    setEmail(DEMO_EMAIL);
-    setPwd(DEMO_PWD);
-    setNickname("");
     setErr("");
     setInfo("");
     setLoading(true);
-    const res = await login(DEMO_EMAIL, DEMO_PWD);
-    if (res.error) {
-      setErr(zhError(res.error));
+    try {
+      const r = await fetch("/api/demo", { method: "POST" });
+      const j = await r.json().catch(() => null);
+      if (!r.ok || !j?.email) {
+        setErr(j?.error ?? "体验账号创建失败，请稍后重试");
+        setLoading(false);
+        return;
+      }
+      const res = await login(j.email, j.password);
+      if (res.error) {
+        setErr(zhError(res.error));
+        setLoading(false);
+        return;
+      }
+      finish("欢迎体验");
+    } catch {
+      setErr("体验账号创建失败，请稍后重试");
       setLoading(false);
-      return;
     }
-    finish("欢迎回来");
   }
 
   return (

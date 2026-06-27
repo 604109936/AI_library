@@ -82,7 +82,7 @@ function makeThinkFilter() {
 // 工具调用增量按 OpenAI 规范以 index 聚合（id/name 先到，arguments 分片续传）。
 export async function* streamChat(
   messages: MMMessage[],
-  opts?: { maxTokens?: number; temperature?: number; tools?: MMTool[]; signal?: AbortSignal; timeoutMs?: number }
+  opts?: { maxTokens?: number; temperature?: number; tools?: MMTool[]; signal?: AbortSignal; timeoutMs?: number; model?: string }
 ): AsyncGenerator<
   | { type: "delta"; text: string }
   | { type: "think"; text: string }
@@ -94,7 +94,7 @@ export async function* streamChat(
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
     body: JSON.stringify({
-      model: MODEL,
+      model: opts?.model ?? MODEL,
       messages,
       stream: true,
       max_tokens: opts?.maxTokens ?? 4096,

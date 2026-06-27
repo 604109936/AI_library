@@ -43,5 +43,8 @@ Thumbs.db
 # e2e 测试截图产物
 .e2e/
 
+# 开发参考图（设计/UI 对照截图，不参与部署）
+ref_image/
+
 .vercel
 docs/minimax-websearch/__pycache__/

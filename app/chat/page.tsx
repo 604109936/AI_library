@@ -1,21 +1,24 @@
 "use client";
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { Send, Square, Sparkles, Mic, X, ArrowDown } from "lucide-react";
+import { Send, Sparkles, ArrowDown } from "lucide-react";
 import { BottomNav } from "@/components/shell/BottomNav";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { Mascot } from "@/components/chat/Mascot";
 import { Motif } from "@/components/ui/Motif";
 import { getBook, getChapters, getHome } from "@/lib/api";
 import { stripCardMarkers } from "@/lib/chatMarkers";
-import { greeting, buildQuestions, buildGuestQuestions } from "@/lib/chatWelcome";
+import { buildQuestions, buildGuestQuestions } from "@/lib/chatWelcome";
 import { supabase } from "@/lib/supabase/client";
 import { MAIN_SESSION_TITLE, useAuth, useChat, useLibrary, useUI } from "@/lib/store";
 import { msgIdTime } from "@/lib/utils";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useVoiceInput, voiceSupported } from "@/lib/useVoiceInput";
 import type { Book, Citation, WebSource, ChatMessage as TMsg } from "@/lib/types";
+
+// useLayoutEffect 在 SSR 无意义→客户端才用（消除告警）。用于在浏览器「绘制前」补历史，避免先闪欢迎/载入再跳历史。
+const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 // 引用卡数据：T3 起服务端 cites 事件直带全部展示字段（书名/章题/snippet/封面），前端零查询直渲染——
 // 既消除"拉数据失败丢卡"的失配源，也不再为 60 字摘要拉整本书正文。兼容旧格式（{b,c}）时回退轻量查询
@@ -37,30 +40,6 @@ async function buildCitations(items: { b: string; c: number; bt?: string; ct?: s
   return out;
 }
 
-// 降级书目：仅用事件自带的 {id,title} 构造可点进详情页的最小卡（封面走 BookCover 的 CSS 兜底）
-function degradedBook(id: string, title: string): Book {
-  return {
-    id, title, author: "", cover: "", coverSeed: 1, heroUrl: "", posterUrl: "", category: "", categoryId: "",
-    tags: [], summary: "", rating: 0, readers: 0, words: 0, durationMin: 0,
-    hasVideo: false, hasAudio: false, hasText: false, likes: 0, favCount: 0, reviewCount: 0,
-    featured: false, intro: "", shelvedAt: "",
-  } as Book;
-}
-
-// 推荐卡数据：getBook 失败重试一次；仍失败用事件自带的 {id,title} 构造降级书目（保底可点进详情页）
-async function resolveRecBooks(items: (string | { id: string; title: string })[]): Promise<Book[]> {
-  const out: Book[] = [];
-  for (const it of items) {
-    const id = typeof it === "string" ? it : it.id;
-    const title = typeof it === "string" ? "" : it.title;
-    let book: Book | null = null;
-    try { book = await getBook(id); } catch { try { book = await getBook(id); } catch {} }
-    if (book) out.push(book);
-    else if (title) out.push(degradedBook(id, title));
-  }
-  return out;
-}
-
 // 流式中间态/工具状态归一化：从持久层/缓存还原消息时修复半截状态（防永久"思考中"）
 function normalizeMsgs(msgs: TMsg[]): TMsg[] {
   return msgs.map((m) =>
@@ -70,13 +49,31 @@ function normalizeMsgs(msgs: TMsg[]): TMsg[] {
   );
 }
 
-// 模块级缓存：切 Tab（去泡馆/乱翻再回来）保持当前画面；按账号隔离防串号（T4 单一会话，无会话 id）
+// 模块级会话 + 流式机器：跨 Tab 切换（组件卸载）持续运行——切走不中断请求、切回接着看（回复到哪就是哪）。
+// chatLive 是「当前会话消息」的源真相（持久于模块、不随卸载消失）；页面用 useSyncExternalStore 订阅它。
+// 按账号隔离防串号（T4 单一会话，无会话 id）。
 let chatLive: { messages: TMsg[]; uid: string } | null = null;
 const chatLiveUid = () => useAuth.getState().user?.id ?? "guest";
+const EMPTY_MSGS: TMsg[] = [];
+const liveSubs = new Set<() => void>();
+function emitLive() { liveSubs.forEach((fn) => fn()); }
+// 全局唯一「写消息」：所有增删改都走它——更新 chatLive + 通知挂载中的页面刷新（卸载时无订阅者，但 chatLive 照常更新）
+function writeLive(arg: TMsg[] | ((prev: TMsg[]) => TMsg[])) {
+  const prev = chatLive?.messages ?? EMPTY_MSGS;
+  const next = typeof arg === "function" ? (arg as (p: TMsg[]) => TMsg[])(prev) : arg;
+  chatLive = { messages: next, uid: chatLiveUid() };
+  emitLive();
+}
+// 流式控制（模块级，跨卸载共享：切回来的新页面操控的是同一个正在跑的流）
+let liveCtrl: AbortController | null = null; // 当前请求中断器（非空即「有流在跑」）
+let liveTimer: ReturnType<typeof setInterval> | null = null; // 追赶打字机
+let liveBusy = false; // 是否有流在跑（驱动停止键/禁用态等 UI）
+function setLiveBusy(v: boolean) { liveBusy = v; emitLive(); }
+
 function takeChatLive() {
   if (chatLive && chatLive.uid !== "guest" && chatLive.uid !== chatLiveUid()) chatLive = null; // 换账号作废；游客→登录延续
-  // 中途离开时可能残留流式中间态：还原为完成态，避免回来后一直"思考中"
-  if (chatLive?.messages.some((m) => m.streaming)) chatLive = { ...chatLive, messages: normalizeMsgs(chatLive.messages) };
+  // 仅当确无后台流在跑（liveCtrl 为空）时，才把残留流式态归一化（防永久"思考中"）；流在跑则保留，切回接着看
+  if (!liveCtrl && chatLive?.messages.some((m) => m.streaming)) chatLive = { ...chatLive, messages: normalizeMsgs(chatLive.messages) };
   return chatLive;
 }
 
@@ -86,9 +83,17 @@ const RENDER_WINDOW = 120;
 function ChatInner() {
   const sessions = useChat((s) => s.sessions);
   const toast = useUI((s) => s.toast);
-  const [messages, setMessages] = useState<TMsg[]>(() => takeChatLive()?.messages ?? []);
+  const user = useAuth((s) => s.user);
+  const authHydrated = useAuth((s) => s.hydrated); // Supabase 登录态是否已恢复完成（异步）
+  const cloudLoaded = useChat((s) => s.cloudLoaded);
+  // 会话消息 / busy 订阅模块级 chatLive、liveBusy（源真相在模块、跨 Tab 卸载持久）。
+  // useSyncExternalStore 的服务端快照恒为 EMPTY（SSR 安全、与客户端首帧一致、不读 localStorage、不报水合错）；
+  // 有历史的用户：历史由下方 useLayoutEffect 在浏览器「绘制前」直读 localStorage、经 writeLive 补上，不闪欢迎页。
+  const liveSubscribe = useCallback((cb: () => void) => { liveSubs.add(cb); return () => { liveSubs.delete(cb); }; }, []);
+  const messages = useSyncExternalStore(liveSubscribe, () => chatLive?.messages ?? EMPTY_MSGS, () => EMPTY_MSGS);
+  const busy = useSyncExternalStore(liveSubscribe, () => liveBusy, () => false);
+  const setMessages = writeLive; // 所有写都走 chatLive（源真相），再经订阅回到画面
   const [input, setInput] = useState("");
-  const [busy, setBusy] = useState(false);
   const [recording, setRecording] = useState(false);
   const recordingRef = useRef(false);
   const [cancelArmed, setCancelArmed] = useState(false);
@@ -100,11 +105,8 @@ function ChatInner() {
   const [showJump, setShowJump] = useState(false); // 用户上滑回看时浮出「回到最新」
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pressStart = useRef<{ x: number; y: number } | null>(null);
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const thinkTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const busyRef = useRef(false);
   const seq = useRef(0);
-  const fetchCtrl = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const stick = useRef(true); // 贴底跟随：用户上滑回看时停止自动滚底（流式期间被强拽回底是 P0 体验事故）
@@ -113,28 +115,20 @@ function ChatInner() {
   const limitWarned = useRef(false); // 500 字截断只提醒一次
   const upsertSession = useChat((s) => s.upsertSession);
 
-  // 最新消息引用：稳定回调（setFeedback 等）与卸载兜底从这里取值，避免陈旧闭包
+  // 最新消息引用：稳定回调（setFeedback 等）从这里取值。messages 已是模块派生值，直接同步即可
   const messagesRef = useRef<TMsg[]>(messages);
-  // 会话续存：消息变化即回写模块缓存（流式中间态也存，回来还能看到完整画面）
-  useEffect(() => {
-    messagesRef.current = messages;
-    if (messages.length) chatLive = { messages, uid: chatLiveUid() };
-  }, [messages]);
+  messagesRef.current = messages;
+  // 进入页面：清理「无流在跑」时残留的流式态（防永久"思考中"）
+  useEffect(() => { takeChatLive(); emitLive(); }, []);
 
+  // 卸载（切 Tab）：只清 UI 级短定时器；绝不中断 liveCtrl、不清 liveTimer——
+  // 让流式在后台继续跑（增量实时写进模块级 chatLive、完成时由流自身落库），切回来接着看（回复到哪就是哪）
   useEffect(() => () => {
-    if (timer.current) clearInterval(timer.current);
     if (thinkTimer.current) clearTimeout(thinkTimer.current);
     if (pressTimer.current) clearTimeout(pressTimer.current);
-    const c = fetchCtrl.current; // 先置空再中断：避免 catch 误判为"运行中的请求出错"而在新页面弹错误 toast
-    fetchCtrl.current = null;
-    c?.abort();
-    // 流式中离开页面：本轮问答此前只存在内存级 chatLive 里（persist 只在 busy 边沿触发），
-    // 此刻硬刷新/杀进程会让刚发的提问凭空消失——离开时把画面快照（半截回答转完成态）落一次库
-    const snap = messagesRef.current;
-    if (busyRef.current && snap.some((m) => m.streaming)) {
-      busyRef.current = false;
-      persist(normalizeMsgs(snap));
-    }
+    // 流式中切走：把当前画面（含刚发的提问）先落一次库，万一离开后硬刷新/杀进程提问不致凭空消失；
+    // 绝不中断 liveCtrl——流继续后台跑，完成时会再落一次完整答案（merge-back 因 liveBusy 跳过，安全）
+    if (liveBusy) persist(chatLive?.messages ?? EMPTY_MSGS);
   }, []);
 
   // 贴底检测：离底 < 80px 视为"在底部"，自动跟随；上滑回看即停止跟随
@@ -146,7 +140,7 @@ function ChatInner() {
       const dist = el.scrollHeight - window.scrollY - window.innerHeight;
       const at = dist < 80;
       stick.current = at;
-      setShowJump(!at && busyRef.current);
+      setShowJump(!at && liveBusy);
     };
     const onScroll = () => { if (!raf) raf = requestAnimationFrame(compute); };
     window.addEventListener("scroll", onScroll, { passive: true });
@@ -156,11 +150,26 @@ function ChatInner() {
   // 单一会话水合：本地 store（persist 已水合）或云端（loadCloud 完成后 sessions 更新）的 main
   // 会话灌入本页。流式中不动（防覆盖进行中对话）；只在 store 比当前画面更全时应用——
   // 覆盖三种时序：冷启动 persist 异步水合、登录后云端晚到、多设备间云端更新
+  // 【绘制前·直读 localStorage】最可靠的一手：进入即同步读本地已存的 main 历史，在浏览器绘制前就补上，
+  // 绕过 zustand 水合时序（订阅值/有时连 getState 在水合期都未就绪）。有历史的用户刷新/切 Tab 都直接看到
+  // 对话，绝不先闪游客欢迎页再跳。仅当本地确实为空时，才落到下方「载入态 / 欢迎」判断。
+  useIsoLayoutEffect(() => {
+    if (liveBusy || messages.length) return;
+    try {
+      const raw = typeof window !== "undefined" ? window.localStorage.getItem("ail-chat") : null;
+      if (!raw) return;
+      const main = JSON.parse(raw)?.state?.sessions?.find((s: { id?: string }) => s?.id === "main");
+      if (main?.messages?.length) { setMessages(normalizeMsgs(main.messages)); scrolledOnce.current = false; }
+    } catch {}
+    // eslint-disable-next-line
+  }, []);
+
   const mainMsgCount = sessions.find((x) => x.id === "main")?.messages.length ?? 0;
-  useEffect(() => {
-    if (busyRef.current || !mainMsgCount || mainMsgCount <= messages.length) return;
+  // 云端晚到 / 多设备更新时用更全的会话刷新画面（订阅驱动）。读 getState 真实值避免水合期空快照漏判。
+  useIsoLayoutEffect(() => {
+    if (liveBusy) return;
     const main = useChat.getState().sessions.find((x) => x.id === "main");
-    if (!main) return;
+    if (!main || !main.messages.length || main.messages.length <= messages.length) return;
     setMessages(normalizeMsgs(main.messages));
     scrolledOnce.current = false; // 重新填充后滚到底
     // eslint-disable-next-line
@@ -204,42 +213,51 @@ function ChatInner() {
     }
     upsertSession({ id: "main", title: MAIN_SESSION_TITLE, updatedAt: new Date().toISOString(), messages: merged });
     // 合并出了页面没有的历史：灌回页面（非 busy 时点；busy 中不会走到 merged>页面 的路径）
-    if (merged.length > msgs.length && !busyRef.current) {
+    if (merged.length > msgs.length && !liveBusy) {
       setMessages(normalizeMsgs(merged));
     }
   }
 
   // T2.1：答案来源 = 云函数 /api/chat（MiniMax 真实大模型，带多轮上下文）；
   // 拿到完整回答后仍用打字机渐显（T2.4 升级为 SSE 真流式）。
-  function send(text: string, base?: TMsg[]) {
+  // voiceId：语音输入路径——本次提问由已存在的「…」占位用户气泡承载（填入识别文字、不新建用户消息）；
+  // 该路径在占位期间 busyRef 已为 true，故跳过 busyRef 闸（其余流式逻辑与普通发送完全一致）
+  function send(text: string, base?: TMsg[], voiceId?: string) {
     const q = text.trim();
-    if (!q || busyRef.current) return;
-    busyRef.current = true;
+    if (!q || (!voiceId && liveBusy)) return;
+    liveBusy = true;
     setInput("");
     if (inputRef.current) inputRef.current.style.height = "auto"; // 多行输入框复位
-    if (timer.current) { clearInterval(timer.current); timer.current = null; } // 兜底清残留打字机
+    if (liveTimer) { clearInterval(liveTimer); liveTimer = null; } // 兜底清残留打字机
     stick.current = true; // 发新问题必然想看回答：恢复贴底跟随
     // 消息 id 时间戳单调化：persist 合并按 msgIdTime 排序，本机时钟回拨/多端钟差时
     // 新消息若拿到更小时间戳会被排进历史中部（页面追加序与落库序分叉）
-    const lastT = (base ?? messages).reduce((mx, m) => Math.max(mx, msgIdTime(m.id)), 0);
+    const baseMsgs = base ?? messages;
+    const lastT = baseMsgs.reduce((mx, m) => Math.max(mx, msgIdTime(m.id)), 0);
     const n = `${Math.max(Date.now(), lastT + 1)}-${seq.current++}`;
-    const userMsg: TMsg = { id: "u" + n, role: "user", content: q };
     const aId = "a" + n;
     const aMsg: TMsg = { id: aId, role: "assistant", content: "", streaming: true };
     // base：重新生成时传入「已截掉旧回答」的消息列表，避免旧渲染闭包把被删的回答又拼进上下文（模型会被旧答案锚定而复读）
-    // 错误/中断占位消息（error 标记）不进上下文：模型会把报错文案当成自己说过的话
-    // 卡片占位标记也必须剥掉：模型看到 [[recs:0,2]] 会模仿着往回答里写
-    const history = [...(base ?? messages), userMsg].filter((m) => !m.error).map((m) => ({ role: m.role, content: stripCardMarkers(m.content) }));
+    // 错误/中断占位消息（error 标记）不进上下文；卡片占位标记也必须剥掉：模型看到 [[recs:0,2]] 会模仿着往回答里写
+    let history: { role: string; content: string }[];
+    if (voiceId) {
+      // 占位气泡已在 baseMsgs 中：把它的内容映射成识别文字 q 进上下文，并就地填字 + 追加助手气泡（不新建用户消息，无闪烁）
+      history = baseMsgs.filter((m) => !m.error).map((m) => ({ role: m.role, content: stripCardMarkers(m.id === voiceId ? q : m.content) }));
+      setMessages((prev) => prev.map((m) => (m.id === voiceId ? { ...m, content: q, voicePending: false } : m)).concat(aMsg));
+    } else {
+      const userMsg: TMsg = { id: "u" + n, role: "user", content: q };
+      history = [...baseMsgs, userMsg].filter((m) => !m.error).map((m) => ({ role: m.role, content: stripCardMarkers(m.content) }));
+      setMessages((prev) => [...prev, userMsg, aMsg]);
+    }
     // 点踩后重新生成：把踩的原因作为一次性指示喂给模型（不渲染、不落库），反馈当场可感知地生效
     if (regenHint.current) {
       history.splice(history.length - 1, 0, { role: "user", content: `（说明：你上一条回答被我标记了「${regenHint.current}」，请换个角度重新回答，不要重复原来的说法）` });
       regenHint.current = null;
     }
-    setMessages((prev) => [...prev, userMsg, aMsg]);
-    setBusy(true);
+    setLiveBusy(true);
 
     const ctrl = new AbortController();
-    fetchCtrl.current = ctrl;
+    liveCtrl = ctrl;
     // acc 提升到 send 作用域：catch 需要据此判断「中途失败但已有正文」，保留内容而非整体替换为错误文案
     let acc = "";
     // 登录态附带 Supabase token：云函数据此注入「这位读者」的个人数据（游客则无）
@@ -279,9 +297,9 @@ function ChatInner() {
           acc += marker;
         };
         const smooth = () => {
-          if (timer.current) return;
-          timer.current = setInterval(() => {
-            if (fetchCtrl.current !== ctrl && !ended) return; // stop() 已接管收尾
+          if (liveTimer) return;
+          liveTimer = setInterval(() => {
+            if (liveCtrl !== ctrl && !ended) return; // stop() 已接管收尾
             if (shown < acc.length) {
               // 后台标签页 interval 被节流到约 1Hz，追赶公式在 1Hz 下追完长回答要几十秒——
               // 不可见时直接全量上屏，切回来即是完整回答而不是"还在慢慢爬"
@@ -290,16 +308,16 @@ function ChatInner() {
               for (const [s, e] of markerSpans) if (shown > s && shown < e) shown = e; // 不停在标记中间
               apply({ content: acc.slice(0, shown) }); // 不动 toolNote：工具状态由事件自己管理
             } else if (ended) {
-              if (timer.current) clearInterval(timer.current);
-              timer.current = null;
+              if (liveTimer) clearInterval(liveTimer);
+              liveTimer = null;
               // 流正常 end 但全程零文字零卡片（如 max_tokens 烧尽在思考段）：给错误占位而非空气泡
               if (!acc.trim() && !recsAcc.length && !citesAcc.length && !webAcc.length) {
                 apply({ content: "这次没说出话来，点「重新生成」再试一次吧", streaming: false, toolNote: undefined, error: true });
               } else {
                 apply({ content: acc, streaming: false, toolNote: undefined });
               }
-              busyRef.current = false;
-              setBusy(false);
+              setLiveBusy(false);
+              persist(chatLive?.messages ?? EMPTY_MSGS); // 卸载后 busy 边沿 effect 不触发：流自己落库（切走后台完成也存）
               setShowJump(false);
             }
           }, 16);
@@ -308,7 +326,7 @@ function ChatInner() {
         // 换引用触发整列表 setMessages——只有真的变化才动状态
         let noteShown: string | undefined;
         const handle = async (ev: { t: string; v?: unknown }) => {
-          if (fetchCtrl.current !== ctrl) return; // 停止/被新请求取代后不再消费缓冲区残留事件（防 await 窗口期复活僵尸打字机）
+          if (liveCtrl !== ctrl) return; // 停止/被新请求取代后不再消费缓冲区残留事件（防 await 窗口期复活僵尸打字机）
           if (ev.t === "d" && typeof ev.v === "string") {
             acc += ev.v;
             if (noteShown !== undefined) { noteShown = undefined; apply({ toolNote: undefined }); } // 新文字到达才清工具状态
@@ -316,29 +334,26 @@ function ChatInner() {
           }
           else if (ev.t === "status" && typeof ev.v === "string") { if (noteShown !== ev.v) { noteShown = ev.v; apply({ toolNote: ev.v }); } }
           else if (ev.t === "recs" && Array.isArray(ev.v)) {
-            // 先用事件自带 {id,title} 即时构造降级卡并就地渲染（标记位置由当下 acc 决定，顺序不漂移）；
-            // 真实封面/作者放进“不被读循环 await”的后台 Promise 富化，完成后按 id 就地替换——避免在
-            // NDJSON 读循环内逐本串行 getBook(带重试)阻塞后续 delta/end 消费致打字机卡顿（Bug#4）
-            const rawRecs = (ev.v as (string | { id: string; title: string })[])
-              .map((it) => (typeof it === "string" ? { id: it, title: "" } : it))
-              .filter((it) => it && it.id);
-            if (rawRecs.length) {
+            // 事件直带 id/title/author/封面种子(cs)/封面图(cv)，前端零查询直接成完整卡片——
+            // 彻底消除"降级空封面"与 getBook 富化竞态（Bug#2）。标记位置由当下 acc 决定，顺序不漂移。
+            const cards: Book[] = (ev.v as { id: string; title?: string; author?: string; cv?: string; cs?: number }[])
+              .filter((it) => it && it.id)
+              .map((it) => ({
+                id: it.id, title: it.title ?? "", author: it.author ?? "", cover: it.cv ?? "", coverSeed: it.cs ?? 1,
+                heroUrl: "", posterUrl: "", category: "", categoryId: "", tags: [], summary: "", rating: 0, readers: 0,
+                words: 0, durationMin: 0, hasVideo: false, hasAudio: false, hasText: false, likes: 0, favCount: 0,
+                reviewCount: 0, featured: false, intro: "", shelvedAt: "",
+              } as Book));
+            if (cards.length) {
               const from = recsAcc.length;
-              recsAcc.push(...rawRecs.map((it) => degradedBook(it.id, it.title)));
+              recsAcc.push(...cards);
               pushMarker("recs", from, recsAcc.length);
               apply({ recommendations: recsAcc.slice() });
               smooth();
-              void (async () => {
-                const rich = await resolveRecBooks(rawRecs);
-                if (fetchCtrl.current !== ctrl || !rich.length) return; // 已停止/被新请求取代：不再回填已定格的消息
-                const byId = new Map(rich.map((b) => [b.id, b]));
-                for (let i = 0; i < recsAcc.length; i++) { const b = byId.get(recsAcc[i].id); if (b) recsAcc[i] = b; }
-                apply({ recommendations: recsAcc.slice() });
-              })();
             }
           } else if (ev.t === "cites" && Array.isArray(ev.v)) {
             const cites = await buildCitations(ev.v as { b: string; c: number }[]);
-            if (fetchCtrl.current !== ctrl) return; // await 期间被停止：同上
+            if (liveCtrl !== ctrl) return; // await 期间被停止：同上
             if (cites.length) {
               const from = citesAcc.length;
               citesAcc.push(...cites);
@@ -381,17 +396,17 @@ function ChatInner() {
         }
         buf += dec.decode(); // 冲洗解码器内部残留的半截多字节序列（流在中文字符中间被截断时少 1 字会让末行 JSON 解析失败）
         await handleLine(buf.trim()); // 末行可能没有换行符（代理缓冲截断）：不 flush 会整行丢事件
-        if (fetchCtrl.current !== ctrl) return; // 已被停止/新请求取代
-        fetchCtrl.current = null;
+        if (liveCtrl !== ctrl) return; // 已被停止/新请求取代
+        liveCtrl = null;
         ended = true;
         smooth(); // 流结束：让打字机追完剩余文字后收尾（若无任何增量也会直接收尾）
       })
       .catch((e: unknown) => {
         if (e instanceof Error && e.name === "AbortError") return; // 卸载/停止导致的中断不是错误
-        if (fetchCtrl.current !== ctrl) return; // 用户主动停止，stop() 已收尾
-        fetchCtrl.current = null;
+        if (liveCtrl !== ctrl) return; // 用户主动停止，stop() 已收尾
+        liveCtrl = null;
         // 必须清掉打字机 interval：否则残留空转的旧 interval 会让下一次提问永远渲染不出字（P0）
-        if (timer.current) { clearInterval(timer.current); timer.current = null; }
+        if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
         const msg = e instanceof Error && e.message && e.message !== "Failed to fetch" ? e.message : "网络有点不稳，缓一缓再问我一次吧";
         if (acc.trim()) {
           // 中途失败但已流出正文（多轮工具循环后段挂掉）：保留模型真实正文 + truncated 标记，不打 error。
@@ -402,15 +417,15 @@ function ChatInner() {
           // 零内容失败：错误占位，并清掉可能已挂上的卡片数组（错误气泡不该出现"为你挑的书"）
           setMessages((prev) => prev.map((m) => (m.id === aId ? { ...m, content: msg, streaming: false, error: true, toolNote: undefined, recommendations: undefined, citations: undefined, webSources: undefined } : m)));
         }
-        busyRef.current = false;
-        setBusy(false);
+        setLiveBusy(false);
+        persist(chatLive?.messages ?? EMPTY_MSGS); // 卸载后也落库：保留已流出的正文/错误占位
       });
   }
 
   function stop() {
-    if (fetchCtrl.current) { fetchCtrl.current.abort(); fetchCtrl.current = null; }
+    if (liveCtrl) { liveCtrl.abort(); liveCtrl = null; }
     if (thinkTimer.current) clearTimeout(thinkTimer.current);
-    if (timer.current) { clearInterval(timer.current); timer.current = null; } // 必须置 null：陈旧 id 残留会让下次 smooth() 误判"已有打字机"
+    if (liveTimer) { clearInterval(liveTimer); liveTimer = null; } // 必须置 null：陈旧 id 残留会让下次 smooth() 误判"已有打字机"
     // 卡片数据在事件到达时已挂上消息：内容里有标记按标记位置渲染，标记没吐到则回退末尾渲染，不会丢卡
     setMessages((prev) =>
       prev.map((m) => {
@@ -420,8 +435,8 @@ function ChatInner() {
           : { ...m, content: "好，先停在这里。想继续随时叫我", streaming: false, toolNote: undefined, error: true };
       })
     );
-    busyRef.current = false;
-    setBusy(false);
+    liveBusy = false;
+    setLiveBusy(false);
     setShowJump(false);
   }
 
@@ -465,29 +480,39 @@ function ChatInner() {
   function setRec(v: boolean) { recordingRef.current = v; setRecording(v); }
   function onRecPointerMove(e: React.PointerEvent) {
     if (!recordingRef.current || !pressStart.current) return;
-    const armed = pressStart.current.y - e.clientY > 90; // 上滑超过 90px 进入「取消」态
+    const armed = pressStart.current.y - e.clientY > 60; // 上滑超过 60px 进入「取消」态（更灵敏）
     cancelArmedRef.current = armed;
     setCancelArmed(armed);
   }
-  function endRecording() {
+  async function endRecording() {
     if (!recordingRef.current) return;
     setRec(false);
     const canceled = cancelArmedRef.current;
-    const { text, fatal } = stopVoice(canceled);
-    if (canceled) {
-      toast("已取消", "info");
-    } else if (text) {
-      // 识别文本回填输入框供确认后发送（误识可改可删，比直接发送稳）
-      setInput((cur) => (cur ? cur + text : text).slice(0, 500));
-      requestAnimationFrame(() => inputRef.current?.focus());
-    } else if (fatal) {
-      // 权限被拒/无麦克风：识别器异步报 not-allowed（start 本身不抛错），原"没听清"文案是三重误导
-      toast("麦克风没打开——请在浏览器设置里允许使用麦克风", "error");
-    } else {
-      toast("没听清，再试一次或打字告诉我", "info");
-    }
     cancelArmedRef.current = false;
     setCancelArmed(false);
+    if (canceled) { stopVoice(true); return; } // 取消：丢弃、不识别、不弹 toast
+    if (liveBusy) { stopVoice(true); toast("小涤还在回话，等它说完再聊语音哦", "info"); return; } // 生成中不接语音，避免占位/流式打架
+
+    // 去掉「识别中」面板：松手即在聊天区放一条「…」占位用户气泡，识别完替换成语音文字再触发回答
+    const cur = messages;
+    const lastT = cur.reduce((mx, m) => Math.max(mx, msgIdTime(m.id)), 0);
+    const vId = "u" + `${Math.max(Date.now(), lastT + 1)}-${seq.current++}`;
+    liveBusy = true; // 占位期间挡住其它发送（send 的 voiceId 路径会重新置位）
+    stick.current = true;
+    setMessages((prev) => [...prev, { id: vId, role: "user", content: "", voicePending: true }]);
+
+    const { text, fatal, error } = await stopVoice(false);
+    liveBusy = false; // 解除占位闸，交给 send 接管
+    if (text) {
+      const q = (input.trim() ? `${input.trim()} ${text}` : text).slice(0, 500);
+      // base 用「占位前 messages + 占位气泡」：闭包 messages 不含占位，补上即当前真态；send 按 voiceId 把它的内容映射成 q
+      send(q, [...cur, { id: vId, role: "user", content: "" }], vId);
+    } else {
+      setMessages((prev) => prev.filter((m) => m.id !== vId)); // 失败：撤掉占位气泡
+      if (fatal) toast("麦克风没打开——请在浏览器设置里允许使用麦克风", "error");
+      else if (error) toast("识别没成功，网络不太顺，再试一次或打字告诉我", "info");
+      else toast("没听清，再试一次或打字告诉我", "info");
+    }
   }
   function onInputPointerDown(e: React.PointerEvent) {
     if (busy) return;
@@ -529,7 +554,6 @@ function ChatInner() {
     if (recordingRef.current) {
       setRec(false);
       stopVoice(true);
-      toast("已取消", "info");
       cancelArmedRef.current = false;
       setCancelArmed(false);
     } else {
@@ -562,6 +586,10 @@ function ChatInner() {
   }
 
   const empty = messages.length === 0;
+  // 仅当「登录态已确定(authHydrated)」后才显示欢迎页：否则登录用户在登录态异步恢复完成前，会先闪一下
+  // 「游客版欢迎(去登录)」再跳历史。登录用户历史由上面 layout effect 直读 localStorage / loadCloud 补上；
+  // 云端拉回前先显载入态、不显欢迎。游客(authHydrated 后 user 仍空)正常显示游客欢迎。
+  const showWelcome = empty && authHydrated && (!user || cloudLoaded === user.id);
   // 超长会话只渲染窗口内的消息；regenerate/反馈按原数组索引判定不受影响
   const visible = messages.slice(-RENDER_WINDOW);
   const hiddenCount = messages.length - visible.length;
@@ -570,13 +598,13 @@ function ChatInner() {
     // 全部底部锚定都要计入 env(safe-area-inset-bottom)：BottomNav 实际高度=58px+inset，
     // 固定 58px 会让输入条在 iOS PWA/手势导航机型上与导航条重叠、下沿被盖住误触 Tab
     <main className="min-h-[100dvh] pb-[calc(150px+env(safe-area-inset-bottom))]">
-      <header className="sticky top-0 z-30 flex h-14 items-center justify-center bg-moon/90 px-3 backdrop-blur dark:bg-dark-bg/90">
-        <span className="font-serif text-lg text-ink dark:text-dark-text">智学</span>
-      </header>
-
-      <div className="px-4">
+      <div className="px-4 pt-[calc(env(safe-area-inset-top)+10px)]">
         {empty ? (
-          <Welcome onAsk={send} />
+          showWelcome ? (
+            <Welcome onAsk={send} />
+          ) : (
+            <div className="flex justify-center pt-24 text-sm text-ink-300 dark:text-dark-text/50">正在载入对话…</div>
+          )
         ) : (
           <div className="space-y-4 pt-3">
             {hiddenCount > 0 && (
@@ -610,16 +638,13 @@ function ChatInner() {
       )}
 
       {/* 输入区：长按输入框即可语音输入（无单独麦克风入口） */}
-      <div className="app-width fixed bottom-[calc(58px+env(safe-area-inset-bottom))] left-1/2 z-40 -translate-x-1/2 border-t border-line bg-moon/95 px-3 py-2.5 backdrop-blur dark:border-white/5 dark:bg-dark-bg/95">
-        {busy && (
-          <button onClick={stop} className="mx-auto mb-2 flex items-center gap-1 rounded-full border border-line bg-snow px-3 py-1 text-xs text-ink-500 dark:border-white/10 dark:bg-dark-card dark:text-dark-text/70">
-            <Square size={12} /> 停止生成
-          </button>
-        )}
+      {/* 落到 bottom-0、底部留出 Tab 高度的内边距：输入框本体顶到 Tab 之上，同时背景一路铺到屏底，
+          彻底填掉「输入框↔Tab」之间会露出聊天文字的缝（不依赖固定 58px 精确贴合） */}
+      <div className="app-width fixed bottom-0 left-1/2 z-40 -translate-x-1/2 bg-moon/95 px-3 pt-3 pb-[calc(58px+env(safe-area-inset-bottom)+12px)] backdrop-blur dark:bg-dark-bg/95">
         {input.length >= 450 && (
           <p className={"mb-1 pr-1 text-right text-[11px] " + (input.length >= 500 ? "text-rouge" : "text-ink-300")}>{input.length}/500</p>
         )}
-        <div className="flex items-end gap-2">
+        <div className="flex items-center gap-2">
           <textarea
             ref={inputRef}
             value={input}
@@ -633,56 +658,60 @@ function ChatInner() {
             onPointerLeave={onInputPointerEnd}
             onPointerCancel={onInputPointerCancel}
             onPointerMove={onInputPointerMove}
+            // 长按说话期间，输入框是「按住说话」按钮而非编辑区：拦掉系统「选字/粘贴」右键菜单，
+            // 否则录音/识别时屏幕底部会冒出原生「粘贴」气泡（浮在遮罩之上，DOM z-index 盖不住）。
+            // 仅在按压/录音/识别态拦截；正常聚焦打字时放行（长按粘贴照常可用）。
+            onContextMenu={(e) => { if (recordingRef.current || pressTimer.current || voice.transcribing) e.preventDefault(); }}
+            // 录音/识别中置只读：消除原生文字光标/选区手柄（截图里的绿色水滴）；结束即恢复可编辑
+            readOnly={recording || voice.transcribing}
             rows={1}
-            placeholder="想读点什么？问问小涤呗"
-            className="max-h-24 flex-1 resize-none rounded-2xl border border-line bg-snow px-4 py-2.5 text-sm text-ink outline-none focus:border-celadon dark:border-white/10 dark:bg-dark-card dark:text-dark-text dark:placeholder:text-dark-text/40"
+            placeholder="想读点什么？问问小涤呗（可长按输入）"
+            // 未聚焦（即作为「按住说话」按钮时）禁用文字选区 + iOS 长按气泡，根除选区手柄；聚焦编辑时不受影响
+            className="max-h-24 flex-1 resize-none touch-none rounded-2xl border border-line bg-snow px-4 py-2.5 text-sm text-ink outline-none [-webkit-touch-callout:none] [&:not(:focus)]:select-none [&:not(:focus)]:[-webkit-user-select:none] focus:border-celadon dark:border-white/10 dark:bg-dark-card dark:text-dark-text dark:placeholder:text-dark-text/40"
           />
+          {/* 生成中：发送图标变「停止」实心方块，点击即停止生成；空闲：正常发送（无内容禁用） */}
           <button
-            onClick={() => send(input)}
-            disabled={!input.trim() || busy}
-            aria-label="发送"
+            onClick={busy ? stop : () => send(input)}
+            disabled={!busy && !input.trim()}
+            aria-label={busy ? "停止生成" : "发送"}
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-celadon text-snow disabled:opacity-40 active:scale-95"
           >
-            <Send size={18} />
+            {busy ? <span className="h-3.5 w-3.5 rounded-[3px] bg-snow" /> : <Send size={18} />}
           </button>
         </div>
       </div>
 
-      {/* 录音浮层（长按说话 / 上滑取消 / 松开回填输入框）：实时识别文字 + 音量波形 + 计时 */}
+      {/* 录音面板（严格参考豆包：白底面板，上→下＝声纹 / 灰提示 / 大长框「按住说话处」；
+          长框下方用白底盖住底部 Tab，浑然一体）。整屏不遮挡聊天内容；声纹+长框 青瓷↔胭脂 随上滑切换。
+          手势由输入框指针捕获驱动，本面板 onPointerMove/Up 作无捕获兜底；松手后原地转「识别中」 */}
       {recording && (
-        <div role="alertdialog" aria-label="语音输入中" className="fixed inset-0 z-[60] flex flex-col items-center justify-center bg-ink/45 backdrop-blur-sm" onPointerMove={onRecPointerMove} onPointerUp={endRecording}>
-          {/* 实时识别文本：边说边出，给"它在听"的确定感；aria-live 让读屏用户也知道在听 */}
-          <div className="mb-6 min-h-[3.5rem] max-w-[78%] text-center" aria-live="polite">
-            {voice.text ? (
-              <p className="text-base leading-7 text-snow">{voice.text}</p>
-            ) : (
-              <p className="text-sm text-snow/55">说吧，我听着</p>
-            )}
+        <div
+          role="alertdialog"
+          aria-label="语音输入中"
+          onPointerMove={onRecPointerMove}
+          onPointerUp={endRecording}
+          className="app-width fixed bottom-0 left-1/2 z-[60] -translate-x-1/2 animate-fade-up bg-moon px-4 pt-6 pb-[calc(58px+env(safe-area-inset-bottom))] dark:bg-dark-bg"
+        >
+          <div className="flex flex-col items-center gap-4">
+            {/* 声纹（更宽更大气：粗柱 5px + 拉开间距 + 加高）；青瓷↔胭脂随上滑切换，近静音匀速呼吸回退 */}
+            <div className="flex h-10 items-center justify-center gap-[6px]" aria-hidden>
+              {[0.3, 0.42, 0.54, 0.66, 0.78, 0.88, 0.95, 0.99, 1, 0.99, 0.95, 0.88, 0.78, 0.66, 0.54, 0.42, 0.3].map((k, i) =>
+                voice.level > 0.04 ? (
+                  <span
+                    key={i}
+                    className={"w-[5px] rounded-full transition-[height,background-color] duration-100 " + (cancelArmed ? "bg-rouge" : "bg-celadon")}
+                    style={{ height: `${Math.round(5 + k * voice.level * 30)}px` }}
+                  />
+                ) : (
+                  <span key={i} className={"voice-bar w-[5px] rounded-full " + (cancelArmed ? "bg-rouge/80" : "bg-celadon/75")} style={{ animationDelay: `${i * 0.06}s` }} />
+                )
+              )}
+            </div>
+            {/* 灰色提示（常驻不变色） */}
+            <p className="text-xs text-ink-400 dark:text-dark-text/55">上滑取消，松开识别成文字</p>
+            {/* 大号长框＝手指长按处：青瓷↔上滑变红；下方实色盖住 Tab、一体化 */}
+            <div className={"h-14 w-full rounded-3xl shadow-celadon transition-colors duration-200 " + (cancelArmed ? "bg-rouge" : "bg-celadon")} />
           </div>
-          <div className="relative flex h-24 w-24 items-center justify-center">
-            <span className={"absolute inset-0 animate-ping rounded-full " + (cancelArmed ? "bg-rouge/40" : "bg-celadon/40")} />
-            <span className={"relative flex h-20 w-20 items-center justify-center rounded-full text-snow shadow-celadon " + (cancelArmed ? "bg-rouge" : "bg-celadon")}>
-              {cancelArmed ? <X size={34} /> : <Mic size={34} />}
-            </span>
-          </div>
-          {/* 音量波形（7 柱随实时音量起伏；拿不到音量流时匀速呼吸回退） */}
-          <div className="mt-5 flex h-8 items-center gap-1" aria-hidden>
-            {[0.5, 0.8, 1, 0.7, 0.95, 0.65, 0.45].map((k, i) =>
-              voice.level >= 0 ? (
-                <span
-                  key={i}
-                  className={"w-1 rounded-full transition-[height] duration-100 " + (cancelArmed ? "bg-rouge/80" : "bg-snow/85")}
-                  style={{ height: `${Math.round(6 + k * voice.level * 22)}px` }}
-                />
-              ) : (
-                <span key={i} className={"voice-bar w-1 rounded-full " + (cancelArmed ? "bg-rouge/80" : "bg-snow/85")} style={{ animationDelay: `${i * 0.12}s` }} />
-              )
-            )}
-          </div>
-          <p className="mt-2 text-xs tabular-nums text-snow/70">{`${String(Math.floor(voice.seconds / 60)).padStart(2, "0")}:${String(voice.seconds % 60).padStart(2, "0")}`}</p>
-          <p className={"mt-4 text-sm " + (cancelArmed ? "text-rouge" : "text-snow")}>
-            {cancelArmed ? "松开手指，取消这段话" : "上滑取消，松开把文字填进输入框"}
-          </p>
         </div>
       )}
 
@@ -706,9 +735,16 @@ function Welcome({ onAsk }: { onAsk: (q: string) => void }) {
   const home = useQuery({ queryKey: ["home"], queryFn: getHome, staleTime: 10 * 60 * 1000 });
   const books = home.data?.recommend ?? [];
 
-  const questions = user
-    ? buildQuestions({ history, progress, favorites, notes, books })
-    : buildGuestQuestions(books, home.data?.categories ?? []);
+  const cats = home.data?.categories ?? [];
+  // 随机示例问题须 memo：否则每次重渲染(打字等)都重新随机会闪动；按数据变化才重算（每次进来稳定一份新的）
+  const questions = useMemo(
+    () =>
+      user
+        ? buildQuestions({ history, progress, favorites, notes, books, categories: cats })
+        : buildGuestQuestions(books, cats),
+    // eslint-disable-next-line
+    [user, books, cats, history, progress, favorites, notes]
+  );
 
   // 开场白素材：最近接触的一本书
   const last = history[0];
@@ -720,15 +756,13 @@ function Welcome({ onAsk }: { onAsk: (q: string) => void }) {
       <Mascot size={84} className="shadow-celadon" />
       {user ? (
         <>
-          <p className="mt-4 text-center font-serif text-xl text-ink dark:text-dark-text">
-            {greeting()}，<span className="text-celadon-700 dark:text-celadon-300">{user.nickname}</span>
-          </p>
-          <p className="mt-1 text-center text-xs text-ink-300">我是小涤，今天想读点什么？</p>
+          <p className="mt-4 text-center font-serif text-xl text-ink dark:text-dark-text">你的 AI 读书伙伴</p>
+          <p className="mt-1 text-center text-xs text-ink-300">通览馆藏，为你荐书 · 答疑 · 解读原文</p>
         </>
       ) : (
         <>
-          <p className="mt-4 text-center font-serif text-xl text-ink dark:text-dark-text">我是小涤，你的读书伙伴</p>
-          <p className="mt-1 text-center text-xs text-ink-300">馆里每本书我都翻过——荐书 · 答疑 · 解读原文</p>
+          <p className="mt-4 text-center font-serif text-xl text-ink dark:text-dark-text">你的 AI 读书伙伴</p>
+          <p className="mt-1 text-center text-xs text-ink-300">通览馆藏，为你荐书 · 答疑 · 解读原文</p>
         </>
       )}
 

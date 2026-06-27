@@ -1,38 +1,32 @@
 "use client";
 import { useUI } from "@/lib/store";
-import { Check, X, Info } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
-import { cn } from "@/lib/utils";
 
+/**
+ * 轻提示：屏幕居中浮现（不再置顶），无图标、纯文案的精致小卡片；
+ * 出现时附一层淡蒙层聚焦视线，但 pointer-events-none 不阻挡操作。
+ */
 export function Toaster() {
   const toasts = useUI((s) => s.toasts);
   return (
-    <div className="fixed left-0 right-0 z-[100] flex flex-col items-center gap-2 px-4 pointer-events-none" style={{ top: "calc(env(safe-area-inset-top) + 12px)" }}>
+    <div className="pointer-events-none fixed inset-0 z-[100] flex -translate-y-[60px] flex-col items-center justify-center gap-2 px-8">
       <AnimatePresence>
         {toasts.map((t) => (
           <motion.div
             key={t.id}
             role="status"
             aria-live="polite"
-            initial={{ opacity: 0, y: -18, scale: 0.9 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -10, scale: 0.95 }}
-            transition={{ type: "spring", stiffness: 480, damping: 26 }}
-            className="pointer-events-auto flex items-center gap-2.5 rounded-2xl bg-ink/95 py-2.5 pl-2.5 pr-4 text-sm font-medium text-snow shadow-2xl ring-1 ring-white/10 backdrop-blur-md max-w-app dark:bg-dark-card/95"
+            initial={{ opacity: 0, scale: 0.92, y: 6 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96 }}
+            transition={{ type: "spring", stiffness: 460, damping: 28 }}
+            className="pointer-events-auto relative max-w-app rounded-2xl bg-ink/75 px-6 py-3.5 text-center text-[15px] font-medium leading-snug text-snow shadow-[0_12px_36px_rgba(0,0,0,0.34)] ring-1 ring-white/15 backdrop-blur-md dark:bg-dark-card/75"
           >
-            <span
-              className={cn(
-                "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-snow shadow-sm",
-                t.type === "success" ? "bg-celadon" : t.type === "error" ? "bg-rouge" : "bg-brass"
-              )}
-            >
-              {t.type === "success" ? <Check size={16} strokeWidth={2.6} /> : t.type === "error" ? <X size={16} strokeWidth={2.6} /> : <Info size={16} strokeWidth={2.6} />}
-            </span>
-            <span className="leading-snug">{t.msg}</span>
+            <span>{t.msg}</span>
             {t.action && (
               <button
                 onClick={() => { t.action!.onClick(); useUI.getState().dismiss(t.id); }}
-                className="-my-1 ml-1 shrink-0 rounded-full border border-white/25 px-2.5 py-1 text-xs text-celadon-300 active:scale-95"
+                className="mt-2.5 block w-full rounded-full border border-white/25 px-3 py-1 text-xs text-celadon-300 active:scale-95"
               >
                 {t.action.label}
               </button>

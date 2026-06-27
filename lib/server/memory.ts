@@ -3,17 +3,25 @@
 // 更新机制：每轮回复完成后由 route 经 waitUntil 托管 fire-and-forget 调 maybeUpdateMemory——
 //   攒够 MIN_NEW 条新消息才真正跑（processed_until 记录已消化进度，与压缩器同思路）；
 //   由 M3 对照「记忆现值 + 新对话」判断哪些维度需要更新，产出增量合并后的新值写回。
-// 防膨胀：模型被要求每维度 ≤120 字提炼，写库前再硬截 MAX_FIELD 字。
+// 防膨胀：模型被要求每维度 ≤1000 字提炼，写库前再硬截 MAX_FIELD 字。
 import "server-only";
 import { admin } from "@/lib/server/agent";
 import { chatOnce } from "@/lib/server/minimax";
 import { requestView } from "@/lib/server/compress";
+import { readOverride, DEFAULT_MEMORY_MIN_NEW, DEFAULT_MEMORY_TEMPERATURE } from "@/lib/server/agentConfig";
 
-const MIN_NEW = 4; // 新消息攒够 4 条（两轮）才值得跑一次模型
+// MIN_NEW（攒够多少条才更新）/ 温度 / 提示词 已移到后台可调（readOverride，默认见 agentConfig）
 const CATCH_UP = 40; // 单轮最多消化的消息数：存量长会话首跑（until=0）不限量会让 part 膨胀到必超时，
 //                      且失败不推进 → 永久死循环白烧 token；分多轮追平
-const MAX_FIELD = 300; // 单维度硬上限（防膨胀兜底）
+const MAX_FIELD = 1000; // 单维度硬上限（防膨胀兜底）
 const MEMORY_MODEL = process.env.MINIMAX_MEMORY_MODEL || "MiniMax-M3"; // 任务书 T5：全部调用统一 M3
+// 出厂默认记忆管理器指令（后台可覆盖）
+export const BASE_MEMORY_PROMPT =
+  "你是读者记忆管理器。对照「记忆现值」与「新对话」，判断哪些维度需要更新。" +
+  "只输出一个 JSON 对象：键 = 需要更新的维度名，值 = 增量合并后的完整新值（保留现值中仍然成立的认知，并入新认知，删除被新信息推翻的旧认知）；" +
+  "没有任何维度需要更新时输出 {}。" +
+  "要求：每个值 ≤1000 字、提炼成认知而非对话摘录、只记读者本人的信息（不记小涤说过什么）、不编造未提及的内容。" +
+  "除 JSON 外不要输出任何文字。";
 
 export const MEMORY_FIELDS = [
   ["identity", "身份画像（职业/身份/人生阶段）"],
@@ -40,9 +48,10 @@ async function update(uid: string, budgetMs: number) {
   const t0 = Date.now();
   // 等前端把本轮问答 persist 上云（流结束后约 1 秒内 upsert）：不等的话本轮内容要到下一轮才被消化
   await new Promise((r) => setTimeout(r, 3500));
-  const [sessR, memR] = await Promise.all([
+  const [sessR, memR, ov] = await Promise.all([
     admin.from("chat_sessions").select("messages").eq("user_id", uid).eq("id", "main").maybeSingle(),
     admin.from("user_memory").select("*").eq("user_id", uid).maybeSingle(),
+    readOverride(),
   ]);
   // 读库错误与"无行"必须区分：瞬时 DB 错误若被当成新用户，会以空基底全量重建并覆盖现值
   if (sessR.error || memR.error) { console.error("[memory] 读库失败：", sessR.error ?? memR.error); return; }
@@ -53,7 +62,7 @@ async function update(uid: string, budgetMs: number) {
   const until = mem?.processed_until ?? 0;
   // 单轮限量追赶：只消化 [until, target)，processed_until 推进到 target 而非 view.length
   const target = Math.min(view.length, until + CATCH_UP);
-  if (target - until < MIN_NEW) return; // 没攒够新对话
+  if (target - until < (ov.memoryMinNew ?? DEFAULT_MEMORY_MIN_NEW)) return; // 没攒够新对话
   // 预算检查：长回答后的剩余窗口放不下一次 45s 调用时直接跳过（跑一半被硬杀=白烧且无日志）
   const timeoutMs = Math.min(45_000, budgetMs - (Date.now() - t0) - 5_000);
   if (timeoutMs < 15_000) { console.warn("[memory] 本轮剩余预算不足，跳过"); return; }
@@ -67,16 +76,11 @@ async function update(uid: string, budgetMs: number) {
     [
       {
         role: "system",
-        content:
-          "你是读者记忆管理器。对照「记忆现值」与「新对话」，判断哪些维度需要更新。" +
-          "只输出一个 JSON 对象：键 = 需要更新的维度名，值 = 增量合并后的完整新值（保留现值中仍然成立的认知，并入新认知，删除被新信息推翻的旧认知）；" +
-          "没有任何维度需要更新时输出 {}。" +
-          "要求：每个值 ≤120 字、提炼成认知而非对话摘录、只记读者本人的信息（不记小涤说过什么）、不编造未提及的内容。" +
-          "除 JSON 外不要输出任何文字。",
+        content: (ov.memoryPrompt ?? "").trim() || BASE_MEMORY_PROMPT,
       },
       { role: "user", content: `【记忆现值】\n${current}\n\n【新对话】\n${part}\n\n输出需要更新的维度 JSON：` },
     ],
-    { model: MEMORY_MODEL, maxTokens: 4096, temperature: 0.2, timeoutMs }
+    { model: MEMORY_MODEL, maxTokens: 16384, temperature: ov.memoryTemperature ?? DEFAULT_MEMORY_TEMPERATURE, timeoutMs }
   );
 
   // 解析（M3 已剥思考；取首 { 到末 } 的最大跨度防夹带）。

@@ -7,10 +7,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import { streamChat, type MMMessage, type MMToolCall } from "@/lib/server/minimax";
 import { buildSystem, getUid, libTitles } from "@/lib/server/agent";
-import { AGENT_TOOLS, toolStatus, execTool, type ToolEvent } from "@/lib/server/tools";
+import { getAgentTools, toolStatus, execTool, type ToolEvent } from "@/lib/server/tools";
+import { readOverride } from "@/lib/server/agentConfig";
 import { getCompressed, maybeCompress } from "@/lib/server/compress";
 import { maybeUpdateMemory } from "@/lib/server/memory";
-import { makeThinkHint } from "@/lib/server/thinkhint";
 import { rateLimit, limiterKey } from "@/lib/server/ratelimit";
 import { cutSafe } from "@/lib/server/text";
 
@@ -36,6 +36,9 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
   const remain = () => deadline - Date.now();
   const roundTimeout = () => Math.min(120_000, Math.max(5_000, remain()));
   const system = await buildSystem(uid, compressed);
+  // 后台可调配置：模型/温度/工具描述（缺省回退出厂值）。tools 内部已合并描述覆盖
+  const [ov, tools] = await Promise.all([readOverride(), getAgentTools()]);
+  const mainTemp = typeof ov.temperature === "number" ? ov.temperature : 0.7;
   const convo: MMMessage[] = [{ role: "system", content: system }, ...msgs];
   // 失配监测（T3 层②兜底）：累积用户可见正文 + 记录是否出过卡片事件
   let fullText = "";
@@ -49,18 +52,13 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
   // （streamChat 仅在 tool_calls 事件随附 rawContent）。补救轮回灌只需"模型看到自己说过的话"，两种口径均可。
   let lastRaw = "";
   let usedReadChapter = false; // 本轮细读过章节原文：按铁律回答必须出引用卡（兜底信号之一）
-  const thinkHint = makeThinkHint(); // 思考包装：跨轮共用（去重状态连续，提示不重复闪现）
   for (let round = 0; ; round++) {
     let raw = ""; // 本轮原始 content（含 <think>），工具循环回灌用
     let calls: MMToolCall[] | null = null;
-    for await (const ev of streamChat(convo, { tools: AGENT_TOOLS, temperature: 0.7, signal, timeoutMs: roundTimeout() })) {
+    for await (const ev of streamChat(convo, { tools, temperature: mainTemp, model: ov.model, signal, timeoutMs: roundTimeout() })) {
       if (ev.type === "delta") { raw += ev.text; emitW({ t: "d", v: ev.text }); }
-      else if (ev.type === "think") {
-        // 思考原文绝不直出：规则提取成 ≤20 字过程提示（status 事件），前端以水波纹呈现（T8）
-        const h = thinkHint(ev.text);
-        if (h) emitW({ t: "status", v: h });
-      }
-      else { calls = ev.calls; raw = ev.rawContent; }
+      else if (ev.type === "tool_calls") { calls = ev.calls; raw = ev.rawContent; }
+      // think 事件忽略：思考过程对用户隐藏，等待期统一显示「思考中」水波纹，不再把思考提取成动态过程提示
     }
     lastRaw = raw;
     if (!calls?.length) break;
@@ -82,7 +80,7 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
       console.log(`[agent-debug] 第${round + 1}轮回灌 assistant（前240字）：${raw.slice(0, 240).replace(/\n/g, "⏎")}`);
     }
     for (const c of calls) {
-      emitW({ t: "status", v: await toolStatus(c.function.name, c.function.arguments) }); // 带书名：「翻开《认知觉醒》」
+      emitW({ t: "status", v: toolStatus(c.function.name) }); // 每个工具一句固定短语（对用户隐去工具本身）
       const { result, event } = await execTool(c.function.name, c.function.arguments);
       if (event) emitW(event);
       // 细读真的拿到原文才置位：模型用幻觉章号连续失败时若仍置位，兜底会基于假前提
@@ -107,7 +105,7 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
   }
   if (!emittedCard && (promisedCard || usedReadChapter || recMismatch) && lastRaw && remain() > 15_000) {
     // 正文已定格，补救轮的 M3 思考期可达十几秒——给用户一个进行中的反馈，消除"答完又卡住"的观感
-    emitW({ t: "status", v: "正在为你整理卡片" });
+    emitW({ t: "status", v: "正在为你整理相关书目与章节" });
     convo.push({ role: "assistant", content: lastRaw });
     convo.push({
       role: "user",
@@ -118,7 +116,7 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
           : "（系统校验：用户请你推荐书，你在正文提到了馆藏书，但没有调用 recommend_books——用户面前没有可点击的卡片，正文书名点不了。请立即调用 recommend_books 补出你提到的馆藏书；只调用工具，不要输出文字。）",
     });
     // maxTokens 收紧：补救轮只许出卡不许说话，2048 足够 think+工具参数，砍掉无效文字 token
-    for await (const ev of streamChat(convo, { tools: AGENT_TOOLS, temperature: 0.3, signal, timeoutMs: roundTimeout(), maxTokens: 2048 })) {
+    for await (const ev of streamChat(convo, { tools, temperature: 0.3, model: ov.model, signal, timeoutMs: roundTimeout(), maxTokens: 2048 })) {
       if (ev.type === "tool_calls") {
         for (const c of ev.calls) {
           if (c.function.name === "recommend_books" || c.function.name === "cite_chapters") {
