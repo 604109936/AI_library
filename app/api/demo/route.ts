@@ -2,15 +2,21 @@
 // 各体验用户数据互不串档（替代旧的「全员共用一个 demo 账号」方案）。这些账号属脏数据，后台定期清理。
 import { NextRequest, NextResponse } from "next/server";
 import { admin } from "@/lib/server/agent";
-import { rateLimit, limiterKey } from "@/lib/server/ratelimit";
+import { rateLimit, clientIp } from "@/lib/server/ratelimit";
 
 export const runtime = "nodejs";
 export const maxDuration = 20;
 
 export async function POST(req: NextRequest) {
-  // 轻量防滥用：同一 IP 10 分钟内最多开 8 个体验账号（正常用户点一次足够；脏数据后台定期清）
-  const ip = limiterKey(null, req.headers.get("x-forwarded-for"));
-  if (!(await rateLimit(`demo:${ip}`, 8, 600_000))) {
+  // 防滥用双闸（每次成功都用 service_role 建一个真实已确认 auth 用户，必须挡批量灌号）：
+  // ① 单 IP 10 分钟 8 个；② 全站 10 分钟 60 个——后者防"伪造/轮换 XFF 让 IP key 永远不同"绕过单 IP 限流。
+  // IP 取可信来源(x-real-ip/x-vercel-forwarded-for)而非可伪造的 XFF 首段；配 KV 后两闸跨实例严格生效。
+  const ip = clientIp(req.headers);
+  const [okIp, okGlobal] = await Promise.all([
+    rateLimit(`demo:ip:${ip}`, 8, 600_000),
+    rateLimit("demo:global", 60, 600_000),
+  ]);
+  if (!okIp || !okGlobal) {
     return NextResponse.json({ error: "体验太频繁了，歇会儿再来" }, { status: 429 });
   }
   try {
@@ -30,7 +36,7 @@ export async function POST(req: NextRequest) {
     const password = `Dq${tag}${Math.random().toString(36).slice(2, 10)}`;
 
     // user_metadata.nickname 由 handle_new_user 触发器写入 profiles（与正常注册同一机制）
-    const { error } = await admin.auth.admin.createUser({
+    const { data: created, error } = await admin.auth.admin.createUser({
       email,
       password,
       email_confirm: true,
@@ -39,6 +45,11 @@ export async function POST(req: NextRequest) {
     if (error) {
       console.error("[/api/demo] 创建体验账号失败", error);
       return NextResponse.json({ error: "体验账号创建失败，请稍后重试" }, { status: 502 });
+    }
+    // 体验账号默认头像统一用第 8 个预设（a8.webp）：触发器建好 profiles 行后改其 avatar_seed。
+    // 失败不致命（仅头像回落默认种子），故 catch 静默。
+    if (created?.user?.id) {
+      await admin.from("profiles").update({ avatar_seed: 8 }).eq("id", created.user.id);
     }
     // 返回凭据供前端立即登录（throwaway 账号，HTTPS 下回传无碍）
     return NextResponse.json({ email, password, nickname });

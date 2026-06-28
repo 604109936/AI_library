@@ -225,13 +225,23 @@ function ReaderInner({ id }: { id: string }) {
       const doneN = Math.min(readNow.length, chapters.length);
       const curDone = readNow.includes(cur.id);
       const frac = curDone ? 0 : Math.max(0, Math.min(1, pctRef.current / 100));
-      const prog = doneN >= chapters.length ? 100 : Math.min(99, Math.round(((doneN + frac) / N) * 100));
+      // 多章书读早期章节时 (doneN+frac)/N 取整可能为 0（30 章读第1章14%→round(0.47)=0），使"继续阅读"/详情页"在读"
+      // 都识别不到（h.progress>0 / pct>0 失败）——用户其实正在读。有真实阅读（已读完≥1章 或 当前章有滚动）就把
+      // 全书 pct 钳到下限 1；纯打开未滚（doneN=0 且 frac=0）仍为 0，不进继续阅读，保持既有口径。
+      const raw = Math.round(((doneN + frac) / N) * 100);
+      const prog = doneN >= chapters.length ? 100 : (doneN > 0 || frac > 0) ? Math.min(99, Math.max(1, raw)) : 0;
       pushHistory({ bookId: rid, bookTitle: b.title, author: b.author, coverSeed: b.coverSeed, cover: b.cover, mode: "text", progress: prog, lastAt: new Date().toISOString() });
       setProgress({ bookId: rid, chapterId: cur.id, chapterNo: cur.no, pct: prog, mode: "text" });
     };
     report(false); // 进入：只记进度，不判读毕
+    // 内容不足一屏的短章（前言/极短章）永不发 scroll 事件，onScroll 的 max<=4 分支触发不了，只能等 5s 定时器——
+    // 用户 5 秒内翻页该章就永久不计读毕、全书卡 99%、分类页永不"已读"。入场即检测：全部可见(无可滚动余量)就安全判读毕。
+    const rafShort = requestAnimationFrame(() => {
+      const el = scrollRef.current;
+      if (el && el.scrollHeight - el.clientHeight <= 4) markChapterRead(b.id.split("__")[0], cur.id);
+    });
     const t = setInterval(() => report(true), 5000); // 读毕只由「活着的」路径判定：此定时器 + onScroll
-    return () => { report(false); clearInterval(t); }; // 退出/切章：只落进度，不判读毕（防误打√）
+    return () => { cancelAnimationFrame(rafShort); report(false); clearInterval(t); }; // 退出/切章：只落进度，不判读毕（防误打√）
     // eslint-disable-next-line
   }, [cur?.id, bookQ.data?.id, resolved]);
 
@@ -768,9 +778,8 @@ function ReaderInner({ id }: { id: string }) {
         {toc && (
           <motion.div className="fixed inset-0 z-50 flex" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <motion.div initial={{ x: "-100%" }} animate={{ x: 0 }} exit={{ x: "-100%" }} transition={{ type: "spring", stiffness: 320, damping: 34 }} className="relative h-full w-[80%] max-w-[360px] overflow-y-auto bg-snow p-4 pb-safe pt-[calc(env(safe-area-inset-top)+16px)] shadow-2xl ring-1 ring-black/5 dark:bg-dark-card dark:ring-white/10">
-              <h2 className="font-serif text-lg text-ink dark:text-dark-text">目录</h2>
-              <p className="mt-0.5 text-xs text-ink-300">{bookQ.data.title} · 共 {chapters.length} 章</p>
-              <div className="mt-3 space-y-1">
+              {/* 顶部「目录/书名/共N章」已去掉：读者正在读这本书，这些信息多余，直接呈现章节列表 */}
+              <div className="space-y-1">
                 {chapters.map((c) => {
                   const on = c.id === cur.id;
                   return (

@@ -49,8 +49,9 @@ export default function LibraryHome() {
     };
   }, [data]);
 
-  // 继续阅读：仅「文字稿」且未读完，按最近阅读在前，最多 5 本；无则整块不显示
-  const continueList = hydrated ? history.filter((h) => h.mode === "text" && h.progress < 100).slice(0, 5) : [];
+  // 继续阅读：仅「文字稿」且「真读过一点」（进度 0<…<100）——0% 是「打开过但没读」，不算继续阅读不展示；
+  // 按最近阅读在前，最多 5 本；无则整块不显示
+  const continueList = hydrated ? history.filter((h) => h.mode === "text" && h.progress > 0 && h.progress < 100).slice(0, 5) : [];
   // 热门好书：按「入库时间」由远到近（API 已排序），自动过滤掉已读完的，取 20 本
   const readDone = new Set(history.filter((h) => h.progress >= 100).map((h) => h.bookId));
   const hot = (data?.recommend ?? []).filter((b) => !readDone.has(b.id.split("__")[0])).slice(0, 20);
@@ -152,17 +153,19 @@ export default function LibraryHome() {
             </div>
           </section>
 
-          {/* 热门好书：完整 20 本，触底「回到顶部」 */}
-          <section>
-            <h2 className="mb-2.5 font-serif text-base text-ink dark:text-dark-text">热门好书</h2>
-            <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-3">
-              {hot.map((b) => (
-                <motion.div key={b.id} variants={staggerItem}>
-                  <BookRow book={b} />
-                </motion.div>
-              ))}
-            </motion.div>
-          </section>
+          {/* 热门好书：完整 20 本，触底「回到顶部」；列表为空（用户把可推荐的书都读完了）则整块不显示，不留空标题 */}
+          {hot.length > 0 && (
+            <section>
+              <h2 className="mb-2.5 font-serif text-base text-ink dark:text-dark-text">热门好书</h2>
+              <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-3">
+                {hot.map((b) => (
+                  <motion.div key={b.id} variants={staggerItem}>
+                    <BookRow book={b} />
+                  </motion.div>
+                ))}
+              </motion.div>
+            </section>
+          )}
         </div>
       )}
 
@@ -199,7 +202,7 @@ function HeroCard({ book }: { book: Book }) {
           <h3 className="mt-1 line-clamp-2 font-serif text-2xl leading-tight text-white drop-shadow-sm">{book.title}</h3>
           <p className="mt-1 line-clamp-1 text-sm text-white/85">{book.intro}</p>
           <span className="mt-4 inline-flex w-fit items-center gap-1 rounded-full bg-white px-4 py-1.5 text-xs font-medium text-celadon-700 shadow active:scale-95">
-            <BookOpen size={12} /> 翻开此书
+            <BookOpen size={12} /> 翻开看看
           </span>
         </div>
         <BookCover

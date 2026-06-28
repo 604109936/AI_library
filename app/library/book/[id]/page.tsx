@@ -4,12 +4,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { ChevronLeft, Heart, ChevronRight, ChevronDown, PenLine, Check, BookOpen, Play } from "lucide-react";
+import { ChevronLeft, Heart, ChevronRight, ChevronDown, PenLine, Check, BookOpen } from "lucide-react";
 import { getBook, getChapterList } from "@/lib/api";
 import { BookCover } from "@/components/ui/BookCover";
 import { Stars } from "@/components/ui/Stars";
 import { Avatar } from "@/components/ui/Avatar";
-import { Motif } from "@/components/ui/Motif";
 import { BookMediaHero } from "@/components/library/Players";
 import { Skeleton, ErrorState } from "@/components/ui/States";
 import { formatCount, formatDate } from "@/lib/utils";
@@ -47,8 +46,6 @@ export default function BookDetail({ params }: { params: { id: string } }) {
   // 章节「在读/已读」一律取真实阅读状态（store），不用写死的 c.status
   const readCh = readChapters[real] ?? [];
   const prog = progress[real];
-  // 底部续读 CTA 用：仅认文字稿进度（progress 本就只写 text 模式，仍显式守一道）
-  const textProg = prog && prog.mode === "text" && prog.pct > 0 ? prog : undefined;
 
   // 简介「展开全文」仅当收起（3 行）时确实溢出才显示
   useEffect(() => {
@@ -104,7 +101,11 @@ export default function BookDetail({ params }: { params: { id: string } }) {
         >
           <ChevronLeft size={24} />
         </button>
-        <BookMediaHero book={book} />
+        {/* relative z-10：HeroBg 是 absolute 定位，会按绘制顺序盖在「流内非定位」的播放器文字/倍速上（把它们压虚）。
+            给播放器一个定位+层级，整体提到背景书封之上，文字/倍速才清晰不被遮。 */}
+        <div className="relative z-10">
+          <BookMediaHero book={book} />
+        </div>
       </div>
 
       {/* 题名 + 元信息（左对齐）· 右侧收藏药丸（本期不展示评分/在读人数） */}
@@ -188,8 +189,8 @@ export default function BookDetail({ params }: { params: { id: string } }) {
                   href={`/library/book/${book.id}/read?ch=${c.id}`}
                   className="-mx-2 flex items-center gap-3 rounded-lg px-2 py-3.5 transition active:bg-snow/60 dark:active:bg-white/[0.03]"
                 >
-                  {/* 与阅读器/chapterLabel 统一叫「前言」：原来目录叫"序"、阅读器叫"前言"，同一章两个名 */}
-                  <span className={"flex h-6 min-w-[24px] shrink-0 items-center justify-center rounded-full px-1 text-[11px] tabular-nums " + (isReading ? "bg-celadon text-snow" : "bg-celadon-soft text-celadon-700 dark:bg-celadon/15 dark:text-celadon-300")}>{c.no === 0 ? "前言" : c.no}</span>
+                  {/* 圆形徽标是位置指示器：前言用单字「序」贴合圆圈（"前言"两字挤），完整章名由右侧 c.title 显示 */}
+                  <span className={"flex h-6 min-w-[24px] shrink-0 items-center justify-center rounded-full px-1 text-[11px] tabular-nums " + (isReading ? "bg-celadon text-snow" : "bg-celadon-soft text-celadon-700 dark:bg-celadon/15 dark:text-celadon-300")}>{c.no === 0 ? "序" : c.no}</span>
                   <span className={"flex-1 text-sm " + (isReading ? "font-medium text-celadon-700 dark:text-celadon-300" : "text-ink-700 dark:text-dark-text/85")}>{c.title}</span>
                   <span className="flex items-center gap-1">
                     {isReading && <span className="text-[11px] text-celadon-700 dark:text-celadon-300">在读</span>}
@@ -204,61 +205,34 @@ export default function BookDetail({ params }: { params: { id: string } }) {
         </div>
       )}
 
-      {/* 我的评价（永远只有自己的一条） */}
-      <div className="mt-6 px-4">
-        <h2 className="mb-2 flex items-center font-serif text-lg tracking-wide text-ink dark:text-dark-text">
-          <span className="mr-2 h-4 w-[3px] rounded-full bg-celadon" /> 我的评价
-        </h2>
-        {myReview ? (
+      {/* 我的评价：写过书评才显示（没写则整块不出现，不留空状态）；写/更新入口在底部常驻 CTA */}
+      {myReview && (
+        <div className="mt-6 px-4">
+          <h2 className="mb-2 flex items-center font-serif text-lg tracking-wide text-ink dark:text-dark-text">
+            <span className="mr-2 h-4 w-[3px] rounded-full bg-celadon" /> 我的评价
+          </h2>
           <div className="rounded-2xl bg-snow p-3.5 shadow-sm dark:bg-dark-card">
             <div className="flex items-center gap-2">
               {/* 头像/昵称直接用当前登录用户（本来就只展示本人）：书评行的快照在刷新重载后会丢自定义头像/旧昵称 */}
               <Avatar seed={user?.avatarSeed ?? myReview.avatarSeed} name={user?.nickname ?? myReview.nickname} src={user?.avatarUrl ?? myReview.avatarUrl} size={28} />
               <span className="text-sm text-ink dark:text-dark-text">{user?.nickname ?? myReview.nickname}</span>
-              <span className="rounded bg-celadon-soft px-1.5 py-0.5 text-[10px] text-celadon-700 dark:bg-celadon/20 dark:text-celadon-300">我的</span>
               <Stars value={myReview.rating} size={11} className="ml-auto" />
             </div>
             {myReview.title && <p className="mt-1.5 text-sm font-medium text-ink dark:text-dark-text">{myReview.title}</p>}
             <p className="mt-1 text-sm leading-6 text-ink-700 dark:text-dark-text/85">{myReview.content}</p>
             <p className="mt-2 text-[11px] text-ink-300">{formatDate(myReview.createdAt)}</p>
           </div>
-        ) : (
-          <div className="flex flex-col items-center gap-2 rounded-2xl bg-snow p-6 text-center text-sm text-ink-500 shadow-sm dark:bg-dark-card dark:text-dark-text/60">
-            <Motif name="branch" className="w-16 text-celadon/30" />
-            你还没有写过书评，记录下此刻的想法吧
-          </div>
-        )}
+        </div>
+      )}
+
+      {/* 底部常驻「写书评 / 更新书评」CTA：sticky 占位文档流末尾；无边框无背景块，只留实心青瓷按钮本身 */}
+      <div className="sticky bottom-0 z-20 mt-8 px-4 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3">
         <button
           onClick={() => requireLogin(() => router.push(`/library/book/${book.id}/review/new`))}
-          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-2xl border border-celadon py-2.5 text-sm text-celadon-700 transition active:scale-[0.99] dark:border-celadon/60 dark:text-celadon-300"
+          className="flex w-full items-center justify-center gap-1.5 rounded-full bg-celadon py-3 text-sm font-medium text-snow shadow-celadon transition active:scale-[0.98]"
         >
-          <PenLine size={15} /> {myReview ? "更新书评" : "写书评"}
+          <PenLine size={16} /> {myReview ? "更新书评" : "写书评"}
         </button>
-      </div>
-
-      {/* 底部常驻续读 CTA：sticky 占位在文档流末尾（滚到底回到原位，不遮挡上方内容） */}
-      <div className="sticky bottom-0 z-20 mt-8 border-t border-line bg-snow/[0.92] px-4 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur dark:border-white/10 dark:bg-dark-card/[0.92]">
-        {book.hasText ? (
-          <Link
-            // 续读不带 ?ch：让阅读器走完整续读决议（恢复 saved 章 + 章内精确滚动位置），与首页续读一致；
-            // 带 ?ch 会让阅读器续读 effect 提前 return、丢失 ail-chpos 精确位置，每次把读者甩回章首（Bug#6）
-            href={`/library/book/${book.id}/read`}
-            className="flex w-full items-center justify-center gap-1.5 rounded-full bg-celadon py-3 text-sm font-medium text-snow shadow-celadon transition active:scale-[0.98]"
-          >
-            <BookOpen size={16} />
-            {textProg
-              ? `继续阅读 · ${textProg.chapterNo === 0 ? "前言" : `第${textProg.chapterNo}章`} · ${textProg.pct}%`
-              : "开始阅读"}
-          </Link>
-        ) : (
-          <button
-            onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-            className="flex w-full items-center justify-center gap-1.5 rounded-full bg-celadon py-3 text-sm font-medium text-snow shadow-celadon transition active:scale-[0.98]"
-          >
-            <Play size={16} className="fill-snow" />
-            {book.hasVideo ? "播放视频" : "播放音频"}
-          </button>
-        )}
       </div>
     </motion.main>
   );

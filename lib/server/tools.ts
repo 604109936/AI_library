@@ -26,7 +26,8 @@ export const AGENT_TOOLS: MMTool[] = [
     type: "function",
     function: {
       name: "recommend_books",
-      description: "向用户展示「推荐书目」卡片。当你决定推荐馆藏书时调用；先在正文解释推荐理由，再调用本工具。book_ids 必须来自〔图书馆书单〕中的 [id]。",
+      description:
+        "展示「推荐书目」卡片——读者点进书的唯一入口（正文书名点不了）。【何时调用】回答里只要推荐了馆藏书，就在写完推荐理由后调用；这一次再次推荐某本，也要再调一次（旧卡已被对话刷走）。book_ids 取自〔图书馆书单〕的 [id]，按推荐优先级排列、≤5 本、同一本不重复。",
       parameters: {
         type: "object",
         properties: { book_ids: { type: "array", items: { type: "string" }, description: "要推荐的书 id 列表（≤5 本）" } },
@@ -38,7 +39,8 @@ export const AGENT_TOOLS: MMTool[] = [
     type: "function",
     function: {
       name: "read_book_toc",
-      description: "读取某本馆藏书的完整目录（每章标题与概要）。做书本答疑、解读原文前，先用它了解全书结构、确定要细读哪一章。",
+      description:
+        "读取某馆藏书的完整目录（各章标题 + 概要）。【何时调用】要做该书的答疑 / 解读前先调用，了解全书结构、定位该细读的章节。book_id 取自〔图书馆书单〕的 [id]。",
       parameters: {
         type: "object",
         properties: { book_id: { type: "string", description: "书 id，来自〔图书馆书单〕的 [id]" } },
@@ -50,7 +52,8 @@ export const AGENT_TOOLS: MMTool[] = [
     type: "function",
     function: {
       name: "read_chapter",
-      description: "读取某一章的完整原文。回答涉及具体内容、需要引用原文时调用。",
+      description:
+        "读取某一章的完整原文。【何时调用】要引用 / 细究 / 解读某章具体内容时调用，据原文讲准，别凭记忆编章节细节。chapter_no：0 = 前言，1 起为正文。",
       parameters: {
         type: "object",
         properties: {
@@ -65,7 +68,8 @@ export const AGENT_TOOLS: MMTool[] = [
     type: "function",
     function: {
       name: "cite_chapters",
-      description: "向用户展示「引用章节」卡片（可点击跳转原文）。当你的回答依据了具体章节内容时，在回答末尾调用，列出依据的章节。",
+      description:
+        "展示可点击的「引用章节」卡片——让章节能跳读原文的**唯一方式**。【何时调用】回答依据了或提到某书的具体章节、想让读者读原文时，在末尾调用列出那几章（答疑 / 解读的常规收尾，宁多列别漏）。正文写「点进去跳读原文」而不调用＝点不了的空话。items ≤4、同一章不重复。",
       parameters: {
         type: "object",
         properties: {
@@ -84,7 +88,7 @@ export const AGENT_TOOLS: MMTool[] = [
     function: {
       name: "web_search",
       description:
-        "联网搜索互联网实时公开信息。仅在以下情况调用：问题涉及时效性内容（新闻/近况/最新出版/当下日期相关）、或明显超出馆藏与你的知识范围且读者确有需要。馆藏书目内容、读书方法等常规问题严禁使用本工具。结果来源卡片由系统展示给用户。",
+        "联网获取互联网实时公开信息。【必须调用】① 读者要你联网 / 上网 / 查最新；② 实时 / 时效内容（天气、新闻、热搜、股价 / 汇率 / 油价 / 金价、赛事比分、票房、最新版本 / 型号 / 价格、谁刚获奖、当下日期等）；③ 读书之外、需事实查证、超出你知识截止的提问。**先查到再答，绝不凭印象编实时数据。**【勿用】馆藏书内容 / 读书方法 / 个性化推荐等馆内问题走你的理解，不联网。【query】精炼中文关键词；问「最新」务必带当前年月（如「2026年6月 …」），以搜到的带日期新结果为准、别拿训练记忆当最新。结果来源卡由系统展示。",
       parameters: {
         type: "object",
         properties: { query: { type: "string", description: "搜索关键词（精炼、中文优先）" } },
@@ -152,7 +156,8 @@ export async function execTool(name: string, argsJson: string): Promise<{ result
         for (const c of (extra ?? []) as any[]) headOf.set(c.no, cutSafe(String(c.content ?? ""), 60));
       }
       const lines = chaps.map(
-        (c) => `第${c.no}章《${c.title}》：${(c.ai_summary ?? "").trim() || `（${c.no === 0 ? "前言，" : ""}无概要，开头：${headOf.get(c.no) ?? ""}（后略））`}`
+        // 第 0 章即前言：标「前言《标题》」而非「第0章《标题》」（突兀），模型据此也不会在正文说"第0章"
+        (c) => `${c.no === 0 ? `前言《${c.title}》` : `第${c.no}章《${c.title}》`}：${(c.ai_summary ?? "").trim() || `（${c.no === 0 ? "前言，" : ""}无概要，开头：${headOf.get(c.no) ?? ""}（后略））`}`
       );
       return { result: `《${b.title}》（${b.author}｜${(b.tags ?? []).join("/")}）\n全书概要：${b.ai_digest ?? "无"}\n目录（共 ${lines.length} 章）：\n${lines.join("\n")}` };
     }
@@ -162,7 +167,10 @@ export async function execTool(name: string, argsJson: string): Promise<{ result
       const { data: c } = await admin.from("chapters").select("no,title,content").eq("book_id", id).eq("no", no).maybeSingle();
       if (!c) return { result: `失败：${id} 没有第 ${no} 章。可先用 read_book_toc 查目录。` };
       const content = String((c as any).content ?? "");
-      return { result: `第${(c as any).no}章《${(c as any).title}》完整原文：\n${cutSafe(content, 15000)}${content.length > 15000 ? "\n（后文略）" : ""}` };
+      // 第 0 章即前言：与 read_book_toc 同口径标「前言《标题》」而非「第0章《…》」，免得模型照搬"第0章"进正文
+      const cno = (c as any).no;
+      const label = cno === 0 ? `前言《${(c as any).title}》` : `第${cno}章《${(c as any).title}》`;
+      return { result: `${label}完整原文：\n${cutSafe(content, 15000)}${content.length > 15000 ? "\n（后文略）" : ""}` };
     }
     if (name === "cite_chapters") {
       const items: { book_id?: unknown; chapter_no?: unknown }[] = Array.isArray(args.items) ? args.items : [];

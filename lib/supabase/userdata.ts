@@ -14,6 +14,7 @@ export interface UserDataSlices {
   readChapters: Record<string, string[]>;
   mediaProgress: Record<string, number>;
   mediaPlayed: Record<string, number>;
+  mediaCovered: Record<string, [number, number][]>;
   readSeconds: number;
   likedReviews: string[];
 }
@@ -125,15 +126,19 @@ export async function loadUserData(user: { id: string; nickname: string; avatarS
 
   const mediaProgress: Record<string, number> = {};
   const mediaPlayed: Record<string, number> = {};
+  const mediaCovered: Record<string, [number, number][]> = {};
   for (const r of (mpR.data ?? []) as any[]) {
     mediaProgress[r.book_id] = Number(r.position) || 0;
-    mediaPlayed[r.book_id] = Number(r.played) || 0;
+    const cov = Array.isArray(r.covered) ? (r.covered as [number, number][]) : [];
+    mediaCovered[r.book_id] = cov;
+    // played 由 covered 区间并集派生（旧脏数据 covered 为空 → played=0，自动纠正之前虚高的"已读完"）
+    mediaPlayed[r.book_id] = cov.length ? Math.min(1, cov.reduce((s, x) => s + (Number(x[1]) - Number(x[0])), 0)) : 0;
   }
 
   const readSeconds = (profR.data as any)?.read_seconds ?? 0;
   const likedReviews = (likeR.data ?? []).map((r: any) => r.review_id);
 
-  return { favorites, notes, myReviews, history, progress, readChapters, mediaProgress, mediaPlayed, readSeconds, likedReviews };
+  return { favorites, notes, myReviews, history, progress, readChapters, mediaProgress, mediaPlayed, mediaCovered, readSeconds, likedReviews };
 }
 
 const catOf = (m: ReadingMode) => (m === "text" ? "text" : "av");
@@ -141,7 +146,7 @@ const catOf = (m: ReadingMode) => (m === "text" ? "text" : "av");
 /* ---------------- 智学对话云同步（T2.5；T4 起每用户唯一会话 'main'） ---------------- */
 // messages 整段存 jsonb（含卡片/反馈），简单可靠；流式中间态字段（streaming/toolNote）入库前剥掉
 const cleanMsgs = (msgs: ChatSession["messages"]) =>
-  msgs.filter((m) => !m.streaming).map(({ streaming, toolNote, ...keep }) => keep);
+  msgs.filter((m) => !m.streaming && !m.voicePending).map(({ streaming, toolNote, voicePending, ...keep }) => keep);
 
 // 拉取本人唯一会话（T4 后云端每用户只有 id='main' 一行）
 export async function loadMainSession(uid: string): Promise<ChatSession | null> {
@@ -213,9 +218,9 @@ export const db = {
       { user_id: uid, book_id: bookId, last_chapter_id: p?.chapterId ?? null, last_chapter_no: p?.chapterNo ?? null, pct: p?.pct ?? 0, read_chapter_ids: readIds },
       { onConflict: "user_id,book_id" }
     ),
-  setMediaProgress: (uid: string, bookId: string, position: number, played: number) =>
+  setMediaProgress: (uid: string, bookId: string, position: number, played: number, covered: [number, number][] = []) =>
     supabase.from("media_progress").upsert(
-      { user_id: uid, book_id: bookId, position, played },
+      { user_id: uid, book_id: bookId, position, played, covered },
       { onConflict: "user_id,book_id" }
     ),
   // 书评点赞（本版 UI 不展示，数据闭环备将来）

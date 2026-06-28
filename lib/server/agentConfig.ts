@@ -12,6 +12,7 @@ export interface AgentOverride {
   toolDescriptions?: Record<string, string>; // 工具名 → 描述
   model?: string;
   temperature?: number;
+  mainMaxTokens?: number; // 主 Agent 每轮生成上限（含 M3 的 <think> 思考预算），默认 20000
   // 对话摘要（compress）：触发阈值 + 温度 + 压缩指令
   compressKeep?: number; // 保留最近多少条不压（KEEP，默认 40＝最近 20 轮）
   compressBatchMin?: number; // 超出保留区再攒够多少条才压一次（BATCH_MIN，默认 8）
@@ -26,6 +27,7 @@ export interface AgentOverride {
 // 出厂默认（与 minimax MODEL / route 主轮温度一致）：用于后台「恢复默认」与「与默认相同则不存覆盖」
 export const DEFAULT_MODEL = "MiniMax-M3";
 export const DEFAULT_TEMPERATURE = 0.7;
+export const DEFAULT_MAIN_MAX_TOKENS = 20000; // 主 Agent 每轮生成上限（4096 偏紧——M3 的 <think> 也吃这预算，长答易被截）
 // 对话摘要 / 长期记忆 的出厂阈值与温度（与 compress.ts / memory.ts 原硬编码一致）
 export const DEFAULT_COMPRESS_KEEP = 40;
 export const DEFAULT_COMPRESS_BATCH_MIN = 8;

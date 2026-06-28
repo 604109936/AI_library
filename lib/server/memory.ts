@@ -96,9 +96,13 @@ async function update(uid: string, budgetMs: number) {
     const v = patch[k];
     if (typeof v === "string") { const t = v.trim().slice(0, MAX_FIELD); if (t) valid[k] = t; } // 空串/纯空白=本维度无更新，绝不覆盖现值（防记忆被某次模型抖动静默清空·Bug#3）
     else if (typeof v === "number" || typeof v === "boolean") valid[k] = String(v); // 偶发标量容错
-    // 维度值类型不对（null/嵌套对象）：视同解析失败整批放弃、不推进进度——
-    // 原实现静默丢弃该维度却照常推进，这批认知会被标记"已消化"而永久丢失
-    else return;
+    else if (Array.isArray(v)) {
+      // 列表型维度（interests/facts 等）模型可能吐 JSON 数组：取字符串项合并，空数组=本维度无更新
+      const t = v.filter((x) => typeof x === "string" && x.trim()).join("；").slice(0, MAX_FIELD);
+      if (t) valid[k] = t;
+    }
+    // null / undefined / 嵌套对象：视作该维度无更新，跳过该字段——**不放弃整批、不影响其它有效字段、照常推进**
+    // processed_until。原 else return 会因单个坏字段丢弃整批已收集的有效更新且永不推进 → 记忆永久停更 + 每轮空烧 ~16K token。
   }
 
   // 只写有效字段 + 进度（upsert 未提供的列在 UPDATE 时保持现值）：

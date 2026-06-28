@@ -8,7 +8,7 @@ import { BASE_MEMORY_PROMPT, memoryVar } from "@/lib/server/memory";
 import { AGENT_TOOLS } from "@/lib/server/tools";
 import {
   readOverride, writeOverride, type AgentOverride,
-  DEFAULT_MODEL, DEFAULT_TEMPERATURE,
+  DEFAULT_MODEL, DEFAULT_TEMPERATURE, DEFAULT_MAIN_MAX_TOKENS,
   DEFAULT_COMPRESS_KEEP, DEFAULT_COMPRESS_BATCH_MIN, DEFAULT_COMPRESS_TEMPERATURE,
   DEFAULT_MEMORY_MIN_NEW, DEFAULT_MEMORY_TEMPERATURE,
 } from "@/lib/server/agentConfig";
@@ -21,6 +21,7 @@ const DEFAULTS = {
   toolDescriptions: Object.fromEntries(AGENT_TOOLS.map((t) => [t.function.name, t.function.description ?? ""])) as Record<string, string>,
   model: DEFAULT_MODEL,
   temperature: DEFAULT_TEMPERATURE,
+  mainMaxTokens: DEFAULT_MAIN_MAX_TOKENS,
   compressKeep: DEFAULT_COMPRESS_KEEP,
   compressBatchMin: DEFAULT_COMPRESS_BATCH_MIN,
   compressTemperature: DEFAULT_COMPRESS_TEMPERATURE,
@@ -60,6 +61,7 @@ export async function GET(req: NextRequest) {
     ),
     model: ov.model || DEFAULTS.model,
     temperature: typeof ov.temperature === "number" ? ov.temperature : DEFAULTS.temperature,
+    mainMaxTokens: typeof ov.mainMaxTokens === "number" ? ov.mainMaxTokens : DEFAULTS.mainMaxTokens,
     compressKeep: typeof ov.compressKeep === "number" ? ov.compressKeep : DEFAULTS.compressKeep,
     compressBatchMin: typeof ov.compressBatchMin === "number" ? ov.compressBatchMin : DEFAULTS.compressBatchMin,
     compressTemperature: typeof ov.compressTemperature === "number" ? ov.compressTemperature : DEFAULTS.compressTemperature,
@@ -90,6 +92,8 @@ export async function POST(req: NextRequest) {
   if (typeof body.model === "string" && body.model.trim() && body.model.trim() !== DEFAULTS.model) ov.model = body.model.trim();
   const t = Number(body.temperature);
   if (Number.isFinite(t) && t !== DEFAULTS.temperature) ov.temperature = Math.max(0, Math.min(2, t));
+  const mmt = Number(body.mainMaxTokens);
+  if (Number.isFinite(mmt) && Math.round(mmt) !== DEFAULTS.mainMaxTokens) ov.mainMaxTokens = Math.max(512, Math.min(40000, Math.round(mmt)));
 
   // 对话摘要（compress）
   const ck = Number(body.compressKeep);

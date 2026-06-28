@@ -53,10 +53,9 @@ export default function FlipPage() {
   const mutedNowRef = useRef(mutedNow);
   const userPausedRef = useRef(false);
   const lastT = useRef<number | null>(null);
-  const playedSec = useRef(0);
   const lastReport = useRef(0);
 
-  const setMediaPlayed = useLibrary((s) => s.setMediaPlayed);
+  const addCoveredRegion = useLibrary((s) => s.addCoveredRegion);
   const setMediaProgress = useLibrary((s) => s.setMediaProgress);
   const pushHistory = useLibrary((s) => s.pushHistory);
 
@@ -101,8 +100,7 @@ export default function FlipPage() {
     if (!v || !b || !v.duration) return;
     const rid = b.id.split("__")[0];
     const st = useLibrary.getState();
-    playedSec.current = (st.mediaPlayed[rid] ?? 0) * v.duration;
-    lastT.current = null; // seek 跳变不计入真实播放
+    lastT.current = null; // seek 跳变不计入真实播放（覆盖区间由 store 持久化，无需本地基线）
     // 续播位置与详情页共享：音频(口播)与视频内容一致，详情页看到哪、乱翻滑到这本就从哪接着播；反之亦然（Bug#8 修正）
     const p = st.mediaProgress[rid] ?? 0;
     if (p > 0 && p < 0.99) { try { v.currentTime = p * v.duration; } catch {} }
@@ -178,7 +176,6 @@ export default function FlipPage() {
     if (flipCache) flipCache.idx = activeIdx;
     if (loading || !books.length) return;
     slotInited.current = true;
-    playedSec.current = 0;
     lastT.current = null;
     setUserPaused(false);
     setVErr(false);
@@ -270,8 +267,8 @@ export default function FlipPage() {
     if (lastT.current !== null) {
       const d = cur - lastT.current;
       if (d > 0 && d < 1.5) {
-        playedSec.current += d;
-        setMediaPlayed(rid, playedSec.current / dur);
+        // 归一化区间交给 store 做并集 + 持久化（重播同一段不再虚增，根治 played 虚高误判已读完）
+        addCoveredRegion(rid, lastT.current / dur, cur / dur);
         // 与详情页共享续播位置，但仅在「正常前进播放」时写：loop 回卷(d 为大负)/拖动跳变(d 不在 0~1.5)
         // 都落不进这里，从而不会把共享位置污染回 0 或乱跳（用户口径·Bug#8 修正）
         setMediaProgress(rid, cur / dur);

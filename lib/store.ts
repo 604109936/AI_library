@@ -173,6 +173,7 @@ export interface Toast {
   type: "success" | "error" | "info";
   msg: string;
   action?: { label: string; onClick: () => void }; // 可选动作钮（如「撤销」），点击后该 toast 立即消失
+  key?: string; // 同组互斥：带相同 key 的新 toast 顶掉旧的（如反复开/关灯只显示最新一条，不叠加）
 }
 interface UIState {
   hydrated: boolean;
@@ -184,7 +185,7 @@ interface UIState {
   removeRecent: (q: string) => void;
   clearRecent: () => void;
   toasts: Toast[];
-  toast: (msg: string, type?: Toast["type"], action?: Toast["action"]) => void;
+  toast: (msg: string, type?: Toast["type"], action?: Toast["action"], key?: string) => void;
   dismiss: (id: number) => void;
   loginOpen: boolean;
   pending: (() => void) | null;
@@ -211,8 +212,19 @@ export const useUI = create<UIState>()(
       removeRecent: (q) => set({ recentSearches: get().recentSearches.filter((x) => x !== q) }),
       clearRecent: () => set({ recentSearches: [] }),
       toasts: [],
-      toast: (msg, type = "success", action) => {
+      toast: (msg, type = "success", action, key) => {
         const cur = get().toasts;
+        // 带 key 的同组：原地复用已存在的同组 toast（保留 id、只换文案 + 重置计时）——
+        // 连续开/关灯时不卸载重挂（不触发 AnimatePresence 退场+入场），文字平滑替换，根除"抖动"观感
+        if (key) {
+          const exist = cur.find((t) => t.key === key);
+          if (exist) {
+            clearTimeout(toastTimers[exist.id]);
+            set({ toasts: cur.map((t) => (t.id === exist.id ? { ...t, msg, type, action } : t)) });
+            toastTimers[exist.id] = setTimeout(() => get().dismiss(exist.id), action ? 4000 : 2800);
+            return;
+          }
+        }
         const last = cur[cur.length - 1];
         // 队尾同文案去重：不再新增，只重置自动消失计时
         if (last && last.msg === msg && last.type === type) {
@@ -221,7 +233,7 @@ export const useUI = create<UIState>()(
           return;
         }
         const id = toastId++;
-        set({ toasts: [...cur, { id, msg, type, action }].slice(-3) }); // 最多同时 3 条
+        set({ toasts: [...cur, { id, msg, type, action, key }].slice(-3) }); // 最多同时 3 条
         // 带动作的 toast 多留一会儿（撤销窗口 4s）
         toastTimers[id] = setTimeout(() => get().dismiss(id), action ? 4000 : 2800);
       },
@@ -252,6 +264,7 @@ interface LibState {
   myReviews: Review[];
   mediaProgress: Record<string, number>;
   mediaPlayed: Record<string, number>;
+  mediaCovered: Record<string, [number, number][]>; // 真实播过的归一化区间并集（覆盖率的事实来源，跨会话持久化防重播虚高）
   readChapters: Record<string, string[]>;
   readSeconds: number;
   setHydrated: () => void;
@@ -274,12 +287,28 @@ interface LibState {
   setMediaProgress: (bookId: string, pct: number) => void;
   getMediaProgress: (bookId: string) => number;
   setMediaPlayed: (bookId: string, frac: number) => void;
+  addCoveredRegion: (bookId: string, a: number, b: number) => void; // 上报「真实播过的一段」(归一化 0~1)，store 做并集 + 派生 played
   markChapterRead: (bookId: string, chapterId: string) => void;
   addReadSeconds: (sec: number) => void;
 }
 const real = (id: string) => id.split("__")[0];
 // 历史大类：音视频(video/audio)同属 av，与文字稿 text 分开（与 reading_history.mode_category 同口径）
 const histCat = (m: ReadingMode) => (m === "text" ? "text" : "av");
+// 归一化区间(0~1)并集合并：排序 + 合并重叠/相邻(0.002 容差)。覆盖率 = 并集总长 → 重播已覆盖段不增长（根治 played 虚高）
+function mergeRegions(rs: [number, number][]): [number, number][] {
+  const sorted = rs
+    .map((r) => [Math.max(0, Math.min(1, r[0])), Math.max(0, Math.min(1, r[1]))] as [number, number])
+    .filter((r) => r[1] > r[0])
+    .sort((a, b) => a[0] - b[0]);
+  const out: [number, number][] = [];
+  for (const r of sorted) {
+    const tail = out[out.length - 1];
+    if (tail && r[0] <= tail[1] + 0.002) tail[1] = Math.max(tail[1], r[1]);
+    else out.push([r[0], r[1]]);
+  }
+  return out;
+}
+const coverageOf = (rs: [number, number][]) => Math.min(1, rs.reduce((s, r) => s + (r[1] - r[0]), 0));
 const EMPTY = {
   favorites: [] as string[],
   notes: [] as NoteItem[],
@@ -289,6 +318,7 @@ const EMPTY = {
   likedReviews: [] as string[],
   mediaProgress: {} as Record<string, number>,
   mediaPlayed: {} as Record<string, number>,
+  mediaCovered: {} as Record<string, [number, number][]>,
   readChapters: {} as Record<string, string[]>,
   readSeconds: 0,
 };
@@ -297,9 +327,17 @@ export const useLibrary = create<LibState>()((set, get) => {
   const fail = (label: string) => useUI.getState().toast(`${label}同步失败`, "error");
   // rollback：DB 写失败时回滚乐观值，避免"乐观 UI 与失败 toast 自相矛盾"、且下次 load 以云端为准时本地凭空跳变（Bug#12）
   const sync = (p: any, label: string, rollback?: () => void) => {
+    const u0 = uid(); // 捕获发起时的账号(世代)
+    const handleFail = (err: any, kind: string) => {
+      console.error(`[同步${kind}:${label}]`, err);
+      // 账号已切换/登出、或已退出水合态：这条失败属于旧世代，忽略——否则 rollback 把旧账号快照灌回当前 store（串档/隐私）
+      if (uid() !== u0 || !get().hydrated) return;
+      rollback?.();
+      fail(label);
+    };
     Promise.resolve(p)
-      .then((res: any) => { if (res?.error) { console.error(`[同步失败:${label}]`, res.error); rollback?.(); fail(label); } })
-      .catch((e: any) => { console.error(`[同步异常:${label}]`, e); rollback?.(); fail(label); });
+      .then((res: any) => { if (res?.error) handleFail(res.error, "失败"); })
+      .catch((e: any) => handleFail(e, "异常"));
   };
   // 【hydrated 门禁】未完成 load() 前严禁写穿透：此时本地是空基线，绝对值覆盖会把云端进度/已读章/时长洗掉
   // （登录态下刷新阅读器/乱翻页是最常见触发路径——Review P0）
@@ -315,7 +353,7 @@ export const useLibrary = create<LibState>()((set, get) => {
   const syncMedia = (bookId: string) => {
     const u = uid();
     if (!u || !get().hydrated) return;
-    const flushNow = () => { mediaSyncAt[bookId] = Date.now(); sync(db.setMediaProgress(u, bookId, get().mediaProgress[bookId] ?? 0, get().mediaPlayed[bookId] ?? 0), "进度"); };
+    const flushNow = () => { mediaSyncAt[bookId] = Date.now(); sync(db.setMediaProgress(u, bookId, get().mediaProgress[bookId] ?? 0, get().mediaPlayed[bookId] ?? 0, get().mediaCovered[bookId] ?? []), "进度"); };
     const since = Date.now() - (mediaSyncAt[bookId] ?? 0);
     if (since >= 5000) { if (mediaSyncTimer[bookId]) { clearTimeout(mediaSyncTimer[bookId]); delete mediaSyncTimer[bookId]; } flushNow(); }
     else if (!mediaSyncTimer[bookId]) { mediaSyncTimer[bookId] = setTimeout(() => { delete mediaSyncTimer[bookId]; flushNow(); }, 5000 - since); }
@@ -450,6 +488,21 @@ export const useLibrary = create<LibState>()((set, get) => {
       const next = Math.min(1, Math.max(prev, frac));
       if (next === prev) return;
       set({ mediaPlayed: { ...get().mediaPlayed, [r]: next } });
+      syncMedia(r);
+    },
+    // 上报「真实播过的一段」(归一化)：合并进 mediaCovered 区间并集，played = 并集总长（重播已覆盖段不增长）。
+    // 替代旧的 base+并集/playedSec 累加——那两种跨会话/重播会把同一段反复计入致虚高误判已读完。
+    addCoveredRegion: (bookId, a, b) => {
+      const r = real(bookId);
+      const lo = Math.min(a, b), hi = Math.max(a, b);
+      if (hi - lo <= 0) return;
+      const merged = mergeRegions([...(get().mediaCovered[r] ?? []), [lo, hi]]);
+      const played = coverageOf(merged);
+      if (played === (get().mediaPlayed[r] ?? 0) && merged.length === (get().mediaCovered[r] ?? []).length) return; // 完全落在已覆盖区间，无变化
+      set({
+        mediaCovered: { ...get().mediaCovered, [r]: merged },
+        mediaPlayed: { ...get().mediaPlayed, [r]: played },
+      });
       syncMedia(r);
     },
     markChapterRead: (bookId, chapterId) => {

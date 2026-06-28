@@ -1,48 +1,75 @@
 "use client";
+import { useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { motion } from "framer-motion";
+import { motion, useMotionValue, useTransform, animate } from "framer-motion";
 import { ChevronRight, Heart, Settings, Info, Clock, BookOpen, BookCheck, Star, NotebookPen } from "lucide-react";
 import { BottomNav } from "@/components/shell/BottomNav";
 import { Avatar } from "@/components/ui/Avatar";
 import { Motif } from "@/components/ui/Motif";
 import { useAuth, useLibrary, useUI } from "@/lib/store";
 
-/** 图书馆开灯 / 关灯：可拖拽的拉绳台灯。下拉拉绳松开即切换 日间(浅) / 夜间(深)，附激励提示 */
+/** 图书馆「掌灯 / 熄灯」：垂下的拉绳灯。向下拉拽拉绳——绳子随手连续变长、松手回弹（生活常识，线只会变长不会断），
+    松手即在 浅色(掌灯) / 深色(熄灯) 间切换，灯泡随之亮起 / 黯下，附一句应景提示，给"开始读书 / 该歇息了"的小仪式感。
+    轻点拉环也可直接切换。 */
 function LampPull() {
   const theme = useUI((s) => s.theme);
   const setTheme = useUI((s) => s.setTheme);
   const toast = useUI((s) => s.toast);
   const on = theme !== "dark";
+  const pull = useMotionValue(0); // 拉绳被拉下的距离（px）
+  const cordH = useTransform(pull, (v) => 26 + v); // 绳长 = 固定段 + 拉拽量：连续伸长，永不断开
+  const bulb = useTransform(pull, [0, 56], [1, 1.22]); // 拉到位时灯泡微微胀大，给"将触发"的预感
+  const dragging = useRef(false);
+  const startY = useRef(0);
+  const TRIGGER = 30; // 拉过此距离松手即切换
+
   function toggle() {
     const next = on ? "dark" : "light";
     setTheme(next);
-    toast(next === "light" ? "灯亮了，宜读书" : "灯熄了，早些歇息", "info");
+    // 同组 key "theme"：连点开 / 关灯只显示最新一条提示，不再叠两条（用户反馈）
+    toast(next === "light" ? "掌灯启卷" : "掩卷熄灯", "info", undefined, "theme");
   }
+  function onDown(e: React.PointerEvent) {
+    dragging.current = true;
+    startY.current = e.clientY;
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+  }
+  function onMove(e: React.PointerEvent) {
+    if (!dragging.current) return;
+    pull.set(Math.max(0, Math.min(64, e.clientY - startY.current))); // 跟手下拉，封顶 64px
+  }
+  function onUp() {
+    if (!dragging.current) return;
+    dragging.current = false;
+    const v = pull.get();
+    animate(pull, 0, { type: "spring", stiffness: 700, damping: 30 }); // 松手回弹（皮筋感）
+    if (v >= TRIGGER || v < 4) toggle(); // 拉到位 / 轻点 → 切换；半截犹豫(4~30) → 回弹不切
+  }
+
   return (
-    <div className="absolute right-5 top-0 z-20 flex flex-col items-center">
-      {/* 灯罩 + 灯泡光 */}
+    <div className="absolute right-4 top-0 z-20 flex select-none flex-col items-center">
+      {/* 灯：罩 + 座 + 泡（亮时暖黄辉光，熄时黯淡）；拉拽时灯泡轻胀预告切换 */}
       <div className="relative flex flex-col items-center">
-        <div className={"h-0 w-0 border-l-[15px] border-r-[15px] border-b-[18px] border-l-transparent border-r-transparent transition-colors duration-500 " + (on ? "border-b-celadon-700" : "border-b-ink-300/50 dark:border-b-white/20")} />
-        <div className={"-mt-[3px] h-[6px] w-[34px] rounded-b-md transition-colors duration-500 " + (on ? "bg-celadon" : "bg-ink-300/40 dark:bg-white/15")} />
-        <div className={"mt-0.5 h-3 w-3 rounded-full transition-all duration-500 " + (on ? "bg-brass shadow-[0_0_22px_8px_rgba(184,155,110,0.6)]" : "bg-ink-300/40 dark:bg-white/15")} />
+        {on && <span className="pointer-events-none absolute left-1/2 top-4 h-9 w-9 -translate-x-1/2 rounded-full bg-brass/30 blur-xl" />}
+        <div className={"h-0 w-0 border-l-[14px] border-r-[14px] border-b-[17px] border-l-transparent border-r-transparent transition-colors duration-500 " + (on ? "border-b-celadon-700" : "border-b-ink-300/45 dark:border-b-white/20")} />
+        <div className={"-mt-[3px] h-[6px] w-[32px] rounded-b-md transition-colors duration-500 " + (on ? "bg-celadon" : "bg-ink-300/40 dark:bg-white/15")} />
+        <motion.div style={{ scale: bulb }} className={"relative z-10 mt-0.5 h-3 w-3 rounded-full transition-[background-color,box-shadow] duration-500 " + (on ? "bg-brass shadow-[0_0_22px_7px_rgba(184,155,110,0.65)]" : "bg-ink-300/35 dark:bg-white/15")} />
       </div>
-      {/* 固定绳段 */}
-      <div className="h-4 w-px bg-ink/25 dark:bg-white/25" />
-      {/* 可拖拽拉绳 + 拉环 */}
-      <motion.div
-        drag="y"
-        dragConstraints={{ top: 0, bottom: 0 }}
-        dragElastic={0.7}
-        dragSnapToOrigin
-        onDragEnd={(_, info) => { if (info.offset.y > 22) toggle(); }}
-        whileDrag={{ cursor: "grabbing" }}
-        aria-label={on ? "拉绳关灯" : "拉绳开灯"}
-        className="flex cursor-grab touch-none flex-col items-center pb-4"
+      {/* 一整根拉绳：高度随拉拽连续增长（绳只会变长、不会断）；绳尾拉环被带着下垂，跟手 */}
+      <motion.div style={{ height: cordH }} className="w-[1.5px] bg-ink/25 dark:bg-white/25" />
+      <button
+        type="button"
+        aria-label={on ? "拉绳熄灯" : "拉绳掌灯"}
+        onPointerDown={onDown}
+        onPointerMove={onMove}
+        onPointerUp={onUp}
+        onPointerCancel={onUp}
+        className="-mt-px flex touch-none cursor-grab flex-col items-center pb-5 active:cursor-grabbing"
       >
-        <div className="h-7 w-px bg-ink/25 dark:bg-white/25" />
-        <div className={"h-4 w-4 rounded-full border-2 bg-snow transition-colors dark:bg-dark-card " + (on ? "border-brass" : "border-ink-300 dark:border-white/30")} />
-      </motion.div>
+        {/* 拉环（亮时铜环、熄时素环） */}
+        <span className={"h-4 w-4 rounded-full border-2 bg-snow transition-colors dark:bg-dark-card " + (on ? "border-brass" : "border-ink-300 dark:border-white/30")} />
+      </button>
     </div>
   );
 }
@@ -62,22 +89,15 @@ export default function MePage() {
   // 已读/进行中均按「书」统计数量，同一本书音视频+文字稿不重复计数
   const doneBooks = new Set(history.filter((h) => h.progress >= 100).map((h) => h.bookId));
   const readCount = doneBooks.size; // 已读=任一模式读完的书（去重）
-  // 进行中=有进度但未读完的书（按书去重）；同书若已读完则不再计入进行中
-  const ongoingBooks = new Set(history.filter((h) => h.progress < 100).map((h) => h.bookId));
-  doneBooks.forEach((id) => ongoingBooks.delete(id));
-  const ongoing = ongoingBooks.size;
-  // 数据卡入口带上「有记录的大类」作为历史页默认筛选：避免卡上"已读 1"，点进去却因默认音视频筛选而显示空态
-  const modeFor = (done: boolean) => {
-    const rows = history.filter((h) => (done ? h.progress >= 100 : h.progress < 100));
-    const hasAv = rows.some((h) => h.mode !== "text");
-    return hasAv ? "av" : rows.some((h) => h.mode === "text") ? "text" : "av";
-  };
+  // 进行中=任一模式（文字稿或音视频）正在读（0<进度<100）的书，按书去重（同书两边都在读也只计 1）。
+  // 排除 0%（打开过没读=未读）。不因"另一模式已读完"而排除——如视频看完后又在读文字稿，这本仍算进行中（用户口径）。
+  const ongoing = new Set(history.filter((h) => h.progress > 0 && h.progress < 100).map((h) => h.bookId)).size;
   // 登录态 + 库数据已水合 才显示真值，否则占位"—"：避免登录/冷启动恢复会话瞬间四卡先闪 0 再跳真值（Bug#20）
   const ready = !!user && libHydrated;
   const stats = [
     { label: "阅读时长", value: ready ? durLabel : "—", icon: Clock, href: undefined as string | undefined },
-    { label: "已读", value: ready ? String(readCount) : "—", icon: BookCheck, href: `/me/history?status=read&mode=${modeFor(true)}` },
-    { label: "进行中", value: ready ? String(ongoing) : "—", icon: BookOpen, href: `/me/history?status=reading&mode=${modeFor(false)}` },
+    { label: "已读", value: ready ? String(readCount) : "—", icon: BookCheck, href: `/me/history?status=read` },
+    { label: "进行中", value: ready ? String(ongoing) : "—", icon: BookOpen, href: `/me/history?status=reading` },
     { label: "收藏", value: ready ? String(favorites.length) : "—", icon: Heart, href: "/me/favorites" },
   ];
 

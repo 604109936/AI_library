@@ -12,7 +12,9 @@ export interface WebHit {
   date: string;
 }
 
-const MAX_HITS = 5; // 截前 5 条控上下文（单条 snippet 再截 200 字，合计约 1.2K 字不撑爆窗口）
+// 取前 8 条（原 5 条会把排名靠后但更新的好结果截掉——实测"最新AI模型"里 Claude 4.8 排第 7）。
+// API 默认返回 10 条且按相关性排序、freshness 参数实测无效；保留相关性序、靠注入的当前日期让模型自己挑最新。
+const MAX_HITS = 8;
 
 export async function searchWeb(query: string): Promise<WebHit[]> {
   const key = process.env.MINIMAX_API_KEY;

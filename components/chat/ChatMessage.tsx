@@ -4,10 +4,10 @@ import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
-import { ThumbsUp, ThumbsDown, Copy, RotateCw, Pencil, ExternalLink, ChevronDown, Globe } from "lucide-react";
+import { ThumbsUp, ThumbsDown, Copy, RotateCw, Pencil, ExternalLink, ChevronDown, ChevronRight, Globe, Sparkles, BookOpen } from "lucide-react";
 import { BookCover } from "@/components/ui/BookCover";
 import { ShimmerText } from "@/components/chat/ShimmerText";
-import { splitCardSegments, stripCardMarkers, hasCardMarker } from "@/lib/chatMarkers";
+import { splitCardSegments, stripCardMarkers } from "@/lib/chatMarkers";
 import { useUI } from "@/lib/store";
 import type { Book, Citation, WebSource, ChatMessage as TMsg } from "@/lib/types";
 
@@ -55,7 +55,11 @@ const MD_COMPONENTS: Components = {
 function RecsBlock({ books }: { books: Book[] }) {
   return (
     <div className="my-3 animate-fade-up first:mt-0 last:mb-0">
-      <p className="mb-2 text-xs font-medium text-ink-700 dark:text-dark-text/70">为你挑的书</p>
+      {/* 系统标签样式：青瓷色 + 图标 + 小字距，与 AI 正文(墨色 prose)明确区分，不让用户误读成对话文字 */}
+      <div className="mb-2 flex items-center gap-1.5">
+        <Sparkles size={13} className="shrink-0 text-celadon" />
+        <span className="text-[11px] font-medium tracking-[0.08em] text-celadon-700 dark:text-celadon-300">为你挑的书</span>
+      </div>
       <div className="-mx-1 flex gap-2.5 overflow-x-auto px-1 pb-1 no-scrollbar">
         {books.map((b) => (
           <Link key={b.id} href={`/library/book/${b.id}`} className="w-[88px] shrink-0">
@@ -74,18 +78,25 @@ function RecsBlock({ books }: { books: Book[] }) {
 function CitesBlock({ cites }: { cites: Citation[] }) {
   return (
     <div className="my-3 animate-fade-up space-y-2 first:mt-0 last:mb-0">
-      <p className="text-[11px] text-ink-300">依据原文 {cites.length} 处，点击可直达</p>
+      {/* 系统标签样式：图标 + 青瓷色 + 小字距，与「为你挑的书」一致，区别于 AI 正文 */}
+      <div className="flex items-center gap-1.5">
+        <BookOpen size={13} className="shrink-0 text-celadon" />
+        <span className="text-[11px] font-medium tracking-[0.08em] text-celadon-700 dark:text-celadon-300">点开读原文 · {cites.length} 章</span>
+      </div>
       {cites.map((c, i) => (
         <Link
           key={i}
           href={`/library/book/${c.bookId}/read?ch=${c.bookId}-c${c.chapterNo}`}
-          className="flex gap-2 rounded-xl border border-line p-2 active:bg-moon/50 dark:border-white/10 dark:active:bg-white/5"
+          className="flex items-center gap-2.5 rounded-xl border border-line p-2.5 transition active:bg-moon/50 dark:border-white/10 dark:active:bg-white/5"
         >
           <BookCover title={c.bookTitle} seed={c.coverSeed} src={c.cover} className="w-9 shrink-0" showText={false} />
           <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-medium text-ink dark:text-dark-text">《{c.bookTitle}》第{c.chapterNo}章 {c.chapterTitle}</p>
+            {/* 前言=第0章：不标「第0章」前缀（突兀），直接显章题（如「前言」）；正文章节才显「第N章 标题」 */}
+            <p className="truncate text-xs font-medium text-ink dark:text-dark-text">《{c.bookTitle}》{c.chapterNo === 0 ? c.chapterTitle : `第${c.chapterNo}章 ${c.chapterTitle}`}</p>
             <p className="mt-0.5 line-clamp-2 text-[11px] text-ink-500 dark:text-dark-text/55">{c.snippet}</p>
           </div>
+          {/* 跳转箭头：明确"可点击直达原文"的交互信号 */}
+          <ChevronRight size={16} className="shrink-0 text-ink-300 dark:text-dark-text/40" />
         </Link>
       ))}
     </div>
@@ -197,13 +208,19 @@ export const ChatMessage = memo(function ChatMessage({
     );
   }
 
-  const thinking = msg.streaming && !msg.content;
+  // 用 .trim()：模型调工具前常吐一个换行 / <think> 剥离后残留空白——此时 content 非空但无可见文字，
+  // 若按 !msg.content 判定会落到气泡分支渲染出「空白气泡 + 框外状态」（很难看）；空白一律视作"还没说话"，
+  // 走思考中水波纹分支（把 toolNote 如「翻阅图书」扫光显示），不出空气泡。
+  const thinking = msg.streaming && !msg.content.trim();
   // 卡片交错渲染：按占位标记切段，卡片出现在工具调用的真实位置；
   // 没有标记的老消息（或停止时标记还没吐出来）回退为渲染在末尾，卡不会丢
   const segments = splitCardSegments(msg.content);
-  const recsInFlow = hasCardMarker(msg.content, "recs");
-  const citesInFlow = hasCardMarker(msg.content, "cites");
-  const webInFlow = hasCardMarker(msg.content, "web");
+  // 各类卡片已被正文内标记覆盖到的上界（from/to 连续追加，故已渲染区间恒为 [0,maxTo)）：末尾按差集只补渲
+  // 尚未被任何已现标记覆盖的剩余卡片，避免「停在第一批标记后、第二批卡丢失」（旧的全有全无回退会整组丢卡）。
+  const coveredTo = (kind: "recs" | "cites" | "web") => segments.reduce((mx, s) => (s.kind === kind ? Math.max(mx, s.to) : mx), 0);
+  const recsDone = coveredTo("recs");
+  const citesDone = coveredTo("cites");
+  const webDone = coveredTo("web");
 
   function submitFeedback() {
     onFeedbackDetail?.(msg.id, picked, picked.includes("其它") ? other.trim() : "");
@@ -247,9 +264,9 @@ export const ChatMessage = memo(function ChatMessage({
 
           {/* 回退：数组里有卡但正文没有对应标记（老消息/中途停止）→ 渲染在末尾。
               流式中不回退：标记还在路上，先出现在末尾再跳到正确位置会很怪 */}
-          {!msg.streaming && !citesInFlow && !!msg.citations?.length && <CitesBlock cites={msg.citations} />}
-          {!msg.streaming && !recsInFlow && !!msg.recommendations?.length && <RecsBlock books={msg.recommendations} />}
-          {!msg.streaming && !webInFlow && !!msg.webSources?.length && <WebBlock sources={msg.webSources} />}
+          {!msg.streaming && (msg.citations?.length ?? 0) > citesDone && <CitesBlock cites={msg.citations!.slice(citesDone)} />}
+          {!msg.streaming && (msg.recommendations?.length ?? 0) > recsDone && <RecsBlock books={msg.recommendations!.slice(recsDone)} />}
+          {!msg.streaming && (msg.webSources?.length ?? 0) > webDone && <WebBlock sources={msg.webSources!.slice(webDone)} />}
           {/* 断线截断尾注：与正文解耦，仅展示用、不进回灌上下文（Bug#11） */}
           {msg.truncated && (
             <p className="mt-2 border-t border-line pt-2 text-[11px] text-ink-300 dark:border-white/10">（后面断线了，回答可能不完整——可以点「重新生成」补全）</p>
@@ -257,8 +274,9 @@ export const ChatMessage = memo(function ChatMessage({
         </div>
       )}
 
-      {/* 工具调用/思考过程提示（已有正文时显示在气泡下方）：水波纹扫光，正文继续输出时由事件清除（淡出） */}
-      {msg.streaming && !!msg.content && msg.toolNote && (
+      {/* 工具调用/思考过程提示（已有正文时显示在气泡下方）：水波纹扫光，正文继续输出时由事件清除（淡出）。
+          .trim()：仅在有"可见正文"时才挂气泡下方；纯空白由上面的思考中分支接管，避免空气泡下又冒一条状态 */}
+      {msg.streaming && !!msg.content.trim() && msg.toolNote && (
         <div className="mt-1.5 flex items-center pl-1 text-xs animate-fade-up">
           <ShimmerText text={msg.toolNote} />
         </div>

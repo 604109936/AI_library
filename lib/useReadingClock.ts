@@ -10,30 +10,35 @@ import { bumpReadCount } from "@/lib/supabase/userdata";
  * 每累计 30 秒写一次：addReadSeconds 每次都会触发一次云端增量 RPC，原 3 秒一写=
  * 读 30 分钟约 600 次请求（耗电+烧配额）；增量 RPC 天然可合并，切后台/停止/卸载补写零头，丢失上限即窗口零头。
  */
-export function useReadingClock(active: boolean) {
+// allowBackground：音频伴读的核心场景就是锁屏/切后台继续听（组件还专门配了 MediaSession 锁屏控制），
+// 默认 false（文字/视频：不可见不计）；音频传 true（息屏也计）。改用墙钟差值累加，兼容后台 setInterval 被
+// 节流/挂起——下一次 tick / 回前台用 (now-last) 把这段时间补回；单 tick 封顶 60s 防设备长睡眠误计超大值。
+export function useReadingClock(active: boolean, allowBackground = false) {
   useEffect(() => {
     if (!active) return;
     let acc = 0;
+    let last = Date.now();
     const flush = () => {
-      if (acc > 0) {
-        useLibrary.getState().addReadSeconds(acc);
-        acc = 0;
-      }
+      const whole = Math.floor(acc);
+      if (whole >= 1) { useLibrary.getState().addReadSeconds(whole); acc -= whole; }
     };
-    const id = setInterval(() => {
-      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
-      acc += 1;
+    const tick = () => {
+      const now = Date.now();
+      const dt = Math.min((now - last) / 1000, 60);
+      last = now;
+      if (!allowBackground && typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      acc += dt;
       if (acc >= 30) flush();
-    }, 1000);
-    // 切后台时立即落账，避免页面被回收导致零头丢失
-    const onVis = () => { if (document.visibilityState !== "visible") flush(); };
-    document.addEventListener("visibilitychange", onVis);
-    return () => {
-      flush();
-      clearInterval(id);
-      document.removeEventListener("visibilitychange", onVis);
     };
-  }, [active]);
+    const id = setInterval(tick, 1000);
+    // 转后台：先补一次 tick 再落账；回前台：把 last 拉到当下，避免「计时器被挂起」时下一帧把整段后台时间误计入前台口径
+    const onVis = () => {
+      if (document.visibilityState !== "visible") { tick(); flush(); }
+      else last = Date.now();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { tick(); flush(); clearInterval(id); document.removeEventListener("visibilitychange", onVis); };
+  }, [active, allowBackground]);
 }
 
 /**
@@ -41,7 +46,7 @@ export function useReadingClock(active: boolean) {
  * 同一 bookId 的 active 状态（可见时）累计满 30 秒 → 上报 +1，本次进入只报一次；
  * 换书/重新进入重新累计（同一人多次阅读多次累加，不去重；游客也计入）。
  */
-export function useReadCountBump(bookId: string | undefined, active: boolean) {
+export function useReadCountBump(bookId: string | undefined, active: boolean, allowBackground = false) {
   const acc = useRef(0);
   const bumped = useRef(false);
   // 换书重置（同一组件实例内 bookId 变化，如乱翻滑动切书）
@@ -51,15 +56,19 @@ export function useReadCountBump(bookId: string | undefined, active: boolean) {
   }, [bookId]);
   useEffect(() => {
     if (!active || !bookId || bumped.current) return;
-    const id = setInterval(() => {
-      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+    let last = Date.now();
+    const tick = () => {
+      const now = Date.now();
+      const dt = Math.min((now - last) / 1000, 60); // 墙钟差值（兼容后台节流），单 tick 封顶 60s
+      last = now;
+      if (!allowBackground && typeof document !== "undefined" && document.visibilityState !== "visible") return;
       if (bumped.current) return;
-      acc.current += 1;
-      if (acc.current >= 30) {
-        bumped.current = true;
-        bumpReadCount(bookId);
-      }
-    }, 1000);
-    return () => clearInterval(id);
-  }, [active, bookId]);
+      acc.current += dt;
+      if (acc.current >= 30) { bumped.current = true; bumpReadCount(bookId); }
+    };
+    const id = setInterval(tick, 1000);
+    const onVis = () => { if (document.visibilityState === "visible") last = Date.now(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { clearInterval(id); document.removeEventListener("visibilitychange", onVis); };
+  }, [active, bookId, allowBackground]);
 }

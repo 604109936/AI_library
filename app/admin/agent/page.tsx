@@ -10,6 +10,7 @@ interface Cfg {
   toolDescriptions: Record<string, string>;
   model: string;
   temperature: number;
+  mainMaxTokens: number;
   compressKeep: number;
   compressBatchMin: number;
   compressTemperature: number;
@@ -177,6 +178,10 @@ export default function AgentAdminPage() {
           <label className="flex flex-col gap-1">
             <span className="text-xs font-medium text-ink-700 dark:text-dark-text/80">温度 temperature（0~2，主对话轮）</span>
             <input type="number" step="0.1" min={0} max={2} value={cfg.temperature} onChange={(e) => setCfg({ ...cfg, temperature: Number(e.target.value) })} className="w-32 rounded-xl border border-line bg-snow px-3 py-2 text-sm text-ink outline-none focus:border-celadon dark:border-white/10 dark:bg-dark-card dark:text-dark-text" />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-ink-700 dark:text-dark-text/80">最大生成 maxTokens（主对话轮·含思考）</span>
+            <input type="number" step="512" min={512} max={40000} value={cfg.mainMaxTokens} onChange={(e) => setCfg({ ...cfg, mainMaxTokens: Number(e.target.value) })} className="w-32 rounded-xl border border-line bg-snow px-3 py-2 text-sm text-ink outline-none focus:border-celadon dark:border-white/10 dark:bg-dark-card dark:text-dark-text" />
           </label>
         </div>
       </section>

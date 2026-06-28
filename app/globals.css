@@ -179,6 +179,10 @@ body {
 .prose-cn blockquote {
   @apply border-l-[3px] border-celadon pl-3 my-2 text-ink-500 bg-celadon-soft/40 py-1 rounded-r;
 }
+/* 嵌套引用（模型偶尔吐 > > ）：内层不再画第二条左竖线 / 第二层底色，扁平成缩进文字——根治“双竖线”观感 */
+.prose-cn blockquote blockquote {
+  @apply border-l-0 bg-transparent pl-0 py-0 my-1 rounded-none;
+}
 .prose-cn strong {
   @apply text-ink font-semibold;
 }
@@ -204,6 +208,9 @@ body {
 }
 .dark .prose-cn blockquote {
   @apply border-celadon text-dark-text/70 bg-celadon/10;
+}
+.dark .prose-cn blockquote blockquote {
+  @apply border-l-0 bg-transparent;
 }
 .dark .prose-cn code {
   @apply bg-white/10 text-dark-text;

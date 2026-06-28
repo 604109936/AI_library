@@ -235,32 +235,49 @@ export async function search(q: string): Promise<SearchResult> {
   return { books: bk };
 }
 
-// 热门搜索（T3.4）：第一优先 = 全站搜索热词 Top20（RPC get_hot_searches 聚合近 30 天 search_logs，
-// 仅保留仍命中现有馆藏 书名/作者/标签 的词，点出去必有结果）；冷启动热词不足 12 个时，
-// 用真实书目（书名 + 高频标签）补足——保证上线第一天热门区也不空。
+// 热门搜索：固定展示 9 个值 = 3 书名 + 3 作者 + 3 标签，对应搜索框的三个维度（书名 / 作者 / 标签）。
+// 取值逻辑——以「阅读人数 readers」为热度信号：
+//   · 书名：最热 3 本（readers 降序，去重）；
+//   · 作者：按「旗下书阅读量之和」聚合，取最热 3 位（剔除「佚名」）；
+//   · 标签：按「带该标签的书阅读量之和」聚合，取最热 3 个。
+// 三者都来自现有馆藏，点任一 chip 都必有结果；缓存 10 分钟。
 let hotCache: { words: string[]; at: number } | null = null;
 export async function getHotSearches(): Promise<string[]> {
   if (hotCache && Date.now() - hotCache.at < 10 * 60 * 1000) return hotCache.words;
-  let hot: string[] = [];
-  try {
-    const { data } = await supabase.rpc("get_hot_searches", { p_limit: 20, p_days: 30 });
-    if (Array.isArray(data)) hot = data.filter((w: unknown): w is string => typeof w === "string" && !!w);
-  } catch {
-    // RPC 失败不致命：走下方书目兜底
+  // 拉热度靠前的一批书做聚合（readers 降序）；limit 给足，保证作者/标签聚合样本充分
+  const { data, error } = await supabase
+    .from("books")
+    .select("title, author, tags, readers")
+    .order("readers", { ascending: false })
+    .limit(120);
+  if (error) throw error;
+  const books = (data ?? []) as { title?: string; author?: string; tags?: unknown; readers?: number }[];
+  const heat = (b: { readers?: number }) => (Number(b.readers) || 0) + 1; // +1：零阅读也能参与排序、不被归零
+
+  // 3 书名：最热 3 本（已按 readers 降序，去重取前 3）
+  const titles: string[] = [];
+  for (const b of books) {
+    const t = String(b.title ?? "").trim();
+    if (t && !titles.includes(t)) titles.push(t);
+    if (titles.length >= 3) break;
   }
-  if (hot.length < 12) {
-    const { data, error } = await supabase.from("books").select("title, tags").order("shelved_at", { ascending: false }).limit(30);
-    if (error) {
-      if (hot.length) return hot; // 热词已有就先用着，不缓存（下次重试补足）
-      throw error;
-    }
-    const titles = (data ?? []).map((b: any) => String(b.title)).slice(0, 8);
-    const tagCount = new Map<string, number>();
-    for (const b of data ?? []) for (const t of (b.tags ?? []) as string[]) tagCount.set(t, (tagCount.get(t) ?? 0) + 1);
-    const tags = Array.from(tagCount.entries()).sort((a, b) => b[1] - a[1]).map(([t]) => t);
-    hot = Array.from(new Set([...hot, ...titles, ...tags])).slice(0, 12);
+  // 3 作者：按旗下书阅读量聚合（剔除佚名）
+  const authorScore = new Map<string, number>();
+  for (const b of books) {
+    const a = String(b.author ?? "").trim();
+    if (a && a !== "佚名") authorScore.set(a, (authorScore.get(a) ?? 0) + heat(b));
   }
-  const words = hot.slice(0, 20);
+  const authors = Array.from(authorScore.entries()).sort((x, y) => y[1] - x[1]).slice(0, 3).map(([a]) => a);
+  // 3 标签：按所属书阅读量聚合
+  const tagScore = new Map<string, number>();
+  for (const b of books) for (const tg of (Array.isArray(b.tags) ? b.tags : []) as string[]) {
+    const s = String(tg ?? "").trim();
+    if (s) tagScore.set(s, (tagScore.get(s) ?? 0) + heat(b));
+  }
+  const tags = Array.from(tagScore.entries()).sort((x, y) => y[1] - x[1]).slice(0, 3).map(([t]) => t);
+
+  // 拼成 9 个并整体去重（书名/作者/标签偶有同名时不重复展示）
+  const words = Array.from(new Set([...titles, ...authors, ...tags]));
   hotCache = { words, at: Date.now() };
   return words;
 }

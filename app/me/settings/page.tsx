@@ -46,9 +46,10 @@ export default function SettingsPage() {
   // 真实改密：先用原密码重新登录校验，再调 Auth 更新（Review P1：原实现是本地假成功）
   async function submitPwd() {
     if (!pwdValid || acting) return;
+    if (!user) { toast("登录已失效，请重新登录", "error"); return; } // 会话中途失效：明确提示而非用空 email 误报"原密码不正确"
     setActing(true);
     try {
-      const email = user?.email || user?.account || "";
+      const email = user.email || user.account || "";
       const { error: e1 } = await supabase.auth.signInWithPassword({ email, password: oldPwd });
       if (e1) { toast("原密码不正确", "error"); return; }
       const { error: e2 } = await supabase.auth.updateUser({ password: newPwd });
@@ -150,9 +151,9 @@ export default function SettingsPage() {
             </div>
           </Group>
 
-          {/* 隐私与数据 */}
+          {/* 隐私与数据：注销入口用常规墨色（不再红色突显），真正注销前的二次确认弹层里再用警示色 */}
           <Group title="隐私与数据">
-            <Item label="注销账号" danger onClick={() => (isDemo ? toast("体验账号是大家共用的，不能注销——注册一个自己的账号吧", "info") : setSheet("deactivate"))} />
+            <Item label="注销账号" onClick={() => (isDemo ? toast("体验账号是大家共用的，不能注销——注册一个自己的账号吧", "info") : setSheet("deactivate"))} />
           </Group>
 
           {/* 关于 */}
@@ -206,8 +207,8 @@ export default function SettingsPage() {
               )}
               {sheet === "logout" && (
                 <>
-                  <h3 className="mb-2 text-center font-serif text-base text-ink dark:text-dark-text">退出登录</h3>
-                  <p className="mb-4 text-center text-sm leading-6 text-ink-500 dark:text-dark-text/60">退出后本机缓存将清空；你的收藏、笔记等已保存在云端，重新登录即可恢复。确定退出吗？</p>
+                  <h3 className="mb-2 text-center font-serif text-base text-ink dark:text-dark-text">确认退出登录？</h3>
+                  <p className="mb-4 text-center text-sm leading-6 text-ink-500 dark:text-dark-text/60">退出登录不会丢失任何数据，你仍可以登录此账号。</p>
                   <button onClick={doLogout} className="w-full rounded-2xl bg-rouge py-3 text-sm text-snow active:scale-[0.99]">退出登录</button>
                   <button onClick={close} className="mt-2 w-full rounded-2xl py-3 text-sm text-ink-500 dark:text-dark-text/60">取消</button>
                 </>

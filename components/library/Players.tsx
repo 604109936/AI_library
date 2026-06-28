@@ -12,7 +12,7 @@ const SPEEDS = [0.75, 1, 1.25, 1.5, 2];
 function useHistoryReporter(book: Book, mode: "video" | "audio") {
   const pushHistory = useLibrary((s) => s.pushHistory);
   const setMediaProgress = useLibrary((s) => s.setMediaProgress);
-  const setMediaPlayed = useLibrary((s) => s.setMediaPlayed);
+  const addCoveredRegion = useLibrary((s) => s.addCoveredRegion);
   const realId = book.id.split("__")[0];
   const last = useRef(0);
   const latest = useRef({ cur: 0, dur: 0 });
@@ -21,29 +21,16 @@ function useHistoryReporter(book: Book, mode: "video" | "audio") {
   // 不设闸的话"打开详情页什么都不点"也会刷新历史排序、改写 lastAt 并触发 DB 写
   const armed = useRef(false);
   const arm = () => { armed.current = true; };
-  // 本次会话真实播放过的区间并集：重听同一段不重复计入（原"累计秒数"口径下反复重听
-  // 前 10% 十遍即被判"已读完"）；跨会话以已存覆盖为基线只增
-  const regions = useRef<[number, number][]>([]);
-  const base = useRef(0);
-  const addRegion = (a: number, b: number) => {
-    const rs = regions.current;
-    rs.push([a, b]);
-    rs.sort((x, y) => x[0] - y[0]);
-    const out: [number, number][] = [];
-    for (const r of rs) {
-      const tail = out[out.length - 1];
-      if (tail && r[0] <= tail[1] + 0.05) tail[1] = Math.max(tail[1], r[1]);
-      else out.push([r[0], r[1]]);
-    }
-    regions.current = out;
-  };
-  const write = (cur: number, dur: number) => {
+  // 覆盖率的「区间并集 + 跨会话持久化」已统一收进 store.addCoveredRegion——重播已覆盖段不再虚增，
+  // 根治旧「base + 本会话并集/dur」跨会话反复累加致 played 虚高、误判已读完（涤生 40 分钟却 7 本全读完的 Bug）
+  const write = (dur: number) => {
     if (dur <= 0 || !armed.current) return;
     // 进度=真实播放覆盖（≥90% 记 100）。音视频不写 progress（progress 专给文字稿续读/章节态，避免跨模式互相覆盖）
     const played = useLibrary.getState().mediaPlayed[realId] ?? 0;
     const prog = played >= 0.9 ? 100 : Math.round(played * 100);
     pushHistory({ bookId: realId, bookTitle: book.title, author: book.author, coverSeed: book.coverSeed, cover: book.cover, mode, progress: prog, lastAt: new Date().toISOString() });
-    setMediaProgress(realId, cur / dur);
+    // 续播位置不在此写：拖动/暂停 flush 会把人为跳变位置污染进与乱翻/另一模式共享的 mediaProgress。
+    // 改到 trackPlayed 的「自然前进」分支写，与乱翻同口径（Bug#8）。
   };
   const report = (cur: number, dur: number) => {
     if (!armed.current) return;
@@ -51,29 +38,22 @@ function useHistoryReporter(book: Book, mode: "video" | "audio") {
     const now = Date.now();
     if (now - last.current < 5000) return;
     last.current = now;
-    write(cur, dur);
+    write(dur);
   };
-  const flush = () => write(latest.current.cur, latest.current.dur);
+  const flush = () => write(latest.current.dur);
   const flushRef = useRef(flush);
   flushRef.current = flush;
   useEffect(() => () => flushRef.current(), []);
-  // 续播：把已存覆盖作为只增基线（否则只增设计会"卡住"到不了 100%）。
-  // 只在本会话首次 metadata 就绪时取一次：媒体报错后「重试」会再触发 loadedmetadata→primePlayed，
-  // 若重设 base 而 regions 未清，同一段播放并集被计两次致 mediaPlayed≈2× 提前误判已读完（Bug#7）
-  const primed = useRef(false);
-  const primePlayed = (dur: number) => {
-    if (primed.current || dur <= 0) return;
-    primed.current = true;
-    base.current = useLibrary.getState().mediaPlayed[realId] ?? 0;
-  };
-  // 真实播放：仅连续正常推进（增量 0~1.5s）计入区间并集，拖动/快进的大跳变不计 → 排除「拖到结尾」
+  // 覆盖区间由 store 持久化，无需会话基线；保留空函数兼容 onLoadedMetadata 的调用
+  const primePlayed = (_dur: number) => {};
+  // 真实播放：仅连续正常推进（增量 0~1.5s）才上报这一段；拖动/快进/loop 回卷的大跳变不计 → 排除「拖到结尾」。
+  // 归一化成 0~1 区间交给 store.addCoveredRegion 做并集与持久化（重播同一段不再虚增）
   const trackPlayed = (cur: number, dur: number) => {
     if (dur > 0 && lastT.current !== null) {
       const d = cur - lastT.current;
       if (d > 0 && d < 1.5) {
-        addRegion(lastT.current, cur);
-        const union = regions.current.reduce((s, r) => s + (r[1] - r[0]), 0);
-        setMediaPlayed(realId, Math.min(1, base.current + union / dur));
+        addCoveredRegion(realId, lastT.current / dur, cur / dur);
+        setMediaProgress(realId, cur / dur); // 仅自然前进才写共享续播位置；拖动/快进/loop 回卷的大跳变不落（Bug#8 同口径）
       }
     }
     lastT.current = cur;
@@ -115,7 +95,7 @@ export function BookMediaHero({ book }: { book: Book }) {
                   onClick={() => setMode(k)}
                   className={
                     "flex items-center gap-1 rounded-full px-3.5 py-1 text-xs font-medium transition " +
-                    (mode === k ? "bg-celadon text-snow shadow-celadon" : "text-ink-500 dark:text-dark-text/60")
+                    (mode === k ? "bg-celadon-soft text-celadon-700 dark:bg-celadon/25 dark:text-celadon-300" : "text-ink-500 dark:text-dark-text/60")
                   }
                 >
                   <Icon size={12} /> {label}
@@ -150,9 +130,12 @@ function VideoStage({ book }: { book: Book }) {
 
   // 卸载/切台必须停声：脱离文档的媒体元素会继续播放音频且播放中不被回收——
   // 返回上页或切到音频 Tab 后声音在后台响、全 App 无任何 UI 能停（Review P0）。
-  // removeAttribute+load 同时释放下载/解码资源；进度落盘由 useHistoryReporter 的卸载 flush 先行完成
+  // removeAttribute+load 同时释放下载/解码资源；进度落盘由 useHistoryReporter 的卸载 flush 先行完成。
+  // StrictMode(dev) 会「挂载→卸载→重挂」：cleanup 摘掉 src 后，React 因 src prop 没变不会设回 → 媒体没源、一直转圈
+  // （音频/视频都中招，乱翻无此 cleanup 故不受影响）。重挂时若发现 src 被摘了就补回来；生产无 StrictMode，此分支不触发。
   useEffect(() => {
     const m = ref.current;
+    if (m && !m.getAttribute("src") && book.videoUrl) { m.setAttribute("src", book.videoUrl); m.load(); }
     return () => { if (m) { m.pause(); m.removeAttribute("src"); m.load(); } };
   }, []);
 
@@ -207,6 +190,7 @@ function VideoStage({ book }: { book: Book }) {
     setWaiting(false);
     const v = ref.current;
     if (!v) return;
+    resumed.current = false; // 复位续播闸：让 load() 后的 onMeta 重新 seek 回断点（否则错误重试会从头播）
     v.load();
     if (started) v.play().catch(() => {});
   }
@@ -230,14 +214,15 @@ function VideoStage({ book }: { book: Book }) {
         src={book.videoUrl}
         poster={book.cover}
         playsInline
-        preload="metadata"
+        preload="auto"
         muted={muted}
         className="h-full w-full object-cover"
         onClick={toggle}
         onPlay={() => { arm(); setVErr(false); setPlaying(true); }}
         onPause={() => { setPlaying(false); flush(); }}
-        onTimeUpdate={(e) => { const c = e.currentTarget.currentTime; const d = e.currentTarget.duration || 0; setCur(c); report(c, d); trackPlayed(c, d); }}
+        onTimeUpdate={(e) => { const c = e.currentTarget.currentTime; const d = e.currentTarget.duration || 0; setCur(c); setWaiting(false); trackPlayed(c, d); report(c, d); }}
         onLoadedMetadata={onMeta}
+        onCanPlay={() => setWaiting(false)}
         onWaiting={() => setWaiting(true)}
         onPlaying={() => setWaiting(false)}
         onError={() => { setVErr(true); setWaiting(false); setPlaying(false); }}
@@ -245,7 +230,11 @@ function VideoStage({ book }: { book: Book }) {
 
       {/* 缓冲转圈：弱网断流时给"在加载"反馈（原来画面冻住零提示） */}
       {started && waiting && !vErr && (
-        <span aria-hidden className="pointer-events-none absolute left-1/2 top-1/2 h-9 w-9 -translate-x-1/2 -translate-y-1/2 animate-spin rounded-full border-[2.5px] border-white/30 border-t-white" />
+        // 居中靠外层 translate、旋转靠内层 animate-spin：animate-spin 关键帧会写 transform 覆盖掉同元素的
+        // -translate-1/2 居中，导致圈圈脱离中心上下乱跳——拆成两层即稳定居中旋转
+        <span aria-hidden className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+          <span className="block h-9 w-9 animate-spin rounded-full border-[2.5px] border-white/30 border-t-white" />
+        </span>
       )}
       {/* 加载失败占位 + 重试 */}
       {vErr && (
@@ -335,12 +324,14 @@ function AudioStage({ book }: { book: Book }) {
   const [waiting, setWaiting] = useState(false);
   const resumed = useRef(false);
   const { report, flush, trackPlayed, primePlayed, seekReset, arm } = useHistoryReporter(book, "audio");
-  useReadingClock(playing); // 收听时长计入「我的-总时长」
-  useReadCountBump(book.id.split("__")[0], playing); // 「一次阅读」计数（真实播放满30秒记一次）
+  useReadingClock(playing, true); // 收听时长计入「我的-总时长」（音频：锁屏/切后台也计，伴读核心场景）
+  useReadCountBump(book.id.split("__")[0], playing, true); // 「一次阅读」计数（音频后台也累计满 30 秒记一次）
 
-  // 卸载/切台停声 + 释放资源（与 VideoStage 同口径，Review P0）
+  // 卸载/切台停声 + 释放资源（与 VideoStage 同口径，Review P0）。
+  // StrictMode(dev) 重挂会摘掉 src 且 React 不设回 → 媒体没源一直转圈；重挂时补回 src（生产无 StrictMode 不触发）。
   useEffect(() => {
     const m = ref.current;
+    if (m && !m.getAttribute("src") && book.audioUrl) { m.setAttribute("src", book.audioUrl); m.load(); }
     return () => { if (m) { m.pause(); m.removeAttribute("src"); m.load(); } };
   }, []);
 
@@ -418,11 +409,12 @@ function AudioStage({ book }: { book: Book }) {
       <audio
         ref={ref}
         src={book.audioUrl}
-        preload="metadata"
+        preload="auto"
         onPlay={() => { arm(); setAErr(false); setPlaying(true); }}
         onPause={() => { setPlaying(false); flush(); }}
-        onTimeUpdate={(e) => { const c = e.currentTarget.currentTime; const d = e.currentTarget.duration || 0; setCur(c); report(c, d); trackPlayed(c, d); }}
+        onTimeUpdate={(e) => { const c = e.currentTarget.currentTime; const d = e.currentTarget.duration || 0; setCur(c); setWaiting(false); trackPlayed(c, d); report(c, d); }}
         onLoadedMetadata={onMeta}
+        onCanPlay={() => setWaiting(false)}
         onWaiting={() => setWaiting(true)}
         onPlaying={() => setWaiting(false)}
         onError={() => { setAErr(true); setWaiting(false); setPlaying(false); }}
@@ -446,17 +438,17 @@ function AudioStage({ book }: { book: Book }) {
       </div>
 
       <h3 className="mt-3 font-serif text-lg text-ink dark:text-dark-text">{book.title}</h3>
-      <p className="text-xs text-ink-500 dark:text-dark-text/55">{book.author} · 全本朗读</p>
+      <p className="text-xs text-ink-700 dark:text-dark-text/75">{book.author} · 全本朗读</p>
       {aErr && (
         <p className="mt-1.5 text-xs text-rouge">
           音频加载失败{" "}
-          <button onClick={() => { setAErr(false); const a = ref.current; if (a) { a.load(); a.play().catch(() => setAErr(true)); } }} className="underline underline-offset-2">重试</button>
+          <button onClick={() => { setAErr(false); const a = ref.current; if (a) { resumed.current = false; a.load(); a.play().catch(() => setAErr(true)); } }} className="underline underline-offset-2">重试</button>
         </p>
       )}
 
       {/* 进度条（自定义可视轨道 + 透明原生 range；拖动只移滑块、松手才定位，丝滑不卡） */}
       <div className="mt-4 flex w-full max-w-[320px] items-center gap-2.5">
-        <span className="w-10 shrink-0 text-right text-[11px] text-ink-500 tabular-nums dark:text-dark-text/55">{formatTime(shown)}</span>
+        <span className="w-10 shrink-0 text-right text-[11px] text-ink-700 tabular-nums dark:text-dark-text/75">{formatTime(shown)}</span>
         <div className="relative h-5 flex-1">
           <div className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-line dark:bg-white/10" />
           <div className="absolute left-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-celadon" style={{ width: `${pct * 100}%` }} />
@@ -476,27 +468,17 @@ function AudioStage({ book }: { book: Book }) {
             className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
           />
         </div>
-        <span className="w-10 shrink-0 text-[11px] text-ink-500 tabular-nums dark:text-dark-text/55">{formatTime(dur)}</span>
+        <span className="w-10 shrink-0 text-[11px] text-ink-700 tabular-nums dark:text-dark-text/75">{formatTime(dur)}</span>
       </div>
 
-      {/* 倍速（更大点击区、配色清晰） */}
-      <div className="mt-5 flex items-center gap-2">
-        <span className="mr-0.5 text-[11px] text-ink-500 dark:text-dark-text/55">倍速</span>
-        {SPEEDS.map((s) => (
-          <button
-            key={s}
-            onClick={() => setSpeed(s)}
-            className={
-              "min-w-[44px] rounded-full px-3 py-1.5 text-xs font-medium transition-colors duration-150 " +
-              (speed === s
-                ? "bg-celadon text-snow shadow-celadon"
-                : "bg-snow text-ink-700 ring-1 ring-line dark:bg-dark-card dark:text-dark-text/80 dark:ring-white/10")
-            }
-          >
-            {s}x
-          </button>
-        ))}
-      </div>
+      {/* 倍速不常用：收成单个按钮，点击循环切换（0.75→1→1.25→1.5→2→回 0.75），不平铺占空间 */}
+      <button
+        onClick={() => setSpeed(SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length])}
+        aria-label={`当前倍速 ${speed}x，点击切换`}
+        className="mt-5 inline-flex items-center gap-1 rounded-full bg-snow px-3 py-1 text-[11px] text-ink-500 ring-1 ring-line transition active:scale-95 dark:bg-dark-card dark:text-dark-text/60 dark:ring-white/10"
+      >
+        倍速 <span className="font-medium tabular-nums text-ink-700 dark:text-dark-text/85">{speed}x</span>
+      </button>
 
       {/* 后退 15 秒 · 播放/暂停（环形进度） · 快进 15 秒 */}
       <div className="mt-6 flex items-center justify-center gap-7">

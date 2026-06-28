@@ -42,7 +42,8 @@ async function buildCitations(items: { b: string; c: number; bt?: string; ct?: s
 
 // 流式中间态/工具状态归一化：从持久层/缓存还原消息时修复半截状态（防永久"思考中"）
 function normalizeMsgs(msgs: TMsg[]): TMsg[] {
-  return msgs.map((m) =>
+  // 先丢掉录音占位（voicePending）：识别等待中切走会把空内容的占位落库，重开会永久渲染跳动点「…」幽灵气泡
+  return msgs.filter((m) => !m.voicePending).map((m) =>
     m.streaming || m.toolNote !== undefined
       ? { ...m, streaming: false, toolNote: undefined, ...(m.content ? {} : { content: "这条回答没有生成完，点「重新生成」再试一次吧", error: true }) }
       : m
@@ -199,7 +200,7 @@ function ChatInner() {
     if (!msgs.some((m) => m.role === "user")) return;
     // 流式中间态绝不落持久层：busy 期间给更早消息点赞也会走到这里，若把 streaming:true 的
     // 半截消息存进本地，重开会渲染成永久"思考中"。口径与云端 cleanMsgs 对齐。
-    const clean = msgs.filter((m) => !m.streaming).map((m) => (m.toolNote !== undefined ? { ...m, toolNote: undefined } : m));
+    const clean = msgs.filter((m) => !m.streaming && !m.voicePending).map((m) => (m.toolNote !== undefined ? { ...m, toolNote: undefined } : m));
     if (!clean.length) return;
     // 与 store 中 main 做消息级并集（按 id 去重 + 按 id 时间戳稳定排序）后再落库：
     // busy 期间 loadCloud 返回的完整云端历史会被水合 effect 跳过（防覆盖进行中对话），
@@ -460,20 +461,24 @@ function ChatInner() {
     // eslint-disable-next-line
   }, []);
 
-  function regenerate() {
-    if (busy) return;
-    const lastUserIdx = messages.map((m) => m.role).lastIndexOf("user");
+  // useCallback 固化为稳定引用（取值走 messagesRef.current + 模块级 liveBusy）：否则每次按键重渲染都换新引用，
+  // 作为 onRegenerate 传给"最后一条助手消息"会让它 memo 失效、逐字打字时整段重解析 ReactMarkdown（卡顿）。
+  const regenerate = useCallback(() => {
+    if (liveBusy) return;
+    const msgs = messagesRef.current;
+    const lastUserIdx = msgs.map((m) => m.role).lastIndexOf("user");
     if (lastUserIdx < 0) return;
-    const q = messages[lastUserIdx].content;
+    const q = msgs[lastUserIdx].content;
     // 被重新生成的回答若被踩过，把原因一次性喂回模型（反馈闭环：用户当场看到"它听进去了"）
-    const replaced = messages[lastUserIdx + 1];
+    const replaced = msgs[lastUserIdx + 1];
     if (replaced?.feedback === "down") {
       regenHint.current = replaced.feedbackReasons?.length ? replaced.feedbackReasons.join("、") : "不满意";
     }
-    const base = messages.slice(0, lastUserIdx); // 显式传给 send：旧闭包里的 messages 还带着被删的回答
+    const base = msgs.slice(0, lastUserIdx); // 显式传给 send：旧闭包里的 messages 还带着被删的回答
     setMessages(base);
     setTimeout(() => send(q, base), 30);
-  }
+    // eslint-disable-next-line
+  }, []);
 
   // 语音输入（T6）：长按输入框说话 → 松开识别文本回填输入框 → 上滑取消。
   // 识别走浏览器原生 SpeechRecognition（MiniMax 无 ASR，决策见 evidence/T6）；不支持的环境降级提示
@@ -665,7 +670,7 @@ function ChatInner() {
             // 录音/识别中置只读：消除原生文字光标/选区手柄（截图里的绿色水滴）；结束即恢复可编辑
             readOnly={recording || voice.transcribing}
             rows={1}
-            placeholder="想读点什么？问问小涤呗（可长按输入）"
+            placeholder="想读点什么？问问小涤哦（长按说话）"
             // 未聚焦（即作为「按住说话」按钮时）禁用文字选区 + iOS 长按气泡，根除选区手柄；聚焦编辑时不受影响
             className="max-h-24 flex-1 resize-none touch-none rounded-2xl border border-line bg-snow px-4 py-2.5 text-sm text-ink outline-none [-webkit-touch-callout:none] [&:not(:focus)]:select-none [&:not(:focus)]:[-webkit-user-select:none] focus:border-celadon dark:border-white/10 dark:bg-dark-card dark:text-dark-text dark:placeholder:text-dark-text/40"
           />

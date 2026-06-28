@@ -80,3 +80,14 @@ export async function rateLimit(key: string, max: number, windowMs: number): Pro
 export function limiterKey(uid: string | null, fwd: string | null): string {
   return uid ?? `ip:${(fwd ?? "unknown").split(",")[0].trim()}`;
 }
+
+// 可信客户端 IP：Vercel 把真实客户端 IP 放在 x-real-ip / x-vercel-forwarded-for；
+// x-forwarded-for 的【最左】段是客户端自填、可任意伪造的部分（攻击者每次换首段即可绕过按 IP 限流）。
+// 故优先取前两者，仅在缺失时回落 XFF 的【最右】一段兜底。用于 /api/demo 等"按 IP 防滥用"的敏感入口。
+export function clientIp(h: Headers): string {
+  const real = h.get("x-real-ip") || h.get("x-vercel-forwarded-for");
+  if (real) return real.split(",")[0].trim();
+  const xff = h.get("x-forwarded-for");
+  if (xff) { const p = xff.split(","); return p[p.length - 1].trim(); }
+  return "unknown";
+}

@@ -82,7 +82,12 @@ function makeThinkFilter() {
 // 工具调用增量按 OpenAI 规范以 index 聚合（id/name 先到，arguments 分片续传）。
 export async function* streamChat(
   messages: MMMessage[],
-  opts?: { maxTokens?: number; temperature?: number; tools?: MMTool[]; signal?: AbortSignal; timeoutMs?: number; model?: string }
+  opts?: {
+    maxTokens?: number; temperature?: number; tools?: MMTool[]; signal?: AbortSignal; timeoutMs?: number; model?: string;
+    // 强制工具选择（OpenAI 兼容）：指定 {type,function:{name}} 可逼模型本轮必调某工具——
+    // 用于读者明确要求联网时根治"只口头答应不真调用"。缺省=auto（模型自行决定）。
+    toolChoice?: "auto" | "none" | "required" | { type: "function"; function: { name: string } };
+  }
 ): AsyncGenerator<
   | { type: "delta"; text: string }
   | { type: "think"; text: string }
@@ -100,6 +105,7 @@ export async function* streamChat(
       max_tokens: opts?.maxTokens ?? 4096,
       temperature: opts?.temperature ?? 0.8,
       ...(opts?.tools?.length ? { tools: opts.tools } : {}),
+      ...(opts?.toolChoice ? { tool_choice: opts.toolChoice } : {}),
     }),
     // 客户端断开与超时双重保护：只传 req.signal 会丢超时，上游挂起时用户会白等到平台杀进程。
     // timeoutMs 由调用方按整请求剩余预算传入（工具循环多轮共享 120s，每轮各吃满会被平台硬杀产生无 end 截断流）

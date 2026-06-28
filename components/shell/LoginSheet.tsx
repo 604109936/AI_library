@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { useAuth, useUI } from "@/lib/store";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
-import { Mail, Lock, Eye, EyeOff, BookHeart, User } from "lucide-react";
+import { Mail, Lock, Eye, EyeOff, BookHeart, User, Loader2 } from "lucide-react";
 
 // Supabase 英文报错 → 中文
 function zhError(msg: string): string {
@@ -37,6 +37,7 @@ export function LoginSheet() {
   const [pwd2, setPwd2] = useState("");
   const [show, setShow] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [demoing, setDemoing] = useState(false); // 体验账号创建 + 登录中（按钮转圈 + 文案，避免"点了没反应像卡死"）
   const [err, setErr] = useState("");
   const [info, setInfo] = useState(""); // 非错误提示（如注册成功待邮箱确认），与 err 区分配色
   const emailRef = useRef<HTMLInputElement>(null);
@@ -62,6 +63,7 @@ export function LoginSheet() {
     setErr("");
     setInfo("");
     setLoading(false);
+    setDemoing(false);
     setShow(false);
   }
 
@@ -97,31 +99,34 @@ export function LoginSheet() {
     finish(mode === "login" ? "欢迎回来" : "注册成功，已自动登录");
   }
 
-  // 体验账号：每次点击都在后台为你新建一个**独立**的体验账号（昵称：体验书友N），数据各自独立、互不串档
+  // 体验账号：每次点击都在后台为你新建一个**独立**的体验账号（昵称：体验书友N），数据各自独立、互不串档。
+  // 创建 + 登录可能耗时数秒：全程 demoing 让按钮转圈 + 改文案，杜绝"点了没反应像卡死"。
   async function demoLogin() {
-    if (loading) return;
+    if (loading || demoing) return;
     setMode("login");
     setErr("");
     setInfo("");
     setLoading(true);
+    setDemoing(true);
     try {
       const r = await fetch("/api/demo", { method: "POST" });
       const j = await r.json().catch(() => null);
       if (!r.ok || !j?.email) {
         setErr(j?.error ?? "体验账号创建失败，请稍后重试");
-        setLoading(false);
         return;
       }
       const res = await login(j.email, j.password);
       if (res.error) {
         setErr(zhError(res.error));
-        setLoading(false);
         return;
       }
       finish("欢迎体验");
     } catch {
       setErr("体验账号创建失败，请稍后重试");
+    } finally {
+      // finish 成功路径会关弹层并 reset；失败路径在此复位，按钮恢复可点
       setLoading(false);
+      setDemoing(false);
     }
   }
 
@@ -164,9 +169,17 @@ export function LoginSheet() {
               <button
                 type="button"
                 onClick={demoLogin}
-                className="mt-2 rounded-full bg-celadon-soft px-3 py-1 text-xs text-celadon-700 dark:bg-celadon/20 dark:text-celadon-300"
+                disabled={loading || demoing}
+                aria-busy={demoing}
+                className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-celadon-soft px-3 py-1 text-xs text-celadon-700 transition disabled:opacity-80 dark:bg-celadon/20 dark:text-celadon-300"
               >
-                试试体验账号，一键直接登录
+                {demoing ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin" /> 正在准备体验账号…
+                  </>
+                ) : (
+                  "试试体验账号，一键直接登录"
+                )}
               </button>
             </div>
 
@@ -239,9 +252,11 @@ export function LoginSheet() {
               <button
                 type="submit"
                 disabled={!canSubmit}
-                className="mt-1 w-full rounded-2xl bg-ink py-3 text-sm font-medium text-snow transition active:scale-[0.98] disabled:opacity-40 dark:bg-celadon"
+                aria-busy={loading && !demoing}
+                className="mt-1 flex w-full items-center justify-center gap-1.5 rounded-2xl bg-ink py-3 text-sm font-medium text-snow transition active:scale-[0.98] disabled:opacity-40 dark:bg-celadon"
               >
-                {loading ? "请稍候" : mode === "login" ? "登录" : "注册"}
+                {loading && !demoing && <Loader2 size={15} className="animate-spin" />}
+                {loading ? (demoing ? "登录中…" : "请稍候…") : mode === "login" ? "登录" : "注册"}
               </button>
 
               <div className="pt-1 text-center">

@@ -28,9 +28,10 @@ interface UserSignal {
   notes: string[];       // 最近笔记摘录
   reviews: string[];     // 书评要点
   chats: string[];       // 最近对话偏好（用户消息 + 压缩摘要）
+  memory: string;        // T7 长期记忆（七维提炼画像：阅读偏好/兴趣/身份/近期关注）
 }
 const hasSignal = (s: UserSignal | undefined): s is UserSignal =>
-  !!s && (s.done.size > 0 || s.reading.size > 0 || s.favs.length > 0 || s.notes.length > 0 || s.reviews.length > 0 || s.chats.length > 0);
+  !!s && (s.done.size > 0 || s.reading.size > 0 || s.favs.length > 0 || s.notes.length > 0 || s.reviews.length > 0 || s.chats.length > 0 || !!s.memory);
 
 // 分页拉全：PostgREST 默认单次最多 1000 行且**静默截断**，正确性数据必须循环 range 取完。
 // make 必须自带稳定排序（order），否则分页窗口会重叠/漏行。
@@ -64,7 +65,7 @@ async function mapLimit<T, R>(items: T[], n: number, fn: (item: T) => Promise<R>
 
 /* ---------------- 一批用户的信号采集（in() 限定本批，每用户配额在 JS 端截断） ---------------- */
 async function collectSignals(uids: string[]): Promise<Map<string, UserSignal>> {
-  const [favR, tpR, mpR, revR, noteR, chatR] = await Promise.all([
+  const [favR, tpR, mpR, revR, noteR, chatR, memR] = await Promise.all([
     // 正确性数据（决定 排除已读/在读置顶）分页拉全
     fetchAll((f, t) => admin.from("favorites").select("user_id,book_id").in("user_id", uids).order("user_id").order("book_id").range(f, t)),
     fetchAll((f, t) => admin.from("text_progress").select("user_id,book_id,pct,last_chapter_no").in("user_id", uids).order("user_id").order("book_id").range(f, t)),
@@ -83,11 +84,13 @@ async function collectSignals(uids: string[]): Promise<Map<string, UserSignal>> 
       if (r.error) throw new Error(`chat_sessions 信号查询失败：${r.error.message}`);
       return r.data ?? [];
     }).then((rs) => rs.flat()),
+    // T7 长期记忆：七维提炼画像（阅读偏好/兴趣/身份/近期关注）——最适合做推荐，比原始聊天更准更省 token
+    fetchAll((f, t) => admin.from("user_memory").select("user_id,identity,reading_pref,interests,recent_focus").in("user_id", uids).order("user_id").range(f, t)),
   ]);
   const map = new Map<string, UserSignal>();
   const of = (uid: string): UserSignal => {
     let s = map.get(uid);
-    if (!s) { s = { done: new Set(), reading: new Set(), favs: [], notes: [], reviews: [], chats: [] }; map.set(uid, s); }
+    if (!s) { s = { done: new Set(), reading: new Set(), favs: [], notes: [], reviews: [], chats: [], memory: "" }; map.set(uid, s); }
     return s;
   };
   // 读完/在读判定与智学口径一致：文字 pct≥100 或 音视频真实覆盖≥0.9 → 已读完；有任何进度 → 在读
@@ -118,6 +121,16 @@ async function collectSignals(uids: string[]): Promise<Map<string, UserSignal>> 
     const userMsgs = (Array.isArray(r.messages) ? r.messages : []).filter((m: any) => m?.role === "user").slice(-4);
     for (const m of userMsgs) if (s.chats.length < 8) s.chats.push(String(m.content ?? "").slice(0, 60));
   }
+  // T7 长期记忆：只取与"读什么书"最相关的四维，拼成紧凑画像（各维已在记忆器侧 ≤1000 字，这里再截防膨胀）
+  for (const r of memR as any[]) {
+    const parts = [
+      r.reading_pref ? `阅读偏好：${String(r.reading_pref).slice(0, 200)}` : "",
+      r.interests ? `兴趣主题：${String(r.interests).slice(0, 200)}` : "",
+      r.identity ? `身份画像：${String(r.identity).slice(0, 120)}` : "",
+      r.recent_focus ? `近期关注：${String(r.recent_focus).slice(0, 120)}` : "",
+    ].filter(Boolean);
+    if (parts.length) of(r.user_id).memory = parts.join("；");
+  }
   return map;
 }
 
@@ -126,6 +139,7 @@ async function rankByLLM(candidates: Candidate[], s: UserSignal, bookTitle: (id:
   const fallback = candidates.map((c) => c.id); // 默认序 = 最新入库在前
   if (candidates.length <= 1) return [fallback, true];
   const profile = [
+    s.memory ? `读者长期画像（系统提炼，最能反映长期口味，排序时重点参考）：${s.memory}` : "",
     s.favs.length ? `收藏的书：${s.favs.map(bookTitle).join("、")}` : "",
     s.done.size ? `已读完：${Array.from(s.done).map(bookTitle).join("、")}` : "",
     s.reading.size ? `正在读：${Array.from(s.reading).map(bookTitle).join("、")}` : "",

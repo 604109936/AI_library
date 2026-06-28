@@ -54,8 +54,8 @@ export default function SplashPage() {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/emblem.webp" alt="馆徽" className="h-full w-full object-cover" />
         </span>
-        <h1 className="mt-4 font-serif text-lg tracking-[0.08em] text-white [text-shadow:0_1px_3px_rgba(30,45,38,0.5),0_2px_14px_rgba(30,45,38,0.4)]">AI 图书馆</h1>
-        <p className="mt-2.5 max-w-[340px] text-xs font-bold leading-6 text-white [text-shadow:0_1px_3px_rgba(30,45,38,0.5),0_2px_12px_rgba(30,45,38,0.4)]">
+        <h1 className="mt-4 font-serif text-lg tracking-[0.08em] text-[#384a40] [text-shadow:0_1px_4px_rgba(30,45,38,0.28)] dark:text-dark-text">AI 图书馆</h1>
+        <p className="mt-2.5 max-w-[340px] text-xs font-medium leading-6 text-celadon-700 [text-shadow:0_1px_3px_rgba(30,45,38,0.22)] dark:text-dark-text/85">
           一座懂你的智慧图书馆
           <br />
           汇尽古今好书，伴你在阅读中遇见自己
