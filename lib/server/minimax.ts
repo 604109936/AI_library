@@ -8,6 +8,15 @@ const BASE = process.env.MINIMAX_BASE_URL || "https://api.minimaxi.com";
 // 默认 M3：MiniMax 最新旗舰，agentic 多步规划强（任务书 T5 全量切换，2026-06-11 实测 ID 可用）
 const MODEL = process.env.MINIMAX_MODEL || "MiniMax-M3";
 
+// 多 provider 路由（OpenAI 兼容）：model 以 "claude" 开头 → 走 Claude（vtok.ai 代理，CLAUDE_API_KEY）；其余 → MiniMax。
+// 这样只把「智学对话」切到 Claude（route 传 claude-sonnet-4-6），压缩/记忆/乱翻排序仍用 MiniMax；
+// MiniMax 代码与配置全部保留，改回只需把 chat 默认模型换回 MiniMax-M3（见 agentConfig.DEFAULT_CHAT_MODEL）。
+const CLAUDE_BASE = process.env.CLAUDE_BASE_URL || "https://vtok.ai";
+function endpointFor(model: string): { base: string; key: string | undefined; label: string } {
+  if (/^claude/i.test(model)) return { base: CLAUDE_BASE, key: process.env.CLAUDE_API_KEY, label: "Claude" };
+  return { base: BASE, key: process.env.MINIMAX_API_KEY, label: "MiniMax" };
+}
+
 export interface MMToolCall {
   id: string;
   type: "function";
@@ -93,13 +102,14 @@ export async function* streamChat(
   | { type: "think"; text: string }
   | { type: "tool_calls"; calls: MMToolCall[]; rawContent: string }
 > {
-  const key = process.env.MINIMAX_API_KEY;
-  if (!key) throw new Error("服务端未配置 MINIMAX_API_KEY");
-  const r = await fetch(`${BASE}/v1/chat/completions`, {
+  const model = opts?.model ?? MODEL;
+  const { base, key, label } = endpointFor(model);
+  if (!key) throw new Error(`服务端未配置 ${label} 的 API key`);
+  const r = await fetch(`${base}/v1/chat/completions`, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
     body: JSON.stringify({
-      model: opts?.model ?? MODEL,
+      model,
       messages,
       stream: true,
       max_tokens: opts?.maxTokens ?? 4096,
@@ -115,7 +125,7 @@ export async function* streamChat(
   });
   if (!r.ok || !r.body) {
     const t = await r.text().catch(() => "");
-    throw new Error(`MiniMax 流式调用失败：HTTP ${r.status} ${t.slice(0, 160)}`);
+    throw new Error(`${label} 流式调用失败：HTTP ${r.status} ${t.slice(0, 160)}`);
   }
   const filter = makeThinkFilter();
   const calls: { id: string; name: string; args: string }[] = [];
@@ -177,13 +187,14 @@ export async function* streamChat(
 }
 
 export async function chatOnce(messages: MMMessage[], opts?: { maxTokens?: number; temperature?: number; model?: string; timeoutMs?: number }): Promise<string> {
-  const key = process.env.MINIMAX_API_KEY;
-  if (!key) throw new Error("服务端未配置 MINIMAX_API_KEY");
-  const r = await fetch(`${BASE}/v1/chat/completions`, {
+  const model = opts?.model ?? MODEL;
+  const { base, key } = endpointFor(model);
+  if (!key) throw new Error("服务端未配置该模型 provider 的 API key");
+  const r = await fetch(`${base}/v1/chat/completions`, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
     body: JSON.stringify({
-      model: opts?.model ?? MODEL,
+      model,
       messages,
       max_tokens: opts?.maxTokens ?? 2048,
       temperature: opts?.temperature ?? 0.8,

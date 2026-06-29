@@ -8,7 +8,7 @@ import { waitUntil } from "@vercel/functions";
 import { streamChat, type MMMessage, type MMToolCall } from "@/lib/server/minimax";
 import { buildSystem, getUid, libTitles } from "@/lib/server/agent";
 import { getAgentTools, toolStatus, execTool, type ToolEvent } from "@/lib/server/tools";
-import { readOverride, DEFAULT_MAIN_MAX_TOKENS } from "@/lib/server/agentConfig";
+import { readOverride, DEFAULT_MAIN_MAX_TOKENS, DEFAULT_CHAT_MODEL } from "@/lib/server/agentConfig";
 import { getCompressed, maybeCompress } from "@/lib/server/compress";
 import { maybeUpdateMemory } from "@/lib/server/memory";
 import { rateLimit, limiterKey } from "@/lib/server/ratelimit";
@@ -42,6 +42,8 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
   const [ov, tools] = await Promise.all([readOverride(), getAgentTools()]);
   const mainTemp = typeof ov.temperature === "number" ? ov.temperature : 0.7;
   const mainMax = typeof ov.mainMaxTokens === "number" ? ov.mainMaxTokens : DEFAULT_MAIN_MAX_TOKENS; // 主 Agent 生成上限（后台可调）
+  // 智学对话模型：默认 Claude Sonnet 4.6（非 thinking，经 vtok.ai）；agentConfig.model 可在线覆盖。minimax.ts 按模型名路由到对应 provider。
+  const chatModel = typeof ov.model === "string" && ov.model.trim() ? ov.model : DEFAULT_CHAT_MODEL;
   // 测试钩子：从主循环摘掉某工具，用于端到端验证对应兜底（逼出"该出没出"，看兜底是否强制补出）。
   // CHAT_TEST_NO_MAIN_WEBSEARCH=1 摘 web_search；CHAT_TEST_NO_MAIN_CITE=1 摘 cite_chapters。生产绝不设——兜底仍用完整 tools。
   const noMain = new Set(
@@ -111,7 +113,7 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
     // 首轮对「天气/财经/赛事/新闻等实时事实问句、明确要联网」强制先调 web_search：本轮不外泄任何文字
     // （防"好，这就帮你查"漏出），拿到真实结果后下一轮再据实作答——从源头根治"凭印象编实时数据 + 谎称查过"。
     const forceWeb = round === 0 && forceSearch0;
-    for await (const ev of streamChat(convo, { tools: mainTools, temperature: mainTemp, model: ov.model, signal, timeoutMs: roundTimeout(), maxTokens: mainMax, ...(forceWeb ? { toolChoice: { type: "function" as const, function: { name: "web_search" } } } : {}) })) {
+    for await (const ev of streamChat(convo, { tools: mainTools, temperature: mainTemp, model: chatModel, signal, timeoutMs: roundTimeout(), maxTokens: mainMax, ...(forceWeb ? { toolChoice: { type: "function" as const, function: { name: "web_search" } } } : {}) })) {
       if (ev.type === "delta") { raw += ev.text; if (!forceWeb) emitW({ t: "d", v: ev.text }); }
       else if (ev.type === "tool_calls") { calls = ev.calls; raw = ev.rawContent; }
       // think 事件忽略：思考过程对用户隐藏，等待期统一显示「思考中」水波纹，不再把思考提取成动态过程提示
@@ -144,6 +146,12 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
       if (c.function.name === "read_chapter" && !result.startsWith("失败") && !result.startsWith("工具执行出错")) usedReadChapter = true;
       convo.push({ role: "tool", tool_call_id: c.id, content: result });
     }
+    // 展示卡片类工具（recommend_books/cite_chapters）是终端动作：本轮若已写出实质正文 + 出了卡，就此收尾、
+    // 不再开下一轮——根治"模型调完卡片又在下一轮重写一遍收尾"导致的重复（实测 Claude 偶发改写式重复收尾）。
+    // 仅当本轮没写正文（纯调卡片、把作答留到下一轮）才继续，让模型补出答案。
+    const onlyCardTools = calls.every((c) => c.function.name === "recommend_books" || c.function.name === "cite_chapters");
+    const visibleThisRound = raw.replace(/<think>[\s\S]*?(<\/think>|$)/g, "").replace(/\s/g, "");
+    if (onlyCardTools && visibleThisRound.length > 15) break;
   }
   // T3 层②兜底：三类失配信号都补救——① 正文承诺了卡片却没出（"承诺展示"语境正则，
   // 泛匹配 /卡片/ 会被"卡片笔记法"等合法话题误触发）；② 细读过章节原文作答却没出引用卡；
@@ -198,7 +206,7 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
     });
     // 补救轮只许出卡不许说话：tool_choice 强制必调目标工具（根治"补救轮又只说话不调用"）；maxTokens 8192 给足 think
     for await (const ev of streamChat(convo, {
-      tools, temperature: 0.3, model: ov.model, signal, timeoutMs: roundTimeout(), maxTokens: 8192,
+      tools, temperature: 0.3, model: chatModel, signal, timeoutMs: roundTimeout(), maxTokens: 8192,
       toolChoice: { type: "function" as const, function: { name: remedyTool } },
     })) {
       if (ev.type === "tool_calls") {
@@ -230,7 +238,7 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
       let calls2: MMToolCall[] | null = null;
       let raw2 = "";
       for await (const ev of streamChat(wc, {
-        tools, temperature: 0.3, model: ov.model, signal,
+        tools, temperature: 0.3, model: chatModel, signal,
         timeoutMs: Math.min(35_000, roundTimeout()), maxTokens: 8192, // 给足 think 空间，防思考烧光致 web_search 没吐出
         toolChoice: { type: "function", function: { name: "web_search" } },
       })) {
@@ -250,7 +258,7 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
         }
         if (remain() > 8_000) {
           const corrMax = usedWebSearch && remain() > 12_000 ? mainMax : Math.min(1024, mainMax);
-          for await (const ev of streamChat(wc, { tools, temperature: mainTemp, model: ov.model, signal, timeoutMs: roundTimeout(), maxTokens: corrMax })) {
+          for await (const ev of streamChat(wc, { tools, temperature: mainTemp, model: chatModel, signal, timeoutMs: roundTimeout(), maxTokens: corrMax })) {
             if (ev.type === "delta") emitW({ t: "d", v: ev.text });
             else if (ev.type === "tool_calls") for (const c of ev.calls) { const { event } = await execTool(c.function.name, c.function.arguments); if (event) emitW(event); }
           }

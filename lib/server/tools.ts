@@ -137,7 +137,7 @@ export async function execTool(name: string, argsJson: string): Promise<{ result
         .slice(0, 5);
       if (!valid.length) return { result: "失败：这些 book_id 在馆藏中不存在，卡片没有展示。请用〔图书馆书单〕里的 [id] 重试；若不重试，正文中不得提及卡片。" };
       return {
-        result: `已收到。继续自然作答：把"为什么推荐"讲清楚、讲完就停；别复述书名清单，也别出现"卡片 / 入口 / 已展示 / 已备好 / 点开 / 跳到 / 在上面 / 在下面 / 👇 / ↓"等任何字样——读者会自动看到可点书目，无需你交代。`,
+        result: `已收到。若你已把推荐理由讲完，**本轮就此结束、不要再从头重讲一遍**；若还没讲完，简短补完即止。别复述书名清单，也别出现"卡片 / 入口 / 已展示 / 已备好 / 点开 / 跳到 / 在上面 / 在下面 / 👇 / ↓"等任何字样——读者会自动看到可点书目，无需你交代。`,
         event: { t: "recs", v: valid.map((b: any) => ({ id: b.id, title: b.title, author: b.author ?? "", cv: b.cover_url ?? "", cs: b.cover_seed ?? 1 })) },
       };
     }
@@ -201,7 +201,7 @@ export async function execTool(name: string, argsJson: string): Promise<{ result
         }
       }
       if (!valid.length) return { result: "失败：引用的章节不存在，卡片没有展示。请核对 book_id 与 chapter_no 后重试；若不重试，正文中不得提及卡片。" };
-      return { result: "已收到。继续自然作答：一两句点出这章讲什么即可，别把整段原文贴进对话；也别出现\"卡片 / 入口 / 已展示 / 点开 / 跳到 / 在上面 / 在下面 / 👇 / ↓\"等任何字样——读者会自动看到可点章节，无需你交代。", event: { t: "cites", v: valid } };
+      return { result: "已收到。若你已把这章讲清，**本轮就此结束**；若还没讲，一两句点出讲什么即可。别把整段原文贴进对话，也别出现\"卡片 / 入口 / 已展示 / 点开 / 在下面 / 👇 / ↓\"等任何字样——读者会自动看到可点章节，无需你交代。", event: { t: "cites", v: valid } };
     }
     if (name === "web_search") {
       const q = cutSafe(String(args.query ?? "").trim(), 60);
