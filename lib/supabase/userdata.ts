@@ -224,7 +224,9 @@ export const db = {
       { onConflict: "user_id,book_id" }
     ),
   // 书评点赞（本版 UI 不展示，数据闭环备将来）
-  addReviewLike: (uid: string, reviewId: string) => supabase.from("review_likes").insert({ user_id: uid, review_id: reviewId }),
+  addReviewLike: (uid: string, reviewId: string) =>
+    // 与 addFav 同口径用 upsert+忽略重复：双标签/双端同点同一书评撞主键不再报「点赞同步失败」假错并回滚
+    supabase.from("review_likes").upsert({ user_id: uid, review_id: reviewId }, { onConflict: "user_id,review_id", ignoreDuplicates: true }),
   removeReviewLike: (uid: string, reviewId: string) => supabase.from("review_likes").delete().eq("user_id", uid).eq("review_id", reviewId),
 
   // 时长走服务端增量累加 RPC（add_read_seconds，见 docs/后端_Review修复SQL.md）：

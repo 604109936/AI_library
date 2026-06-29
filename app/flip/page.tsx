@@ -54,6 +54,7 @@ export default function FlipPage() {
   const userPausedRef = useRef(false);
   const lastT = useRef<number | null>(null);
   const lastReport = useRef(0);
+  const playedSession = useRef<Set<string>>(new Set()); // 本会话真实自然播过的书（按书隔离）：仅这些才落历史，防"只打开/滑过曾看过的书"也刷新历史时间与排序
 
   const addCoveredRegion = useLibrary((s) => s.addCoveredRegion);
   const setMediaProgress = useLibrary((s) => s.setMediaProgress);
@@ -80,6 +81,7 @@ export default function FlipPage() {
     const b = booksRef.current[activeIdxRef.current];
     if (!b) return;
     const rid = b.id.split("__")[0];
+    if (!playedSession.current.has(rid)) return; // 本会话未真实播过 → 不落账（对齐详情页 armed 口径：mediaPlayed 是跨会话持久值，不能当"本次播过"）
     const played = useLibrary.getState().mediaPlayed[rid] ?? 0;
     if (played <= 0) return;
     const now = Date.now();
@@ -187,8 +189,12 @@ export default function FlipPage() {
     // eslint-disable-next-line
   }, [activeIdx, books.length, loading, writeMedia, setUserPaused, primeActive, playActive]);
 
-  // 卸载（去详情页/写书评/切 Tab）：把最后一段观看落进历史（不依赖视频元素，ref 置空也能写）
-  useEffect(() => () => writeMedia(true), [writeMedia]);
+  // 卸载（去详情页/写书评/切 Tab）：落最后一段观看 + 暂停并释放 3 个复用视频。
+  // 脱离文档的媒体在微信 X5/部分 iOS 仍会带声后台播放且全 App 无 UI 能停（与详情页 VideoStage/AudioStage 的 P0 清理同口径）。
+  useEffect(() => () => {
+    writeMedia(true);
+    videoRefs.current.forEach((v) => { if (v) { try { v.pause(); v.removeAttribute("src"); v.load(); } catch {} } });
+  }, [writeMedia]);
 
   // 切后台：落账；回前台：续播（不打破用户主动暂停）
   useEffect(() => {
@@ -267,6 +273,7 @@ export default function FlipPage() {
     if (lastT.current !== null) {
       const d = cur - lastT.current;
       if (d > 0 && d < 1.5) {
+        playedSession.current.add(rid); // 本会话真实自然播放过这本书 → 允许落历史（writeMedia 的会话级闸）
         // 归一化区间交给 store 做并集 + 持久化（重播同一段不再虚增，根治 played 虚高误判已读完）
         addCoveredRegion(rid, lastT.current / dur, cur / dur);
         // 与详情页共享续播位置，但仅在「正常前进播放」时写：loop 回卷(d 为大负)/拖动跳变(d 不在 0~1.5)

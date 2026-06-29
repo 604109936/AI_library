@@ -14,7 +14,7 @@ const FEED_MODEL = process.env.MINIMAX_FEED_MODEL || "MiniMax-M3";
 const FEED_SIZE = 50;
 const USER_BATCH = 24;      // 每批处理的用户数（信号查询 + LLM + 落库 以批为单位）
 const CONCURRENCY = 4;      // 批内同时跑几个 LLM 排序（防 MiniMax 限流）
-const CANDIDATE_CAP = 120;  // 送 LLM 的候选上限：feed 才 50 本，120 个最新候选绰绰有余，防 token 截断打穿解析
+const CANDIDATE_CAP = 80;  // 送 LLM 的候选上限：feed 才 50 本，80 个最新候选足够；压短 id 数组、降低 M3 输出被截断概率
 const TIME_BUDGET_MS = 50_000; // 生成预算（route maxDuration=60s，留 10s 余量收尾返回）
 
 // 北京时区的「今天」（Vercel 跑在 UTC，直接 toISOString 会差 8 小时跨错天）
@@ -156,7 +156,7 @@ async function rankByLLM(candidates: Candidate[], s: UserSignal, bookTitle: (id:
       ],
       // 超时必须收紧到 20s：默认 60s 大于本函数 50s 预算，MiniMax 挂起时会被 Vercel 掐死在
       // catch 之前 → 当前批全部白做且断点永远卡在同一批（「LLM 失败退默认序」兜底链失效）
-      { model: FEED_MODEL, temperature: 0.3, maxTokens: 4096, timeoutMs: 20_000 }
+      { model: FEED_MODEL, temperature: 0.3, maxTokens: 8192, timeoutMs: 20_000 } // 8192 给 M3 的 <think> 留余量（原 4096 偏紧：think + 长 id 数组易截断 → 解析失败静默退默认序、个性化失效）
     );
     // 两步解析：先取首 [ 到末 ] 的最大跨度；失败再试第一段不含嵌套的 [...]（防 LLM 夹带解释文字打穿）
     let parsed: unknown = null;

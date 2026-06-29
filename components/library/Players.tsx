@@ -48,10 +48,10 @@ function useHistoryReporter(book: Book, mode: "video" | "audio") {
   const primePlayed = (_dur: number) => {};
   // 真实播放：仅连续正常推进（增量 0~1.5s）才上报这一段；拖动/快进/loop 回卷的大跳变不计 → 排除「拖到结尾」。
   // 归一化成 0~1 区间交给 store.addCoveredRegion 做并集与持久化（重播同一段不再虚增）
-  const trackPlayed = (cur: number, dur: number) => {
+  const trackPlayed = (cur: number, dur: number, rate = 1) => {
     if (dur > 0 && lastT.current !== null) {
       const d = cur - lastT.current;
-      if (d > 0 && d < 1.5) {
+      if (d > 0 && d < 1.5 * rate) { // 阈值随倍速放大：2x 下相邻 timeupdate 的媒体时间增量约翻倍，固定 1.5 会把合法连续段误判为跳变而少计覆盖
         addCoveredRegion(realId, lastT.current / dur, cur / dur);
         setMediaProgress(realId, cur / dur); // 仅自然前进才写共享续播位置；拖动/快进/loop 回卷的大跳变不落（Bug#8 同口径）
       }
@@ -222,7 +222,7 @@ function VideoStage({ book, onFullscreen }: { book: Book; onFullscreen?: (fs: bo
         onClick={toggle}
         onPlay={() => { arm(); setVErr(false); setPlaying(true); }}
         onPause={() => { setPlaying(false); flush(); }}
-        onTimeUpdate={(e) => { const c = e.currentTarget.currentTime; const d = e.currentTarget.duration || 0; setCur(c); setWaiting(false); trackPlayed(c, d); report(c, d); }}
+        onTimeUpdate={(e) => { const c = e.currentTarget.currentTime; const d = e.currentTarget.duration || 0; setCur(c); setWaiting(false); trackPlayed(c, d, e.currentTarget.playbackRate); report(c, d); }}
         onLoadedMetadata={onMeta}
         onCanPlay={() => setWaiting(false)}
         onWaiting={() => setWaiting(true)}
@@ -414,7 +414,7 @@ function AudioStage({ book }: { book: Book }) {
         preload="auto"
         onPlay={() => { arm(); setAErr(false); setPlaying(true); }}
         onPause={() => { setPlaying(false); flush(); }}
-        onTimeUpdate={(e) => { const c = e.currentTarget.currentTime; const d = e.currentTarget.duration || 0; setCur(c); setWaiting(false); trackPlayed(c, d); report(c, d); }}
+        onTimeUpdate={(e) => { const c = e.currentTarget.currentTime; const d = e.currentTarget.duration || 0; setCur(c); setWaiting(false); trackPlayed(c, d, e.currentTarget.playbackRate); report(c, d); }}
         onLoadedMetadata={onMeta}
         onCanPlay={() => setWaiting(false)}
         onWaiting={() => setWaiting(true)}

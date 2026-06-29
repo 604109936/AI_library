@@ -209,7 +209,11 @@ function ChatInner() {
     let merged = clean;
     if (main?.messages.length) {
       const ids = new Set(clean.map((m) => m.id));
-      const missing = main.messages.filter((m) => !ids.has(m.id));
+      // 只找回「比当前画面首条更早」的云端历史（busy 期 loadCloud 被跳过的远古段）。
+      // 不找回落在画面时间区间内、id 不在画面的消息——那是用户主动删除的尾部（如「重新生成」截掉的旧问答），
+      // 否则会把旧问题+被弃旧答案复活并固化云端（Bug：重新生成复活旧问答）。
+      const firstT = clean.length ? msgIdTime(clean[0].id) : Infinity;
+      const missing = main.messages.filter((m) => !ids.has(m.id) && msgIdTime(m.id) < firstT);
       if (missing.length) merged = [...missing, ...clean].sort((a, b) => msgIdTime(a.id) - msgIdTime(b.id));
     }
     upsertSession({ id: "main", title: MAIN_SESSION_TITLE, updatedAt: new Date().toISOString(), messages: merged });

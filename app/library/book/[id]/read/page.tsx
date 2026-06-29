@@ -122,6 +122,7 @@ function ReaderInner({ id }: { id: string }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [pct, setPct] = useState(0);
   const pctRef = useRef(0);
+  const lastProgSig = useRef(""); // 进度写库去重：相同(章+pct)不重复 upsert text_progress（停在某页不动时省掉每 5 秒一次的冗余写）
   const resumed = useRef(false);
   // 续读决议完成才放行进度上报：否则进入瞬间会以默认第 1 章抢跑一轮 report——
   // 覆写 ail-chpos 精确位置、向云端写错章进度（刷新场景下水合晚于章节数据时必现）
@@ -231,7 +232,12 @@ function ReaderInner({ id }: { id: string }) {
       const raw = Math.round(((doneN + frac) / N) * 100);
       const prog = doneN >= chapters.length ? 100 : (doneN > 0 || frac > 0) ? Math.min(99, Math.max(1, raw)) : 0;
       pushHistory({ bookId: rid, bookTitle: b.title, author: b.author, coverSeed: b.coverSeed, cover: b.cover, mode: "text", progress: prog, lastAt: new Date().toISOString() });
-      setProgress({ bookId: rid, chapterId: cur.id, chapterNo: cur.no, pct: prog, mode: "text" });
+      // 仅当(章+全书pct)较上次真有变化才写 text_progress：停在某页不滚动时 prog 不变 → 跳过冗余 upsert（省配额省电）
+      const progSig = `${cur.id}|${prog}`;
+      if (lastProgSig.current !== progSig) {
+        lastProgSig.current = progSig;
+        setProgress({ bookId: rid, chapterId: cur.id, chapterNo: cur.no, pct: prog, mode: "text" });
+      }
     };
     report(false); // 进入：只记进度，不判读毕
     // 内容不足一屏的短章（前言/极短章）永不发 scroll 事件，onScroll 的 max<=4 分支触发不了，只能等 5s 定时器——

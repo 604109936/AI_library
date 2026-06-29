@@ -88,7 +88,7 @@ export const AGENT_TOOLS: MMTool[] = [
     function: {
       name: "web_search",
       description:
-        "联网获取互联网实时公开信息。【必须调用】① 读者要你联网 / 上网 / 查最新；② 实时 / 时效内容（天气、新闻、热搜、股价 / 汇率 / 油价 / 金价、赛事比分、票房、最新版本 / 型号 / 价格、谁刚获奖、当下日期等）；③ 读书之外、需事实查证、超出你知识截止的提问。**先查到再答，绝不凭印象编实时数据。**【勿用】馆藏书内容 / 读书方法 / 个性化推荐等馆内问题走你的理解，不联网。【query】精炼中文关键词；问「最新」务必带当前年月（如「2026年6月 …」），以搜到的带日期新结果为准、别拿训练记忆当最新。结果来源卡由系统展示。",
+        "联网获取互联网实时公开信息。【必须调用】① 读者要你联网 / 上网 / 查最新；② 实时 / 时效内容（天气、新闻、热搜、股价 / 汇率 / 油价 / 金价、赛事比分、票房、最新版本 / 型号 / 价格、谁刚获奖、当下日期等）；③ 读书之外、需事实查证、超出你知识截止的提问。**先查到再答，绝不凭印象编实时数据。**【勿用】馆藏书内容 / 读书方法 / 个性化推荐等馆内问题走你的理解，不联网。【query】精炼中文关键词；问「最新」务必带当前年月（如「{当前年月} …」），以搜到的带日期新结果为准、别拿训练记忆当最新。结果来源卡由系统展示。",
       parameters: {
         type: "object",
         properties: { query: { type: "string", description: "搜索关键词（精炼、中文优先）" } },
@@ -103,9 +103,11 @@ export const AGENT_TOOLS: MMTool[] = [
 export async function getAgentTools(): Promise<MMTool[]> {
   const ov = await readOverride();
   const desc = ov.toolDescriptions ?? {};
+  // 工具描述里的「{当前年月}」占位符动态填真值（与系统提示词〔今天的日期〕同源）：跨月后联网示例不再钉死在旧月份
+  const ym = new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", year: "numeric", month: "long" }).format(new Date());
   return AGENT_TOOLS.map((t) => {
-    const o = desc[t.function.name];
-    return o && o.trim() ? { ...t, function: { ...t.function, description: o } } : t;
+    const base = desc[t.function.name]?.trim() ? desc[t.function.name]! : t.function.description;
+    return { ...t, function: { ...t.function, description: base.replace(/\{当前年月\}/g, ym) } };
   });
 }
 
@@ -128,13 +130,14 @@ export async function execTool(name: string, argsJson: string): Promise<{ result
       const { data } = await admin.from("books").select("id,title,author,cover_url,cover_seed").in("id", ids);
       // 必须按模型传入的顺序重排：.in() 返回行序是 DB 扫描序，与推荐优先级无关——
       // 正文说"最推荐第一本《A》"而卡组第一张是《B》即失配；超 5 本时砍掉的也该是模型排最后的
-      const order = new Map(ids.map((id, i) => [id, i]));
+      const order = new Map<string, number>();
+      ids.forEach((id, i) => { if (!order.has(id)) order.set(id, i); }); // 重复 id 取首次出现的下标，保留模型本意的优先级，不被后写覆盖反转
       const valid = (data ?? [])
         .sort((a: any, b: any) => (order.get(a.id) ?? 99) - (order.get(b.id) ?? 99))
         .slice(0, 5);
       if (!valid.length) return { result: "失败：这些 book_id 在馆藏中不存在，卡片没有展示。请用〔图书馆书单〕里的 [id] 重试；若不重试，正文中不得提及卡片。" };
       return {
-        result: `推荐卡片已展示给用户：${valid.map((b: any) => `《${b.title}》`).join("、")}。正文中自然衔接即可，不要再重复罗列书名清单。`,
+        result: `已收到。继续自然作答：把"为什么推荐"讲清楚、讲完就停；别复述书名清单，也别出现"卡片 / 入口 / 已展示 / 已备好 / 点开 / 跳到 / 在上面 / 在下面 / 👇 / ↓"等任何字样——读者会自动看到可点书目，无需你交代。`,
         event: { t: "recs", v: valid.map((b: any) => ({ id: b.id, title: b.title, author: b.author ?? "", cv: b.cover_url ?? "", cs: b.cover_seed ?? 1 })) },
       };
     }
@@ -164,7 +167,8 @@ export async function execTool(name: string, argsJson: string): Promise<{ result
     if (name === "read_chapter") {
       const id = String(args.book_id ?? "");
       const no = Number(args.chapter_no);
-      const { data: c } = await admin.from("chapters").select("no,title,content").eq("book_id", id).eq("no", no).maybeSingle();
+      // 取整章正文（最多 15000 字）是工具循环里最重的一笔查询：挂 8s 硬超时，防 DB 网络 stall 顶穿 maxDuration 产生无 end 截断流
+      const { data: c } = await admin.from("chapters").select("no,title,content").eq("book_id", id).eq("no", no).abortSignal(AbortSignal.timeout(8000)).maybeSingle();
       if (!c) return { result: `失败：${id} 没有第 ${no} 章。可先用 read_book_toc 查目录。` };
       const content = String((c as any).content ?? "");
       // 第 0 章即前言：与 read_book_toc 同口径标「前言《标题》」而非「第0章《…》」，免得模型照搬"第0章"进正文
@@ -197,7 +201,7 @@ export async function execTool(name: string, argsJson: string): Promise<{ result
         }
       }
       if (!valid.length) return { result: "失败：引用的章节不存在，卡片没有展示。请核对 book_id 与 chapter_no 后重试；若不重试，正文中不得提及卡片。" };
-      return { result: "引用章节卡片已展示给用户。", event: { t: "cites", v: valid } };
+      return { result: "已收到。继续自然作答：一两句点出这章讲什么即可，别把整段原文贴进对话；也别出现\"卡片 / 入口 / 已展示 / 点开 / 跳到 / 在上面 / 在下面 / 👇 / ↓\"等任何字样——读者会自动看到可点章节，无需你交代。", event: { t: "cites", v: valid } };
     }
     if (name === "web_search") {
       const q = cutSafe(String(args.query ?? "").trim(), 60);
@@ -206,7 +210,7 @@ export async function execTool(name: string, argsJson: string): Promise<{ result
       if (!hits.length) return { result: `联网搜索「${q}」没有找到结果。可换个关键词重试，或如实告诉读者没查到。` };
       const lines = hits.map((h, i) => `${i + 1}. ${h.title}${h.date ? `（${h.date}）` : ""}\n   ${h.snippet}\n   来源：${h.link}`);
       return {
-        result: `联网搜索「${q}」结果（来源卡片已展示给用户，正文综合作答时不必罗列链接）：\n${lines.join("\n")}`,
+        result: `联网搜索「${q}」结果（来源已附给读者，综合作答时不必罗列链接，也别提「来源卡 / 卡片 / 已展示」）：\n${lines.join("\n")}`,
         event: { t: "web", v: { q, items: hits.map((h) => ({ t: h.title, u: h.link, d: h.date })) } },
       };
     }

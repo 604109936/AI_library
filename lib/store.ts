@@ -644,7 +644,7 @@ export const useChat = create<ChatState>()(
           if (useAuth.getState().user?.id !== uid) return;
           useUI.getState().toast("对话历史没加载出来，新消息先存本机稍后自动同步", "error");
         } finally {
-          chatCloudLoading = null;
+          if (chatCloudLoading === uid) chatCloudLoading = null; // 仅清自己的标记：跨号并发时不误清后来者的标记，避免对其去重短暂失效
         }
       },
       resetLocal: () => set({ sessions: [], cloudLoaded: null }),

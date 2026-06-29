@@ -28,7 +28,9 @@ const MAX_ROUNDS = 8;
 type Emit = (e: { t: "d" | "status" | "end" | "err"; v?: string } | ToolEvent) => void;
 
 // Agent 循环：模型流式产出 → 有工具调用则执行并回灌结果 → 直到纯文本收尾
-async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signal?: AbortSignal, compressed?: string) {
+async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signal?: AbortSignal, compressed?: string, noFallback = false) {
+  // noFallback（仅本地测试经请求传入）：关掉首轮强制联网 + 卡片/web 事后兜底，用于测量"裸提示词"的一次成型表现，
+  // 据此打磨提示词/工具描述到模型自己就能自然做对，而非靠代码兜底（兜底只作极少触发的保险）。生产恒为 false。
   // 全请求统一时间预算：最坏路径 8 轮主循环 + 1 补救轮，若每次 streamChat 各吃满 120s，
   // 总和远超 maxDuration=120——平台硬杀产生"无 end/err 的截断流"。每轮超时取剩余预算，
   // 剩余不足时跳过新轮次/补救轮，把无声截流变成可控收尾
@@ -98,7 +100,7 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
   const timeSensitive = /(今天|今日|现在|此刻|实时|当前|最新|最近|近期|今年|本周|这两天|这几天)[^。！？\n]{0,10}(天气|气温|温度|下雨|降雨|新闻|热搜|股价|股票|大盘|指数|汇率|油价|金价|价格|行情|比分|赛果|赛况|疫情|票房|上映|发布|榜单|排行|排名|消息|情况|进展|动态|实况)/.test(lastUserText);
   // 首轮强制联网：仅高精度信号（明确要联网 / 实时外部事实问句）才强制——先 web_search 拿真实结果、下一轮再据实作答，
   // 从源头杜绝模型凭印象编天气/财经/赛事等实时数据又谎称"帮你查到了"（实锤图）。更模糊的场景靠提示词 + 事后兜底覆盖。
-  const forceSearch0 = (explicitWeb || needsLiveQ) && !noMain.has("web_search");
+  const forceSearch0 = !noFallback && (explicitWeb || needsLiveQ) && !noMain.has("web_search");
   // 最后一轮的 content：tool_calls 轮为原始全文（含 <think>），纯文本收尾轮为剥思考后的展示文本
   // （streamChat 仅在 tool_calls 事件随附 rawContent）。补救轮回灌只需"模型看到自己说过的话"，两种口径均可。
   let lastRaw = "";
@@ -158,7 +160,7 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
   let recMismatch = false;
   if (!emittedCard && !promisedCard && !promisedJump && !usedReadChapter) {
     // 意图距离放宽到 12 字：「挑两本适合我现在读的书」这类自然表达中动词与"书"隔了 9 字（曾漏判）
-    if (/推荐|荐书|[挑选找推][^。！？\n]{0,12}书|给我[^。！？\n]{0,12}书|什么书|哪本|书单|读什么|读哪|适合我[^。！？\n]{0,8}(读|看|听)/.test(lastUserText)) {
+    if (/推荐|荐书|[挑选找推][^。！？\n]{0,12}书|给我[^。！？\n]{0,12}书|有(没有|什么|无)[^。！？\n]{0,12}书|值得[读看]|什么书|哪本|书单|读什么|读哪|适合我[^。！？\n]{0,8}(读|看|听)/.test(lastUserText)) {
       const titles = await libTitles().catch(() => [] as string[]);
       recMismatch = titles.some((t) => fullText.includes(`《${t}》`));
     }
@@ -178,7 +180,10 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
   const cardIsCite = /章节|原文|跳读|跳转|目录|这一章|第.{0,3}章/.test(fullText);
   const remedyTool: "cite_chapters" | "recommend_books" =
     citeSignal ? "cite_chapters" : recMismatch ? "recommend_books" : cardIsCite ? "cite_chapters" : "recommend_books";
-  if (!emittedCard && (promisedCard || promisedJump || usedReadChapter || recMismatch) && lastRaw && remain() > 15_000) {
+  // 失配兜底解耦：卡片补救与 web 补救可在同一回答内各自触发（不再互斥 else-if）——既缺卡又谎称查过时两者都纠正。
+  // web 块用补救前的 convo 快照另起分支(wc)，避免被卡片块追加的校验消息污染对话结构（连续 user 消息）。
+  const remedyBase = convo.slice();
+  if (!noFallback && !emittedCard && (promisedCard || promisedJump || usedReadChapter || recMismatch) && lastRaw && remain() > 15_000) {
     // 正文已定格，补救轮的 M3 思考期可达十几秒——给用户一个进行中的反馈，消除"答完又卡住"的观感。
     // 整段 try/catch：补救轮 streamChat 若上游超时(TimeoutError)/502，绝不能把已发完的正文降级成 err（与 web 兜底同口径）。
     try {
@@ -210,21 +215,21 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
       // 补救轮失败（上游超时/502 等）只记日志：正文已完整发出，绝不降级为 err/truncated
       console.warn("[chat] 卡片失配补救异常：", e instanceof Error ? e.message : e);
     }
-  } else if (!usedWebSearch && (forceSearch0 || claimedWeb || (timeSensitive && !emittedCard)) && lastRaw && remain() > 18_000) {
-    // web_search 兜底：读者明确要联网查证，但整轮没真正联网（auto 在超长 system / 长上下文里偶发
-    // "口头答应不调用"=失信，单靠提示词压不稳）。补一轮：强制 web_search 拿真实结果 → 再据结果作答。
-    // 全程 try/catch + 紧超时：补救失败只记日志，绝不影响已发出的回答（不会把 200 变 502）。
+  }
+  if (!noFallback && !usedWebSearch && (forceSearch0 || claimedWeb || (timeSensitive && !emittedCard)) && lastRaw && remain() > 18_000) {
+    // web_search 兜底：该联网却没真联网（含模型谎称查过）。补一轮：强制 web_search 拿真实结果 → 再据结果作答。
+    // 用 remedyBase 快照另起 wc 分支（与卡片补救解耦、互不污染）；全程 try/catch + 紧超时，绝不影响已发正文。
     try {
       emitW({ t: "status", v: "联网搜索" });
-      convo.push({ role: "assistant", content: lastRaw });
-      convo.push({
-        role: "user",
-        content: "（系统校验：这个问题需要联网核实实时信息、或你在回答里已声称\"查过网/查到了\"，但你并没有真正调用 web_search，用户面前没有任何真实搜索结果——这是在欺骗读者。请立即调用 web_search 拿到真实结果（结合上文推断该搜什么）；先只调用工具、不要输出文字。）",
-      });
+      const wc: MMMessage[] = [
+        ...remedyBase,
+        { role: "assistant", content: lastRaw },
+        { role: "user", content: "（系统校验：这个问题需要联网核实实时信息、或你在回答里已声称\"查过网/查到了\"，但你并没有真正调用 web_search，用户面前没有任何真实搜索结果——这是在欺骗读者。请立即调用 web_search 拿到真实结果（结合上文推断该搜什么）；先只调用工具、不要输出文字。）" },
+      ];
       // tool_choice 强制本轮必调 web_search（35s 紧超时：挂起也快速失败，不拖垮整请求）
       let calls2: MMToolCall[] | null = null;
       let raw2 = "";
-      for await (const ev of streamChat(convo, {
+      for await (const ev of streamChat(wc, {
         tools, temperature: 0.3, model: ov.model, signal,
         timeoutMs: Math.min(35_000, roundTimeout()), maxTokens: 8192, // 给足 think 空间，防思考烧光致 web_search 没吐出
         toolChoice: { type: "function", function: { name: "web_search" } },
@@ -232,15 +237,20 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
         if (ev.type === "tool_calls") { calls2 = ev.calls; raw2 = ev.rawContent; }
       }
       if (calls2?.length) {
-        convo.push({ role: "assistant", content: raw2, tool_calls: calls2 });
+        wc.push({ role: "assistant", content: raw2, tool_calls: calls2 });
         for (const c of calls2) {
           const { result, event } = await execTool(c.function.name, c.function.arguments);
           if (event) emitW(event);
-          convo.push({ role: "tool", tool_call_id: c.id, content: result });
+          wc.push({ role: "tool", tool_call_id: c.id, content: result });
         }
-        // 拿到真实结果后，让模型据此补一段回答（auto；顺带出别的卡也允许）。是真正的作答轮，maxTokens 同主 Agent
-        if (usedWebSearch && remain() > 12_000) {
-          for await (const ev of streamChat(convo, { tools, temperature: mainTemp, model: ov.model, signal, timeoutMs: roundTimeout(), maxTokens: mainMax })) {
+        // 二次作答轮：不再以 usedWebSearch 门控（空结果时它恒为 false 会跳过纠正轮＝沉默沿用编造内容＝失信）。
+        // 有真实结果→据此综合；搜索为空→据"没查到"如实纠正、撤回此前凭印象给的数值/结论。预算紧时降级短补救。
+        if (!usedWebSearch) {
+          wc.push({ role: "user", content: "（系统校验：上面的搜索没有可用结果。请如实、简短地告诉读者你没能查到实时数据，并明确撤回 / 不要沿用之前可能凭印象给出的具体数值或结论；一两句即可，绝不再编造。）" });
+        }
+        if (remain() > 8_000) {
+          const corrMax = usedWebSearch && remain() > 12_000 ? mainMax : Math.min(1024, mainMax);
+          for await (const ev of streamChat(wc, { tools, temperature: mainTemp, model: ov.model, signal, timeoutMs: roundTimeout(), maxTokens: corrMax })) {
             if (ev.type === "delta") emitW({ t: "d", v: ev.text });
             else if (ev.type === "tool_calls") for (const c of ev.calls) { const { event } = await execTool(c.function.name, c.function.arguments); if (event) emitW(event); }
           }
@@ -254,12 +264,14 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
 }
 
 export async function POST(req: NextRequest) {
-  let body: { messages?: { role?: string; content?: string }[]; stream?: boolean; sessionId?: string };
+  let body: { messages?: { role?: string; content?: string }[]; stream?: boolean; sessionId?: string; _noFallback?: boolean };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "请求体不是合法 JSON" }, { status: 400 });
   }
+  // 仅本地(非 Vercel)测试用：关掉代码兜底测"裸提示词"表现。生产上 VERCEL==="1" 恒忽略。
+  const noFallback = process.env.VERCEL !== "1" && body._noFallback === true;
   const startedAt = Date.now(); // 整请求起点：后台压缩/记忆任务按剩余预算决定是否还来得及跑
   const raw = Array.isArray(body.messages) ? body.messages : [];
   const all: MMMessage[] = raw
@@ -321,7 +333,7 @@ export async function POST(req: NextRequest) {
       await runAgent(msgs, uid, (e) => {
         if (e.t === "d" && e.v) content += e.v;
         if (e.t === "recs" || e.t === "cites" || e.t === "web") events.push(e as ToolEvent);
-      }, undefined, compressed);
+      }, undefined, compressed, noFallback);
       afterAnswer();
       return NextResponse.json({ content, events });
     } catch (e) {
@@ -336,7 +348,7 @@ export async function POST(req: NextRequest) {
     async start(controller) {
       const emit: Emit = (e) => { try { controller.enqueue(enc.encode(JSON.stringify(e) + "\n")); } catch {} };
       try {
-        await runAgent(msgs, uid, emit, req.signal, compressed);
+        await runAgent(msgs, uid, emit, req.signal, compressed, noFallback);
         emit({ t: "end" });
         afterAnswer();
       } catch (e) {
