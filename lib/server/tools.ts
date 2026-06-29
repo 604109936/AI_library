@@ -210,7 +210,7 @@ export async function execTool(name: string, argsJson: string): Promise<{ result
       if (!hits.length) return { result: `联网搜索「${q}」没有找到结果。可换个关键词重试，或如实告诉读者没查到。` };
       const lines = hits.map((h, i) => `${i + 1}. ${h.title}${h.date ? `（${h.date}）` : ""}\n   ${h.snippet}\n   来源：${h.link}`);
       return {
-        result: `联网搜索「${q}」结果（来源已附给读者，综合作答时不必罗列链接，也别提「来源卡 / 卡片 / 已展示」）：\n${lines.join("\n")}`,
+        result: `以下是联网搜索「${q}」的结果——**能回答用户问题的就用它来作答，与问题无关 / 答非所问的条目直接忽略、别硬凑**（搜索难免夹带不相关结果，挑对的用才靠谱）。综合作答即可、不必罗列链接，也别提「来源卡 / 卡片 / 已展示」。**若这些结果里压根没有能回答问题的明确数据**（如具体气温 / 价格 / 比分 / 指数值），就如实告诉用户没查到准确数据、建议去对应渠道看，**绝不从无关报道里编出具体数字**：\n${lines.join("\n")}`,
         event: { t: "web", v: { q, items: hits.map((h) => ({ t: h.title, u: h.link, d: h.date })) } },
       };
     }

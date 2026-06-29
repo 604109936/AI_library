@@ -12,9 +12,9 @@ export interface WebHit {
   date: string;
 }
 
-// 取前 8 条（原 5 条会把排名靠后但更新的好结果截掉——实测"最新AI模型"里 Claude 4.8 排第 7）。
-// API 默认返回 10 条且按相关性排序、freshness 参数实测无效；保留相关性序、靠注入的当前日期让模型自己挑最新。
-const MAX_HITS = 8;
+// 最终喂给模型 / 出来源卡的条数上限。搜回来常混入大量无关垃圾，宁缺毋滥取 6 条（清洗 + 去垃圾 + 按与问题的相关性
+// 重排后取前 6）。API 默认返回 10 条、按相关性排序、freshness 参数实测无效，靠注入的当前日期让模型自己挑最新。
+const MAX_HITS = 6;
 
 export async function searchWeb(query: string): Promise<WebHit[]> {
   const key = process.env.MINIMAX_API_KEY;
@@ -38,10 +38,43 @@ export async function searchWeb(query: string): Promise<WebHit[]> {
   }
   if (!Array.isArray(j?.organic)) console.warn("[websearch] 响应缺 organic 字段：", JSON.stringify(j).slice(0, 200));
   const organic: any[] = Array.isArray(j?.organic) ? j.organic : [];
-  return organic.slice(0, MAX_HITS).map((it) => ({
-    title: cutSafe(String(it.title ?? ""), 80),
-    link: String(it.link ?? ""),
-    snippet: cutSafe(String(it.snippet ?? "").replace(/\s+/g, " ").trim(), 200),
-    date: String(it.date ?? "").slice(0, 10),
-  }));
+  // 清洗 + 去重：① 片段常夹带 <p>/<img …> 等 HTML 标签与 &实体;(实测天气类尤其脏)，会污染喂给模型的素材——剥成纯文本；
+  // ② 上游偶发返回完全重复的条目（实测「江西最新天气」连出两条），按 链接/标题 去重，避免重复占满 8 个名额、也避免重复来源卡。
+  // ① 清洗 + 去重 + 去垃圾：搜回来常混入空片段、未渲染的动态占位模板页、夹带 HTML 的脏数据，全塞给模型既污染作答又出一堆无用来源卡。
+  const seen = new Set<string>();
+  const cleaned: WebHit[] = [];
+  for (const it of organic) {
+    const title = cutSafe(String(it.title ?? ""), 80);
+    const link = String(it.link ?? "");
+    const key = link || title;
+    if (!key || seen.has(key)) continue;
+    const snippet = cutSafe(
+      // <\/?[a-z!][^>]*>? 同时剥「完整标签」和「被截断成半截的标签」（如片段尾部 <img src='…' 无闭合 >）
+      String(it.snippet ?? "").replace(/<\/?[a-z!][^>]*>?/gi, " ").replace(/&[a-z#0-9]+;/gi, " ").replace(/https?:\/\/\S+/gi, " ").replace(/\s+/g, " ").trim(),
+      220
+    );
+    if (/@[a-z_]{2,}@/i.test(title + snippet)) continue; // 未渲染的动态占位模板页（如 @change@ @now@ @date@）
+    if (snippet.length < 12 && title.length < 10) continue; // 片段空/极短且标题无信息量 → 抠不出内容
+    const textLen = (title + snippet).replace(/[\s\d.,，。!！?？:：;；%¥$()（）【】\/\-—~、]/g, "").length;
+    if (textLen < 6) continue; // 几乎只剩数字/符号，无实质文字
+    seen.add(key);
+    cleaned.push({ title, link, snippet, date: String(it.date ?? "").slice(0, 10) });
+  }
+  // ② 相关性重排 + 去无关：按与 query 的「2 字片」重叠度打分（如「上海今天天气」→ 上海/今天/天气…），
+  //    完全不沾边的条目（搜天气却返回排球赛、企业排行榜之类）整条丢掉，再按相关性高→低取前 MAX_HITS。
+  //    只有当「有重叠的结果」太少（<2）时才退回用全部清洗结果，避免把话题冷门的好结果误删到空。
+  const qn = query.replace(/[\s,，。、!！?？:：的了吗呢啊]/g, "");
+  const shingleSet = new Set<string>();
+  for (let i = 0; i < qn.length - 1; i++) shingleSet.add(qn.slice(i, i + 2));
+  const shingles = Array.from(shingleSet);
+  const scored = cleaned.map((h) => {
+    const text = h.title + " " + h.snippet;
+    let s = 0;
+    for (const sh of shingles) if (text.includes(sh)) s++;
+    return { h, s };
+  });
+  const overlap = scored.filter((x) => x.s > 0);
+  const pool = overlap.length >= 2 ? overlap : scored;
+  pool.sort((a, b) => b.s - a.s);
+  return pool.slice(0, MAX_HITS).map((x) => x.h);
 }
