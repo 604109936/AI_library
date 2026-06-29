@@ -63,7 +63,7 @@ function useHistoryReporter(book: Book, mode: "video" | "audio") {
 }
 
 /* ============================ 详情页顶部媒体台 ============================ */
-export function BookMediaHero({ book }: { book: Book }) {
+export function BookMediaHero({ book, onFullscreen }: { book: Book; onFullscreen?: (fs: boolean) => void }) {
   const canVideo = book.hasVideo;
   const canAudio = book.hasAudio;
   const [mode, setMode] = useState<"video" | "audio">(canVideo ? "video" : "audio");
@@ -83,7 +83,7 @@ export function BookMediaHero({ book }: { book: Book }) {
     <div className="flex flex-col items-center px-4 pt-16 pb-2">
       <div className="w-full max-w-[300px]">
         <div className="flex items-center justify-center">
-          {mode === "video" && canVideo ? <VideoStage book={book} /> : <AudioStage book={book} />}
+          {mode === "video" && canVideo ? <VideoStage book={book} onFullscreen={onFullscreen} /> : <AudioStage book={book} />}
         </div>
 
         {canVideo && canAudio && (
@@ -110,7 +110,7 @@ export function BookMediaHero({ book }: { book: Book }) {
 }
 
 /* ----------------------------- 竖屏视频 ----------------------------- */
-function VideoStage({ book }: { book: Book }) {
+function VideoStage({ book, onFullscreen }: { book: Book; onFullscreen?: (fs: boolean) => void }) {
   const ref = useRef<HTMLVideoElement>(null);
   const getMediaProgress = useLibrary((s) => s.getMediaProgress);
   const [speed, setSpeed] = useState(1);
@@ -157,6 +157,8 @@ function VideoStage({ book }: { book: Book }) {
       if (fsPushed.current) { fsPushed.current = false; window.history.back(); }
     };
   }, [fs]);
+  // 通知详情页：竖屏全屏时隐藏底部「写书评」CTA——它是 sticky z-20，会浮在全屏视频(被困在外层 z-10 上下文)之上挡视频（用户反馈）。卸载复位。
+  useEffect(() => { onFullscreen?.(fs); return () => onFullscreen?.(false); }, [fs, onFullscreen]);
 
   // 未播放时一直显示书封（不跳到视频帧）；首次点播放才跳到上次进度
   function resumeSeek(d: number) {

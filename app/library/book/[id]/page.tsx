@@ -39,6 +39,7 @@ export default function BookDetail({ params }: { params: { id: string } }) {
   const [favTick, setFavTick] = useState(0);
   const [expand, setExpand] = useState(false);
   const [overflow, setOverflow] = useState(false);
+  const [heroFs, setHeroFs] = useState(false); // 视频竖屏全屏态：全屏时隐藏底部「写书评」CTA（否则 sticky 浮在视频上挡视频）
   const summaryRef = useRef<HTMLParagraphElement>(null);
 
   // 我的那条书评（写/更新书评的依据）
@@ -104,7 +105,7 @@ export default function BookDetail({ params }: { params: { id: string } }) {
         {/* relative z-10：HeroBg 是 absolute 定位，会按绘制顺序盖在「流内非定位」的播放器文字/倍速上（把它们压虚）。
             给播放器一个定位+层级，整体提到背景书封之上，文字/倍速才清晰不被遮。 */}
         <div className="relative z-10">
-          <BookMediaHero book={book} />
+          <BookMediaHero book={book} onFullscreen={setHeroFs} />
         </div>
       </div>
 
@@ -225,15 +226,18 @@ export default function BookDetail({ params }: { params: { id: string } }) {
         </div>
       )}
 
-      {/* 底部常驻「写书评 / 更新书评」CTA：sticky 占位文档流末尾；无边框无背景块，只留实心青瓷按钮本身 */}
-      <div className="sticky bottom-0 z-20 mt-8 px-4 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3">
-        <button
-          onClick={() => requireLogin(() => router.push(`/library/book/${book.id}/review/new`))}
-          className="flex w-full items-center justify-center gap-1.5 rounded-full bg-celadon py-3 text-sm font-medium text-snow shadow-celadon transition active:scale-[0.98]"
-        >
-          <PenLine size={16} /> {myReview ? "更新书评" : "写书评"}
-        </button>
-      </div>
+      {/* 底部常驻「写书评 / 更新书评」CTA：sticky 占位文档流末尾；无边框无背景块，只留实心青瓷按钮本身。
+          视频竖屏全屏时隐藏——否则它会浮在沉浸视频上挡视频（用户反馈）。 */}
+      {!heroFs && (
+        <div className="sticky bottom-0 z-20 mt-8 px-4 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3">
+          <button
+            onClick={() => requireLogin(() => router.push(`/library/book/${book.id}/review/new`))}
+            className="flex w-full items-center justify-center gap-1.5 rounded-full bg-celadon py-3 text-sm font-medium text-snow shadow-celadon transition active:scale-[0.98]"
+          >
+            <PenLine size={16} /> {myReview ? "更新书评" : "写书评"}
+          </button>
+        </div>
+      )}
     </motion.main>
   );
 }
