@@ -95,6 +95,8 @@ function ChatInner() {
   const busy = useSyncExternalStore(liveSubscribe, () => liveBusy, () => false);
   const setMessages = writeLive; // 所有写都走 chatLive（源真相），再经订阅回到画面
   const [input, setInput] = useState("");
+  const [inputFocused, setInputFocused] = useState(false); // 输入框聚焦态：驱动 placeholder 文案切换
+  const [micHelpOpen, setMicHelpOpen] = useState(false); // 麦克风权限被拒引导弹窗（替代一闪而过的 toast）
   const [recording, setRecording] = useState(false);
   const recordingRef = useRef(false);
   const [cancelArmed, setCancelArmed] = useState(false);
@@ -496,6 +498,8 @@ function ChatInner() {
   async function endRecording() {
     if (!recordingRef.current) return;
     setRec(false);
+    // 语音结束（发送 / 取消 / 失败）后保持输入框未聚焦：不回弹软键盘，体验与「按住说话」按钮一致
+    requestAnimationFrame(() => inputRef.current?.blur());
     const canceled = cancelArmedRef.current;
     cancelArmedRef.current = false;
     setCancelArmed(false);
@@ -518,7 +522,7 @@ function ChatInner() {
       send(q, [...cur, { id: vId, role: "user", content: "" }], vId);
     } else {
       setMessages((prev) => prev.filter((m) => m.id !== vId)); // 失败：撤掉占位气泡
-      if (fatal) toast("麦克风没打开——请在浏览器设置里允许使用麦克风", "error");
+      if (fatal) setMicHelpOpen(true);
       else if (error) toast("识别没成功，网络不太顺，再试一次或打字告诉我", "info");
       else toast("没听清，再试一次或打字告诉我", "info");
     }
@@ -544,7 +548,8 @@ function ChatInner() {
       inputRef.current?.blur();
       const okStart = await startVoice();
       if (!okStart) {
-        toast("麦克风没打开——请在浏览器设置里允许使用麦克风", "error");
+        // 权限被拒 / 无麦克风：弹可操作的引导弹窗，而非一闪而过的 toast（之后每次长按都会再弹，直到用户去设置里放开）
+        setMicHelpOpen(true);
         return;
       }
       if (voiceAborting.current) { stopVoice(true); return; } // 启动期间手已松开
@@ -562,6 +567,7 @@ function ChatInner() {
     if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; }
     if (recordingRef.current) {
       setRec(false);
+      requestAnimationFrame(() => inputRef.current?.blur()); // 系统手势取消语音后同样保持失焦
       stopVoice(true);
       cancelArmedRef.current = false;
       setCancelArmed(false);
@@ -658,6 +664,8 @@ function ChatInner() {
             ref={inputRef}
             value={input}
             onChange={onInputChange}
+            onFocus={() => setInputFocused(true)}
+            onBlur={() => setInputFocused(false)}
             onKeyDown={(e) => {
               // isComposing：输入法候选未上屏时按 Enter 是"选词"，不能把半截拼音发出去
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(input); }
@@ -674,7 +682,7 @@ function ChatInner() {
             // 录音/识别中置只读：消除原生文字光标/选区手柄（截图里的绿色水滴）；结束即恢复可编辑
             readOnly={recording || voice.transcribing}
             rows={1}
-            placeholder="想读点什么？问问小涤哦（长按说话）"
+            placeholder={inputFocused ? "发消息…" : "发消息或按住说话…"}
             // 未聚焦（即作为「按住说话」按钮时）禁用文字选区 + iOS 长按气泡，根除选区手柄；聚焦编辑时不受影响
             className="max-h-24 flex-1 resize-none touch-none rounded-2xl border border-line bg-snow px-4 py-2.5 text-sm text-ink outline-none [-webkit-touch-callout:none] [&:not(:focus)]:select-none [&:not(:focus)]:[-webkit-user-select:none] focus:border-celadon dark:border-white/10 dark:bg-dark-card dark:text-dark-text dark:placeholder:text-dark-text/40"
           />
@@ -689,6 +697,19 @@ function ChatInner() {
           </button>
         </div>
       </div>
+
+      {/* 麦克风权限引导弹窗：被拒后每次长按都弹此可操作提示（替代一闪而过的 toast），引导去设置放开后再用 */}
+      {micHelpOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-ink/40 px-8 backdrop-blur-sm dark:bg-black/50" onClick={() => setMicHelpOpen(false)}>
+          <div className="w-full max-w-xs rounded-2xl bg-snow p-5 text-center shadow-xl dark:bg-dark-card" onClick={(e) => e.stopPropagation()}>
+            <p className="font-serif text-base text-ink dark:text-dark-text">开启麦克风才能语音输入</p>
+            <p className="mt-2.5 text-xs leading-relaxed text-ink-500 dark:text-dark-text/60">
+              麦克风权限被拒绝了。请在浏览器地址栏的 🔒 处，或手机「设置 → 应用权限」里允许本站使用麦克风，再长按输入框说话；也可以直接打字告诉我。
+            </p>
+            <button onClick={() => setMicHelpOpen(false)} className="mt-4 h-9 w-full rounded-full bg-celadon text-sm text-snow active:scale-95">我知道了</button>
+          </div>
+        </div>
+      )}
 
       {/* 录音面板（严格参考豆包：白底面板，上→下＝声纹 / 灰提示 / 大长框「按住说话处」；
           长框下方用白底盖住底部 Tab，浑然一体）。整屏不遮挡聊天内容；声纹+长框 青瓷↔胭脂 随上滑切换。
@@ -765,12 +786,12 @@ function Welcome({ onAsk }: { onAsk: (q: string) => void }) {
       <Mascot size={84} className="shadow-celadon" />
       {user ? (
         <>
-          <p className="mt-4 text-center font-serif text-xl text-ink dark:text-dark-text">你的 AI 读书伙伴</p>
+          <p className="mt-4 text-center font-serif text-xl text-ink dark:text-dark-text">AI 读书伙伴 ~ 小涤</p>
           <p className="mt-1 text-center text-xs text-ink-300">通览馆藏，为你荐书 · 答疑 · 解读原文</p>
         </>
       ) : (
         <>
-          <p className="mt-4 text-center font-serif text-xl text-ink dark:text-dark-text">你的 AI 读书伙伴</p>
+          <p className="mt-4 text-center font-serif text-xl text-ink dark:text-dark-text">AI 读书伙伴 ~ 小涤</p>
           <p className="mt-1 text-center text-xs text-ink-300">通览馆藏，为你荐书 · 答疑 · 解读原文</p>
         </>
       )}
