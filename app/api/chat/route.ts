@@ -8,6 +8,7 @@ import { waitUntil } from "@vercel/functions";
 import { streamChat, type MMMessage, type MMToolCall } from "@/lib/server/minimax";
 import { buildSystem, getUid } from "@/lib/server/agent";
 import { getAgentTools, toolStatus, execTool, type ToolEvent } from "@/lib/server/tools";
+import { searchWebStream, webStreamAvailable } from "@/lib/server/websearch";
 import { readOverride, DEFAULT_MAIN_MAX_TOKENS, DEFAULT_CHAT_MODEL } from "@/lib/server/agentConfig";
 import { getCompressed, maybeCompress } from "@/lib/server/compress";
 import { maybeUpdateMemory } from "@/lib/server/memory";
@@ -26,6 +27,13 @@ const MAX_CHARS = 4000; // 单条消息长度护栏
 const MAX_ROUNDS = 8;
 
 type Emit = (e: { t: "d" | "status" | "end" | "err"; v?: string } | ToolEvent) => void;
+
+// 「联网流式直答」(Option B)给火山的小涤口吻系统指令：实时问句不再丢掉火山那遍回答让 Claude 重写，
+// 直接用小涤的口吻、流式吐给用户。带当前北京日期，免得火山把"今天"答岔。
+function liveAnswerInstructions(): string {
+  const today = new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", year: "numeric", month: "long", day: "numeric", weekday: "long" }).format(new Date());
+  return `你是「小涤」，AI 图书馆的读书伙伴。今天是 ${today}（北京时间）。用温暖、口语、凝练的简体中文回答用户的实时提问（天气 / 新闻 / 价格 / 比分等），**2~4 句说清重点，别堆长清单、别用表格、别啰嗦、别加“据搜索/根据网络”之类旁白**。结尾可顺带一句轻松自然的读书联想（如雨天适合窝着读书），但别硬凹、也别每次都来。`;
+}
 
 // Agent 循环：模型流式产出 → 有工具调用则执行并回灌结果 → 直到纯文本收尾
 // 纯「提示词 + 工具描述 + 主动编排」驱动（用户决策：取消所有反应式兜底）。保留的「编排」＝ 实时问题首轮强制联网防幻觉、
@@ -88,6 +96,25 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
   const recIntent =
     /推荐|荐书|[挑选找推][^。！？\n]{0,12}书|给我[^。！？\n]{0,12}书|有(没有|什么|无)[^。！？\n]{0,12}书|值得[读看]|什么书|哪本|书单|读什么|读哪|换[^。！？\n]{0,4}本|别的方向|适合我[^。！？\n]{0,8}(读|看|听)/.test(lastUserText);
   suppressRecs = forceSearch0 && !recIntent;
+  // Option B·实时问句流式直答：纯实时事实问句（强制联网、无荐书意图）且火山可用时，直接流式吐火山那遍的回答
+  // （边搜边出字、源卡同步）并跳过 Claude 重写——省掉一遍模型、不再死等水波纹。出错/零文字才回落下面 Claude 主循环兜底。
+  if (forceSearch0 && !recIntent && webStreamAvailable()) {
+    emitW({ t: "status", v: toolStatus("web_lookup") }); // 搜索期间先亮「联网搜索」，首个文字到达即自动切走
+    let got = "";
+    try {
+      const { hits } = await searchWebStream(lastUserText, {
+        instructions: liveAnswerInstructions(),
+        onDelta: (t) => { if (t) { got += t; emitW({ t: "d", v: t }); } },
+        signal,
+        timeoutMs: Math.min(45_000, remain()),
+      });
+      if (got.trim() && hits.length) emitW({ t: "web", v: { q: lastUserText, items: hits.map((h) => ({ t: h.title, u: h.link, d: h.date })) } });
+    } catch (e) {
+      console.warn("[chat] 联网流式直答失败，回落 Claude：", e instanceof Error ? e.message : e);
+    }
+    if (got.trim()) return; // 已流式吐出回答 → 收尾；绝不回落 Claude 造成重复作答
+    // got 为空（直答完全没出字 / 出错）→ 继续往下走正常 Claude 主循环兜底（含 forceWeb + 空回复重试）
+  }
   for (let round = 0; ; round++) {
     let raw = ""; // 本轮原始 content（含 <think>），工具循环回灌用
     let calls: MMToolCall[] | null = null;

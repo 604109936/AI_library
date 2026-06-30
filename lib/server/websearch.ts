@@ -34,6 +34,77 @@ export async function searchWeb(query: string): Promise<WebHit[]> {
   return refine(raw, query);
 }
 
+// 是否可用「流式直答」：仅火山(ark)支持（MiniMax 是纯搜索、不产文）。route 的实时问句分支据此决定走不走直答。
+export function webStreamAvailable(): boolean {
+  return provider() === "ark";
+}
+
+// 流式直答（Option B）：实时问句直接流式吐火山 Responses API 那一遍的回答（边搜边出字），不再丢掉让 Claude 重写。
+// onDelta 逐字回调（route 当正文 {t:d} 发出）；返回 {text:完整回答, hits:清洗后的来源(出源卡)}。火山未配/出错则抛，由 route 回落 Claude。
+export async function searchWebStream(
+  input: string,
+  opts: { instructions: string; onDelta: (t: string) => void; signal?: AbortSignal; timeoutMs?: number }
+): Promise<{ text: string; hits: WebHit[] }> {
+  const key = process.env.ARK_API_KEY;
+  const endpoint = process.env.ARK_SEARCH_ENDPOINT;
+  if (!key || !endpoint) throw new Error("服务端未配置 ARK_API_KEY / ARK_SEARCH_ENDPOINT");
+  const r = await fetch("https://ark.cn-beijing.volces.com/api/v3/responses", {
+    method: "POST",
+    headers: { "content-type": "application/json; charset=utf-8", authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model: endpoint,
+      input,
+      instructions: opts.instructions, // 小涤口吻系统指令
+      tools: [{ type: "web_search" }],
+      thinking: { type: "disabled" },
+      max_output_tokens: 800,
+      stream: true,
+    }),
+    signal: opts.signal
+      ? AbortSignal.any([opts.signal, AbortSignal.timeout(opts.timeoutMs ?? 40000)])
+      : AbortSignal.timeout(opts.timeoutMs ?? 40000),
+  });
+  if (!r.ok || !r.body) {
+    const t = await r.text().catch(() => "");
+    throw new Error(`火山流式直答失败：HTTP ${r.status} ${t.slice(0, 160)}`);
+  }
+  let text = "";
+  const rawHits: WebHit[] = [];
+  const reader = r.body.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let nl: number;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line.startsWith("data:")) continue; // 跳过 event: 行（type 在 data 的 JSON 里）
+        const payload = line.slice(5).trim();
+        if (payload === "[DONE]") continue;
+        let j: any;
+        try { j = JSON.parse(payload); } catch { continue; }
+        const ty = j?.type;
+        if (ty === "response.output_text.delta" && typeof j.delta === "string") {
+          text += j.delta;
+          opts.onDelta(j.delta);
+        } else if (ty === "response.output_text.annotation.added" && j.annotation?.type === "url_citation") {
+          const a = j.annotation;
+          rawHits.push({ title: String(a.title ?? ""), link: String(a.url ?? ""), snippet: String(a.summary ?? ""), date: parseCnDate(String(a.publish_time ?? "")) });
+        } else if (ty === "response.failed" || ty === "error" || j?.error) {
+          throw new Error(`火山流式直答返回错误：${j?.error?.code || j?.code || ty}`);
+        }
+      }
+    }
+  } finally {
+    reader.cancel().catch(() => {});
+  }
+  return { text, hits: refine(rawHits, input) };
+}
+
 // ───────────────────────── 火山方舟 Responses API（默认） ─────────────────────────
 async function fetchArk(query: string): Promise<WebHit[]> {
   const key = process.env.ARK_API_KEY;
