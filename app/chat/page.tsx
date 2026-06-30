@@ -15,6 +15,7 @@ import { MAIN_SESSION_TITLE, useAuth, useChat, useLibrary, useUI } from "@/lib/s
 import { msgIdTime } from "@/lib/utils";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useVoiceInput, voiceSupported } from "@/lib/useVoiceInput";
+import { useStreamVoiceInput, streamVoiceSupported } from "@/lib/useStreamVoiceInput";
 import type { Book, Citation, WebSource, ChatMessage as TMsg } from "@/lib/types";
 
 // useLayoutEffect 在 SSR 无意义→客户端才用（消除告警）。用于在浏览器「绘制前」补历史，避免先闪欢迎/载入再跳历史。
@@ -102,7 +103,14 @@ function ChatInner() {
   const [cancelArmed, setCancelArmed] = useState(false);
   const cancelArmedRef = useRef(false);
   const voiceAborting = useRef(false); // 识别启动期间松手 → 启动完成后放弃
-  const { voice, startVoice, stopVoice } = useVoiceInput();
+  // 语音输入：NEXT_PUBLIC_ASR_STREAM=1 走「实时流式」（Supabase Edge→火山，边说边出字、松手即出）；
+  // 否则走「文件识别」一次性版。两个 hook 都调用（满足 hooks 规则）、按开关选其一；未选中的那个始终空闲不占麦克风。
+  const STREAM_ASR = process.env.NEXT_PUBLIC_ASR_STREAM === "1";
+  const _streamVoice = useStreamVoiceInput();
+  const _fileVoice = useVoiceInput();
+  const { voice, startVoice, stopVoice } = STREAM_ASR ? _streamVoice : _fileVoice;
+  const voicePartial = STREAM_ASR ? _streamVoice.voice.partial : ""; // 流式实时识别文本（录音面板边说边显）
+  const isVoiceSupported = STREAM_ASR ? streamVoiceSupported : voiceSupported;
   // 录音期间锁页面滚动：触屏上滑取消的手势若引发页面滚动，浏览器会发 pointercancel 终止手势
   useLockBodyScroll(recording);
   const [showJump, setShowJump] = useState(false); // 用户上滑回看时浮出「回到最新」
@@ -551,7 +559,7 @@ function ChatInner() {
       // 取 liveBusy 实时值（而非闭包捕获的 busy）：模型若在按住期间刚好答完，仍可顺畅进入语音。
       if (liveBusy) { toast("小涤还在回话，等它说完再聊语音哦~", "info"); return; }
       if (recordingRef.current) return; // 竞态兜底：已在录音绝不再起一个识别器
-      if (!voiceSupported()) {
+      if (!isVoiceSupported()) {
         toast("当前浏览器不支持语音输入，可以用键盘自带的语音键", "info");
         return;
       }
@@ -763,8 +771,12 @@ function ChatInner() {
                 )
               )}
             </div>
+            {/* 实时识别文字（流式版边说边显）：识别到内容即显示在波形下方 */}
+            {STREAM_ASR && voicePartial ? (
+              <p className="max-h-16 w-full overflow-hidden px-2 text-center text-sm leading-relaxed text-ink dark:text-dark-text">{voicePartial}</p>
+            ) : null}
             {/* 灰色提示（常驻不变色） */}
-            <p className="text-xs text-ink-400 dark:text-dark-text/55">上滑取消，松开发送</p>
+            <p className="text-xs text-ink-400 dark:text-dark-text/55">{cancelArmed ? "松开取消" : "上滑取消，松开发送"}</p>
             {/* 大号长框＝手指长按处：青瓷↔上滑变红；下方实色盖住 Tab、一体化 */}
             <div className={"h-14 w-full rounded-3xl shadow-celadon transition-colors duration-200 " + (cancelArmed ? "bg-rouge" : "bg-celadon")} />
           </div>
