@@ -113,6 +113,9 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
     // 首轮对「天气/财经/赛事/新闻等实时事实问句、明确要联网」强制先调 web_search：本轮不外泄任何文字
     // （防"好，这就帮你查"漏出），拿到真实结果后下一轮再据实作答——从源头根治"凭印象编实时数据 + 谎称查过"。
     const forceWeb = round === 0 && forceSearch0;
+    // 测试钩子：CHAT_TEST_FORCE_EMPTY=1 让首轮直接产出空（不调模型），用于验证「空回复静默重试」。生产绝不设。
+    const testForceEmpty = process.env.CHAT_TEST_FORCE_EMPTY === "1" && round === 0;
+    if (!testForceEmpty)
     for await (const ev of streamChat(convo, { tools: mainTools, temperature: mainTemp, model: chatModel, signal, timeoutMs: roundTimeout(), maxTokens: mainMax, ...(forceWeb ? { toolChoice: { type: "function" as const, function: { name: "web_search" } } } : {}) })) {
       if (ev.type === "delta") { raw += ev.text; if (!forceWeb) emitW({ t: "d", v: ev.text }); }
       else if (ev.type === "tool_calls") { calls = ev.calls; raw = ev.rawContent; }
@@ -152,6 +155,34 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
     const onlyCardTools = calls.every((c) => c.function.name === "recommend_books" || c.function.name === "cite_chapters");
     const visibleThisRound = raw.replace(/<think>[\s\S]*?(<\/think>|$)/g, "").replace(/\s/g, "");
     if (onlyCardTools && visibleThisRound.length > 15) break;
+  }
+  // 空回复静默重试：主循环跑完仍没有正文（模型/上游偶发空回复，如 Claude 经代理瞬时抽风，或强制联网轮
+  // 屏蔽文字后下一轮恰好也空）——静默补发，把"这次没说出话来"占位降到极罕见。仍空才放手交给前端占位。
+  //   · 已出过卡却没正文（如强制联网后下一轮空）：只补一轮纯文字作答（不带 tools，防重复出卡）；
+  //   · 全空：带 tools 重试最多两轮（兼容重试时改调工具→执行→再作答）。重试出的正文/卡片随后仍能被卡片兜底接力。
+  if (!noFallback && !fullText.trim() && remain() > 9_000) {
+    try {
+      const retryTools = emittedCard ? undefined : tools;
+      for (let r = 0; r < 2 && !fullText.trim() && remain() > 7_000; r++) {
+        let rcalls: MMToolCall[] | null = null;
+        let rraw = "";
+        for await (const ev of streamChat(convo, { ...(retryTools ? { tools: retryTools } : {}), temperature: mainTemp, model: chatModel, signal, timeoutMs: roundTimeout(), maxTokens: mainMax })) {
+          if (ev.type === "delta") { rraw += ev.text; emitW({ t: "d", v: ev.text }); }
+          else if (ev.type === "tool_calls") { rcalls = ev.calls; rraw = ev.rawContent; }
+        }
+        lastRaw = rraw;
+        if (!rcalls?.length) break;
+        convo.push({ role: "assistant", content: rraw, tool_calls: rcalls });
+        for (const c of rcalls) {
+          const { result, event } = await execTool(c.function.name, c.function.arguments);
+          if (event) emitW(event);
+          if (c.function.name === "read_chapter" && !result.startsWith("失败") && !result.startsWith("工具执行出错")) usedReadChapter = true;
+          convo.push({ role: "tool", tool_call_id: c.id, content: result });
+        }
+      }
+    } catch (e) {
+      console.warn("[chat] 空回复静默重试异常：", e instanceof Error ? e.message : e);
+    }
   }
   // T3 层②兜底：三类失配信号都补救——① 正文承诺了卡片却没出（"承诺展示"语境正则，
   // 泛匹配 /卡片/ 会被"卡片笔记法"等合法话题误触发）；② 细读过章节原文作答却没出引用卡；

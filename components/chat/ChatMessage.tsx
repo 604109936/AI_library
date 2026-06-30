@@ -285,6 +285,8 @@ export const ChatMessage = memo(function ChatMessage({
       {/* 操作栏（触区统一 32px，视觉图标不变） */}
       {!msg.streaming && (
         <div className="mt-1 flex items-center gap-1 pl-0.5 text-ink-300">
+          {/* 错误/空占位气泡不显示赞 / 踩 / 复制（无内容可评价或复制），仅保留「重新生成」入口 */}
+          {!msg.error && (<>
           <button
             aria-label="赞"
             aria-pressed={fb === "up"}
@@ -327,6 +329,7 @@ export const ChatMessage = memo(function ChatMessage({
           >
             <Copy size={15} />
           </button>
+          </>)}
           {onRegenerate && (
             <button onClick={onRegenerate} className="flex h-8 items-center gap-1 px-1.5 text-xs text-celadon-700 dark:text-celadon-300">
               <RotateCw size={14} /> 重新生成
