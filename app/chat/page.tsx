@@ -15,7 +15,7 @@ import { MAIN_SESSION_TITLE, useAuth, useChat, useLibrary, useUI } from "@/lib/s
 import { msgIdTime } from "@/lib/utils";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useVoiceInput, voiceSupported } from "@/lib/useVoiceInput";
-import { useStreamVoiceInput, streamVoiceSupported } from "@/lib/useStreamVoiceInput";
+import { useStreamVoiceInput, streamVoiceSupported, prewarmStreamAsr } from "@/lib/useStreamVoiceInput";
 import type { Book, Citation, WebSource, ChatMessage as TMsg } from "@/lib/types";
 
 // useLayoutEffect 在 SSR 无意义→客户端才用（消除告警）。用于在浏览器「绘制前」补历史，避免先闪欢迎/载入再跳历史。
@@ -132,6 +132,9 @@ function ChatInner() {
   messagesRef.current = messages;
   // 进入页面：清理「无流在跑」时残留的流式态（防永久"思考中"）
   useEffect(() => { takeChatLive(); emitLive(); }, []);
+
+  // 进入页面即预热语音中继 isolate：等用户真要"按住说话"时（通常几秒后）中继已热，第一次真录音不撞冷启动。
+  useEffect(() => { if (STREAM_ASR) prewarmStreamAsr(); }, []);
 
   // 卸载（切 Tab）：只清 UI 级短定时器；绝不中断 liveCtrl、不清 liveTimer——
   // 让流式在后台继续跑（增量实时写进模块级 chatLive、完成时由流自身落库），切回来接着看（回复到哪就是哪）
@@ -537,6 +540,7 @@ function ChatInner() {
     }
   }
   function onInputPointerDown(e: React.PointerEvent) {
+    if (STREAM_ASR) prewarmStreamAsr(); // 一触碰输入框就预热中继 isolate（节流30s），让随后"按住说话"的第一次真录音不撞冷启动
     // 注意：模型回话中（busy）也不能在这里直接 return——否则会跳过下面的 preventDefault，
     // 浏览器就对 textarea 走默认长按行为（聚焦 + 弹「粘贴/全选」菜单），正是"按住说话变成输入框"的根因。
     // 改为照常 preventDefault 接管手势，到 350ms 真要起语音时再用 liveBusy 拦下、给温和提示。
@@ -565,13 +569,21 @@ function ChatInner() {
       }
       voiceAborting.current = false;
       inputRef.current?.blur();
+      const startT0 = Date.now();
       const okStart = await startVoice();
       if (!okStart) {
         // 权限被拒 / 无麦克风：弹可操作的引导弹窗，而非一闪而过的 toast（之后每次长按都会再弹，直到用户去设置里放开）
         setMicHelpOpen(true);
         return;
       }
-      if (voiceAborting.current) { stopVoice(true); return; } // 启动期间手已松开
+      if (voiceAborting.current) {
+        // 启动期间手已松开。若启动耗时很长（>1.2s）＝这次刚弹过麦克风授权窗——授权弹窗是模态的，会打断长按手势、
+        // 误触发取消，把这次录音白白丢掉（正是"首次授权后第一次长按识别不出"的根因）。权限现已就绪，明确提示
+        // 再按一次即可（此后长按直接录、不再首按失败）；普通快速松手则静默放弃。
+        stopVoice(true);
+        if (Date.now() - startT0 > 1200) toast("麦克风已开启，按住输入框再说一次就好～", "info");
+        return;
+      }
       setRec(true);
     }, 350);
   }

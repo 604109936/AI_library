@@ -34,6 +34,19 @@ function streamWsUrl(): string | null {
   } catch { return null; }
 }
 
+// 预热中继：进聊天页 / 露出语音意图时，先用一次 HTTP GET 把 Edge Function 的 isolate 焐热（启动 + 加载 npm:ws），
+// 这样"第一次真正录音"不再撞 isolate 冷启动（1~2s）——根治"刚授权后第一次长按因冷启动识别不出，第二次才好"。
+// 节流：30s 内最多一次（够覆盖冷却窗口，又不刷请求）。GET 非 WS 会被函数回 400，但目的只是把 isolate 跑起来。
+let lastPrewarmAt = 0;
+export function prewarmStreamAsr(): void {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (!base || typeof fetch === "undefined") return;
+  const now = Date.now();
+  if (now - lastPrewarmAt < 30_000) return;
+  lastPrewarmAt = now;
+  try { fetch(`${base}/functions/v1/asr-stream`, { method: "GET", mode: "no-cors", cache: "no-store" }).catch(() => {}); } catch {}
+}
+
 export function useStreamVoiceInput() {
   const [state, setState] = useState<StreamVoiceState>(IDLE);
   const streamRef = useRef<MediaStream | null>(null);
@@ -133,8 +146,10 @@ export function useStreamVoiceInput() {
     try {
       const Ctx = getAudioCtx()!;
       const ctx = new Ctx();
-      if (ctx.state === "suspended") ctx.resume().catch(() => {});
       ctxRef.current = ctx;
+      // 等 AudioContext 真正 running 再起采音：首次（尤其刚授权）ctx 常处于 suspended，
+      // 不 await 直接采音会拿到前几百 ms 的静音 → 短句几乎全静音 → 识别不出（首按识别失败的元凶之一）。
+      if (ctx.state === "suspended") { try { await ctx.resume(); } catch {} }
       const srcRate = ctx.sampleRate;
       const src = ctx.createMediaStreamSource(stream); srcRef.current = src;
       const proc = ctx.createScriptProcessor(4096, 1, 1); procRef.current = proc;
