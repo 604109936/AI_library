@@ -108,6 +108,7 @@ function ChatInner() {
   const [showJump, setShowJump] = useState(false); // 用户上滑回看时浮出「回到最新」
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pressStart = useRef<{ x: number; y: number } | null>(null);
+  const pressFired = useRef(false); // 长按定时器是否已触发：区分「快速点按打字」与「长按语音」
   const thinkTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const seq = useRef(0);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -534,11 +535,16 @@ function ChatInner() {
     if (recordingRef.current || pressTimer.current) return;
     // 仅在输入框未聚焦时，长按才触发语音；已在编辑文本时长按交给浏览器（选字/移动光标等）
     if (document.activeElement === inputRef.current) return;
+    // 未聚焦时按下：阻止 textarea 自动聚焦——否则长按语音前会先弹一下软键盘再收起（用户反馈：体验差）。
+    // 想打字的「快速点按」场景，在 pointerup（onInputPointerUp）里手动聚焦补回。
+    e.preventDefault();
+    pressFired.current = false;
     pressStart.current = { x: e.clientX, y: e.clientY };
     // 指针捕获：录音浮层渲染后会遮住输入框，没有 capture 时鼠标指针被判定"离开"输入框 →
     // pointerleave → endRecording → 浮层一出现就自杀。capture 后事件全程派给输入框，遮挡无影响
     try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch {}
     pressTimer.current = setTimeout(async () => {
+      pressFired.current = true;
       if (recordingRef.current) return; // 竞态兜底：已在录音绝不再起一个识别器
       if (!voiceSupported()) {
         toast("当前浏览器不支持语音输入，可以用键盘自带的语音键", "info");
@@ -560,6 +566,13 @@ function ChatInner() {
     if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; }
     if (recordingRef.current) endRecording();
     else voiceAborting.current = true; // 长按定时器已触发但识别还在启动中就松了手：启动完成后直接放弃
+  }
+  // 真正松手（pointerup，区别于 pointerleave）：快速点按（没触发长按语音、也没在录音）→ 手动聚焦进入打字
+  // （pointerdown 已 preventDefault 阻止自动聚焦防键盘闪现，这里在用户手势内补回聚焦，正常弹起键盘）。
+  function onInputPointerUp() {
+    const quickTap = !pressFired.current && !recordingRef.current;
+    onInputPointerEnd();
+    if (quickTap) inputRef.current?.focus();
   }
   // 触屏滚动等系统手势抢占（pointercancel）：一律按"取消"处理——此时用户多半在上滑，
   // 若当作"确认松手"会把半截话回填进输入框，与取消意图正好相反
@@ -671,7 +684,7 @@ function ChatInner() {
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(input); }
             }}
             onPointerDown={onInputPointerDown}
-            onPointerUp={onInputPointerEnd}
+            onPointerUp={onInputPointerUp}
             onPointerLeave={onInputPointerEnd}
             onPointerCancel={onInputPointerCancel}
             onPointerMove={onInputPointerMove}
@@ -738,7 +751,7 @@ function ChatInner() {
               )}
             </div>
             {/* 灰色提示（常驻不变色） */}
-            <p className="text-xs text-ink-400 dark:text-dark-text/55">上滑取消，松开识别成文字</p>
+            <p className="text-xs text-ink-400 dark:text-dark-text/55">上滑取消，松开发送</p>
             {/* 大号长框＝手指长按处：青瓷↔上滑变红；下方实色盖住 Tab、一体化 */}
             <div className={"h-14 w-full rounded-3xl shadow-celadon transition-colors duration-200 " + (cancelArmed ? "bg-rouge" : "bg-celadon")} />
           </div>
