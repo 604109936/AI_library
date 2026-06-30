@@ -26,8 +26,9 @@ export interface AgentOverride {
 
 // 出厂默认（与 minimax MODEL / route 主轮温度一致）：用于后台「恢复默认」与「与默认相同则不存覆盖」
 export const DEFAULT_MODEL = "MiniMax-M3";
-// 智学对话默认模型：已切到 Claude Sonnet 4.6（非 thinking，经 vtok.ai OpenAI 兼容代理）。
-// 仅影响 Agent 对话（route 用它）；压缩/记忆/乱翻排序仍各自用 MiniMax。改回 MiniMax 只需把它设回 "MiniMax-M3"（或设环境变量 CHAT_MODEL）。
+// 智学对话默认模型：已切到火山方舟豆包 Doubao-Seed-2.1-pro（国内节点、首字~0.4s、工具调用实测 20/20，关思考提速）。
+// 由 env CHAT_MODEL 指定其推理接入点 ep-id（minimax.ts 见 ep-* → 火山路由）；仅影响 Agent 对话，压缩/记忆/乱翻排序仍用 MiniMax。
+// 一键回退：把 CHAT_MODEL 设为 "claude-sonnet-4-6"（走 vtok.ai）或 "MiniMax-M3"；未设 env 时默认回退 Claude。
 export const DEFAULT_CHAT_MODEL = process.env.CHAT_MODEL || "claude-sonnet-4-6";
 export const DEFAULT_TEMPERATURE = 0.7;
 export const DEFAULT_MAIN_MAX_TOKENS = 20000; // 主 Agent 每轮生成上限（4096 偏紧——M3 的 <think> 也吃这预算，长答易被截）

@@ -8,13 +8,17 @@ const BASE = process.env.MINIMAX_BASE_URL || "https://api.minimaxi.com";
 // 默认 M3：MiniMax 最新旗舰，agentic 多步规划强（任务书 T5 全量切换，2026-06-11 实测 ID 可用）
 const MODEL = process.env.MINIMAX_MODEL || "MiniMax-M3";
 
-// 多 provider 路由（OpenAI 兼容）：model 以 "claude" 开头 → 走 Claude（vtok.ai 代理，CLAUDE_API_KEY）；其余 → MiniMax。
-// 这样只把「智学对话」切到 Claude（route 传 claude-sonnet-4-6），压缩/记忆/乱翻排序仍用 MiniMax；
-// MiniMax 代码与配置全部保留，改回只需把 chat 默认模型换回 MiniMax-M3（见 agentConfig.DEFAULT_CHAT_MODEL）。
+// 多 provider 路由（均 OpenAI 兼容 chat/completions）：按 model 名前缀分流，返回「完整 URL + key + 额外请求体」。
+//   - ep-*       → 火山方舟豆包（ark.cn-beijing.volces.com/api/v3，ARK_API_KEY，带 thinking:disabled 关思考提速）——智学主对话默认
+//   - claude-*   → Claude（vtok.ai 代理，CLAUDE_API_KEY）——保留可回退
+//   - 其余       → MiniMax（压缩/记忆/乱翻排序等仍走它）
+// 切主对话模型只需改 env CHAT_MODEL（见 agentConfig.DEFAULT_CHAT_MODEL）：设豆包 ep 即用豆包，设 claude-sonnet-4-6 即回 Claude。
 const CLAUDE_BASE = process.env.CLAUDE_BASE_URL || "https://vtok.ai";
-function endpointFor(model: string): { base: string; key: string | undefined; label: string } {
-  if (/^claude/i.test(model)) return { base: CLAUDE_BASE, key: process.env.CLAUDE_API_KEY, label: "Claude" };
-  return { base: BASE, key: process.env.MINIMAX_API_KEY, label: "MiniMax" };
+const ARK_BASE = process.env.ARK_BASE_URL || "https://ark.cn-beijing.volces.com/api/v3";
+function endpointFor(model: string): { url: string; key: string | undefined; extraBody?: Record<string, unknown>; label: string } {
+  if (/^claude/i.test(model)) return { url: `${CLAUDE_BASE}/v1/chat/completions`, key: process.env.CLAUDE_API_KEY, label: "Claude" };
+  if (/^ep-/i.test(model)) return { url: `${ARK_BASE}/chat/completions`, key: process.env.ARK_API_KEY, extraBody: { thinking: { type: "disabled" } }, label: "Doubao" };
+  return { url: `${BASE}/v1/chat/completions`, key: process.env.MINIMAX_API_KEY, label: "MiniMax" };
 }
 
 export interface MMToolCall {
@@ -96,6 +100,9 @@ export async function* streamChat(
     // 强制工具选择（OpenAI 兼容）：指定 {type,function:{name}} 可逼模型本轮必调某工具——
     // 用于读者明确要求联网时根治"只口头答应不真调用"。缺省=auto（模型自行决定）。
     toolChoice?: "auto" | "none" | "required" | { type: "function"; function: { name: string } };
+    // 本地测试用·按请求覆盖接入点（评测候选模型当 Agent 主对话模型的工具调用/速度）：给完整 chat-completions URL +
+    // key + 额外请求体(如火山的 thinking:{disabled})。生产恒不启用（route 仅在非 Vercel 时透传）。
+    epOverride?: { url: string; key: string; extraBody?: Record<string, unknown> };
   }
 ): AsyncGenerator<
   | { type: "delta"; text: string }
@@ -103,9 +110,14 @@ export async function* streamChat(
   | { type: "tool_calls"; calls: MMToolCall[]; rawContent: string }
 > {
   const model = opts?.model ?? MODEL;
-  const { base, key, label } = endpointFor(model);
+  const ep = opts?.epOverride;
+  const fb = endpointFor(model);
+  const url = ep ? ep.url : fb.url;
+  const key = ep ? ep.key : fb.key;
+  const extraBody = ep ? ep.extraBody : fb.extraBody;
+  const label = ep ? "Override" : fb.label;
   if (!key) throw new Error(`服务端未配置 ${label} 的 API key`);
-  const r = await fetch(`${base}/v1/chat/completions`, {
+  const r = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
     body: JSON.stringify({
@@ -116,6 +128,7 @@ export async function* streamChat(
       temperature: opts?.temperature ?? 0.8,
       ...(opts?.tools?.length ? { tools: opts.tools } : {}),
       ...(opts?.toolChoice ? { tool_choice: opts.toolChoice } : {}),
+      ...(extraBody ?? {}),
     }),
     // 客户端断开与超时双重保护：只传 req.signal 会丢超时，上游挂起时用户会白等到平台杀进程。
     // timeoutMs 由调用方按整请求剩余预算传入（工具循环多轮共享 120s，每轮各吃满会被平台硬杀产生无 end 截断流）
@@ -188,16 +201,17 @@ export async function* streamChat(
 
 export async function chatOnce(messages: MMMessage[], opts?: { maxTokens?: number; temperature?: number; model?: string; timeoutMs?: number }): Promise<string> {
   const model = opts?.model ?? MODEL;
-  const { base, key } = endpointFor(model);
-  if (!key) throw new Error("服务端未配置该模型 provider 的 API key");
-  const r = await fetch(`${base}/v1/chat/completions`, {
+  const fb = endpointFor(model);
+  if (!fb.key) throw new Error("服务端未配置该模型 provider 的 API key");
+  const r = await fetch(fb.url, {
     method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
+    headers: { "content-type": "application/json", authorization: `Bearer ${fb.key}` },
     body: JSON.stringify({
       model,
       messages,
       max_tokens: opts?.maxTokens ?? 2048,
       temperature: opts?.temperature ?? 0.8,
+      ...(fb.extraBody ?? {}),
     }),
     // 默认 60s 是给长回答留的；时间预算紧的调用方（如 feed 排序）必须传更紧的 timeoutMs
     signal: AbortSignal.timeout(opts?.timeoutMs ?? 60000),

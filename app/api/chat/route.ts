@@ -38,7 +38,7 @@ function liveAnswerInstructions(): string {
 // Agent 循环：模型流式产出 → 有工具调用则执行并回灌结果 → 直到纯文本收尾
 // 纯「提示词 + 工具描述 + 主动编排」驱动（用户决策：取消所有反应式兜底）。保留的「编排」＝ 实时问题首轮强制联网防幻觉、
 // 跑题荐书卡拦截、卡片去重、工具水波纹、轮次护栏；已删除 空回复重试 / 卡片失配补救 / web 失配补救 等反应式补救轮。
-async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signal?: AbortSignal, compressed?: string) {
+async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signal?: AbortSignal, compressed?: string, testEp?: { model: string; url: string; key: string; extraBody?: Record<string, unknown> }) {
   // 统一时间预算：最坏 MAX_ROUNDS 轮，每轮按剩余预算定超时，剩余不足即收尾，避免顶穿 maxDuration 产生无声截断流。
   const deadline = Date.now() + 105_000;
   const remain = () => deadline - Date.now();
@@ -49,7 +49,8 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
   const mainTemp = typeof ov.temperature === "number" ? ov.temperature : 0.7;
   const mainMax = typeof ov.mainMaxTokens === "number" ? ov.mainMaxTokens : DEFAULT_MAIN_MAX_TOKENS; // 主 Agent 生成上限（后台可调）
   // 智学对话模型：默认 Claude Sonnet 4.6（非 thinking，经 vtok.ai）；agentConfig.model 可在线覆盖。minimax.ts 按模型名路由到对应 provider。
-  const chatModel = typeof ov.model === "string" && ov.model.trim() ? ov.model : DEFAULT_CHAT_MODEL;
+  const chatModel = testEp?.model || (typeof ov.model === "string" && ov.model.trim() ? ov.model : DEFAULT_CHAT_MODEL);
+  const epOv = testEp ? { url: testEp.url, key: testEp.key, extraBody: testEp.extraBody } : undefined; // 本地评测：覆盖接入点
   const convo: MMMessage[] = [{ role: "system", content: system }, ...msgs];
   // 同一条回答内卡片去重：模型多轮工具循环（toc→细读→出卡）时常把同一本书 / 同一章重复调用，前端会叠出多张
   // 一模一样的卡。按 书id / 书-章 维度过滤，重复项不再下发；整组都重复则整事件丢弃。跨「下一条提问」是新一次
@@ -123,7 +124,7 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
     const forceWeb = round === 0 && forceSearch0;
     // 强制联网轮：一开始就亮「联网搜索」水波纹，别让用户先盯着几秒「思考中」再变——长搜索期间观感更安心
     if (forceWeb) emitW({ t: "status", v: toolStatus("web_lookup") });
-    for await (const ev of streamChat(convo, { tools, temperature: mainTemp, model: chatModel, signal, timeoutMs: roundTimeout(), maxTokens: mainMax, ...(forceWeb ? { toolChoice: { type: "function" as const, function: { name: "web_lookup" } } } : {}) })) {
+    for await (const ev of streamChat(convo, { tools, temperature: mainTemp, model: chatModel, signal, timeoutMs: roundTimeout(), maxTokens: mainMax, epOverride: epOv, ...(forceWeb ? { toolChoice: { type: "function" as const, function: { name: "web_lookup" } } } : {}) })) {
       if (ev.type === "delta") { raw += ev.text; if (!forceWeb) emitW({ t: "d", v: ev.text }); }
       else if (ev.type === "tool_calls") { calls = ev.calls; raw = ev.rawContent; }
       // think 事件忽略：思考过程对用户隐藏，等待期统一显示「思考中」水波纹
@@ -168,7 +169,7 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
       for (let r = 0; r < 2 && !gotText && remain() > 7_000; r++) {
         let rcalls: MMToolCall[] | null = null;
         let rraw = "";
-        for await (const ev of streamChat(convo, { tools, temperature: mainTemp, model: chatModel, signal, timeoutMs: roundTimeout(), maxTokens: mainMax })) {
+        for await (const ev of streamChat(convo, { tools, temperature: mainTemp, model: chatModel, signal, timeoutMs: roundTimeout(), maxTokens: mainMax, epOverride: epOv })) {
           if (ev.type === "delta") { rraw += ev.text; emitW({ t: "d", v: ev.text }); }
           else if (ev.type === "tool_calls") { rcalls = ev.calls; rraw = ev.rawContent; }
         }
@@ -188,13 +189,14 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
 }
 
 export async function POST(req: NextRequest) {
-  let body: { messages?: { role?: string; content?: string }[]; stream?: boolean; sessionId?: string };
+  let body: { messages?: { role?: string; content?: string }[]; stream?: boolean; sessionId?: string; _ep?: { model: string; url: string; key: string; extraBody?: Record<string, unknown> } };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "请求体不是合法 JSON" }, { status: 400 });
   }
   const startedAt = Date.now(); // 整请求起点：后台压缩/记忆任务按剩余预算决定是否还来得及跑
+  const testEp = process.env.VERCEL !== "1" && body._ep?.url && body._ep?.key && body._ep?.model ? body._ep : undefined; // 本地评测：覆盖对话模型接入点（生产恒忽略）
   const raw = Array.isArray(body.messages) ? body.messages : [];
   const all: MMMessage[] = raw
     .filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim())
@@ -255,7 +257,7 @@ export async function POST(req: NextRequest) {
       await runAgent(msgs, uid, (e) => {
         if (e.t === "d" && e.v) content += e.v;
         if (e.t === "recs" || e.t === "cites" || e.t === "web") events.push(e as ToolEvent);
-      }, undefined, compressed);
+      }, undefined, compressed, testEp);
       afterAnswer();
       return NextResponse.json({ content, events });
     } catch (e) {
@@ -270,7 +272,7 @@ export async function POST(req: NextRequest) {
     async start(controller) {
       const emit: Emit = (e) => { try { controller.enqueue(enc.encode(JSON.stringify(e) + "\n")); } catch {} };
       try {
-        await runAgent(msgs, uid, emit, req.signal, compressed);
+        await runAgent(msgs, uid, emit, req.signal, compressed, testEp);
         emit({ t: "end" });
         afterAnswer();
       } catch (e) {
