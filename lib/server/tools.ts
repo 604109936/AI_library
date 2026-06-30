@@ -9,10 +9,10 @@ import type { MMTool } from "@/lib/server/minimax";
 
 // 工具执行中的等待文案（前端水波纹扫光呈现，不带省略号）：每个工具一句固定短语，对用户隐去工具本身。
 export const TOOL_STATUS: Record<string, string> = {
-  recommend_books: "查找书籍",
+  recommend_books: "为你挑书", // 是"呈现挑好的书"，不是"查找"——与卡片标题「为你挑的书」呼应
   read_book_toc: "翻阅图书",
-  read_chapter: "章节浏览",
-  cite_chapters: "章节浏览",
+  read_chapter: "细读原文", // 读整章原文：与 cite 区分开，别再共用笼统的「章节浏览」
+  cite_chapters: "整理章节", // 出可点击的引用章节卡
   web_lookup: "联网搜索",
 };
 
@@ -27,7 +27,7 @@ export const AGENT_TOOLS: MMTool[] = [
     function: {
       name: "recommend_books",
       description:
-        "展示「推荐书目」卡片——读者点进书的唯一入口（正文书名点不了）。【何时调用】回答里只要推荐了馆藏书，就在写完推荐理由后调用；这一次再次推荐某本，也要再调一次（旧卡已被对话刷走）。book_ids 取自〔图书馆书单〕的 [id]，按推荐优先级排列、≤5 本、同一本不重复。",
+        "展示「推荐书目」卡片——读者点进书的唯一入口（正文书名点不了）。【何时调用】仅当这一条回答的主角就是荐书（读者求推荐 / 选书，或你主动给 TA 推新书）时，写完推荐理由后调用。【勿调】读者问的是天气 / 新闻 / 闲聊 / 某书内容答疑等别的事、你只顺口提到书时别调（会弹出与当前问题无关的书卡＝答非所问）；前几轮已推过、本轮读者没再问起的书也别重复弹卡。book_ids 取自〔图书馆书单〕的 [id]，按优先级排列、≤5 本、同一本不重复。",
       parameters: {
         type: "object",
         properties: { book_ids: { type: "array", items: { type: "string" }, description: "要推荐的书 id 列表（≤5 本）" } },
