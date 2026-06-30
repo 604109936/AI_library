@@ -116,7 +116,12 @@ function WebBlock({ sources }: { sources: WebSource[] }) {
         className="flex w-full items-center gap-1.5 rounded-xl border border-line bg-snow/60 px-3 py-2 text-xs text-ink-500 active:bg-moon/50 dark:border-white/10 dark:bg-white/5 dark:text-dark-text/60 dark:active:bg-white/10"
       >
         <Globe size={13} className="shrink-0 text-celadon" />
-        <span>联网搜索 · 参考 {sources.length} 篇资料</span>
+        {/* 卡头带上这批资料对应的搜索词：用户一眼知道哪批资料来自哪次搜索（多次搜索时尤其有用） */}
+        <span className="truncate">
+          联网搜索
+          {sources[0]?.q ? <span className="text-celadon-700 dark:text-celadon-300">「{sources[0].q.length > 14 ? sources[0].q.slice(0, 14) + "…" : sources[0].q}」</span> : null}
+          <span className="text-ink-400 dark:text-dark-text/45"> · 参考 {sources.length} 篇资料</span>
+        </span>
         <ChevronDown size={14} className={"ml-auto shrink-0 text-ink-300 transition-transform " + (open ? "rotate-180" : "")} />
       </button>
       {open && (

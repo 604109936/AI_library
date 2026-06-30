@@ -381,8 +381,9 @@ function ChatInner() {
               smooth();
             }
           } else if (ev.t === "web" && ev.v && Array.isArray((ev.v as { items?: unknown }).items)) {
-            // 联网来源卡（T10）：事件直带 title/url/date，零查询直渲染
-            const items = (ev.v as { items: WebSource[] }).items.filter((x) => x?.t && x?.u);
+            // 联网来源卡（T10）：事件直带 title/url/date + 这次的搜索词 q（挂到每条上，来源卡头展示「联网搜索「q」」）
+            const q = (ev.v as { q?: string }).q;
+            const items = (ev.v as { items: WebSource[] }).items.filter((x) => x?.t && x?.u).map((x) => ({ ...x, q }));
             if (items.length) {
               const from = webAcc.length;
               webAcc.push(...items);
@@ -545,7 +546,8 @@ function ChatInner() {
             if (liveCtrl !== ctrl) return;
             if (cites.length) { citesAcc.push(...cites); applyM({ citations: citesAcc.slice() }); }
           } else if (ev.t === "web" && ev.v && Array.isArray((ev.v as { items?: unknown }).items)) {
-            const items = (ev.v as { items: WebSource[] }).items.filter((x) => x?.t && x?.u);
+            const q = (ev.v as { q?: string }).q;
+            const items = (ev.v as { items: WebSource[] }).items.filter((x) => x?.t && x?.u).map((x) => ({ ...x, q }));
             if (items.length) { webAcc.push(...items); applyM({ webSources: webAcc.slice() }); }
           } else if (ev.t === "err") throw new Error(typeof ev.v === "string" ? ev.v : "服务暂时不可用");
         };

@@ -98,6 +98,7 @@ export interface WebSource {
   t: string;
   u: string;
   d: string;
+  q?: string; // 这批资料对应的搜索词（前端在来源卡头展示「联网搜索「<q>」」，让用户知道哪批资料来自哪次搜索）
 }
 
 export interface ChatMessage {
