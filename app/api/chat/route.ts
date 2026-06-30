@@ -28,6 +28,13 @@ const MAX_ROUNDS = 8;
 
 type Emit = (e: { t: "d" | "status" | "end" | "err"; v?: string } | ToolEvent) => void;
 
+// 联网搜索的等待状态：把"在搜什么"亮出来（看得见它在干活，降低死等焦虑）。query 缺省回退「联网搜索」。
+function searchStatus(query?: string): string {
+  const q = (query ?? "").trim().replace(/\s+/g, " ");
+  if (!q) return "联网搜索";
+  return `正在搜「${q.length > 16 ? q.slice(0, 16) + "…" : q}」`;
+}
+
 // 「联网流式直答」(Option B)给火山的小涤口吻系统指令：实时问句不再丢掉火山那遍回答让 Claude 重写，
 // 直接用小涤的口吻、流式吐给用户。带当前北京日期，免得火山把"今天"答岔。
 function liveAnswerInstructions(): string {
@@ -100,7 +107,7 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
   // Option B·实时问句流式直答：纯实时事实问句（强制联网、无荐书意图）且火山可用时，直接流式吐火山那遍的回答
   // （边搜边出字、源卡同步）并跳过 Claude 重写——省掉一遍模型、不再死等水波纹。出错/零文字才回落下面 Claude 主循环兜底。
   if (forceSearch0 && !recIntent && webStreamAvailable()) {
-    emitW({ t: "status", v: toolStatus("web_lookup") }); // 搜索期间先亮「联网搜索」，首个文字到达即自动切走
+    emitW({ t: "status", v: searchStatus(lastUserText) }); // 搜索期间亮「正在搜「…」」，首个文字到达即自动切走
     let got = "";
     try {
       const { hits } = await searchWebStream(lastUserText, {
@@ -122,8 +129,8 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
     // 首轮对「天气/财经/赛事/新闻等实时事实问句、明确要联网」强制先调 web_lookup：本轮不外泄任何文字
     // （防"好，这就帮你查"漏出），拿到真实结果后下一轮再据实作答——从源头根治"凭印象编实时数据 + 谎称查过"。
     const forceWeb = round === 0 && forceSearch0;
-    // 强制联网轮：一开始就亮「联网搜索」水波纹，别让用户先盯着几秒「思考中」再变——长搜索期间观感更安心
-    if (forceWeb) emitW({ t: "status", v: toolStatus("web_lookup") });
+    // 强制联网轮：一开始就亮「正在搜「…」」水波纹，别让用户先盯着几秒「思考中」再变——把"在搜什么"亮出来更安心
+    if (forceWeb) emitW({ t: "status", v: searchStatus(lastUserText) });
     for await (const ev of streamChat(convo, { tools, temperature: mainTemp, model: chatModel, signal, timeoutMs: roundTimeout(), maxTokens: mainMax, epOverride: epOv, ...(forceWeb ? { toolChoice: { type: "function" as const, function: { name: "web_lookup" } } } : {}) })) {
       if (ev.type === "delta") { raw += ev.text; if (!forceWeb) emitW({ t: "d", v: ev.text }); }
       else if (ev.type === "tool_calls") { calls = ev.calls; raw = ev.rawContent; }
@@ -149,7 +156,10 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
       console.log(`[agent-debug] 第${round + 1}轮回灌 assistant（前240字）：${raw.slice(0, 240).replace(/\n/g, "⏎")}`);
     }
     for (const c of calls) {
-      emitW({ t: "status", v: toolStatus(c.function.name) }); // 每个工具一句固定短语（对用户隐去工具本身）
+      // 每个工具一句固定短语；联网搜索额外把"在搜什么"亮出来（看得见进度、降低死等焦虑）
+      let st = toolStatus(c.function.name);
+      if (c.function.name === "web_lookup") { try { st = searchStatus(JSON.parse(c.function.arguments || "{}").query); } catch {} }
+      emitW({ t: "status", v: st });
       const { result, event } = await execTool(c.function.name, c.function.arguments);
       if (event) emitW(event);
       convo.push({ role: "tool", tool_call_id: c.id, content: result });

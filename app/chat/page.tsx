@@ -498,6 +498,78 @@ function ChatInner() {
     // eslint-disable-next-line
   }, []);
 
+  // 继续生成（截断回答专用）：保留已生成的半截正文，让模型从断点接着写、把续写直接追加到原消息（不重来、不丢内容）。
+  // 隔离实现、不碰核心 send：自带流式消费，文本直接追加，卡片(recs/cites/web)合并进原消息数组。
+  const continueGenerate = useCallback(() => {
+    if (liveBusy) return;
+    const msgs = messagesRef.current;
+    const M = msgs[msgs.length - 1];
+    if (!M || M.role !== "assistant" || !M.truncated || !M.content) return;
+    const baseContent = M.content;
+    const history = msgs.filter((m) => !m.error).map((m) => ({ role: m.role, content: stripCardMarkers(m.content) }));
+    history.push({ role: "user", content: "（你上一条回答被网络截断了、没说完。请直接从断的地方接着往下写，自然衔接，不要重复前面已经说过的内容，也不要重新开头或加任何前言、客套。）" });
+    setMessages((prev) => prev.map((m) => (m.id === M.id ? { ...m, streaming: true, truncated: false } : m)));
+    setLiveBusy(true);
+    stick.current = true;
+    const ctrl = new AbortController();
+    liveCtrl = ctrl;
+    let appended = "";
+    const recsAcc: Book[] = [...(M.recommendations ?? [])];
+    const citesAcc: Citation[] = [...(M.citations ?? [])];
+    const webAcc: WebSource[] = [...(M.webSources ?? [])];
+    const applyM = (patch: Partial<TMsg>) => setMessages((prev) => prev.map((m) => (m.id === M.id ? { ...m, ...patch } : m)));
+    supabase.auth
+      .getSession()
+      .then(({ data }) =>
+        fetch("/api/chat", {
+          method: "POST",
+          headers: { "content-type": "application/json", ...(data.session?.access_token ? { authorization: `Bearer ${data.session.access_token}` } : {}) },
+          body: JSON.stringify({ messages: history }),
+          signal: ctrl.signal,
+        })
+      )
+      .then(async (r) => {
+        if (!r.ok || !r.body) { const j = await r.json().catch(() => null); throw new Error(j?.error ?? "服务暂时不可用"); }
+        const reader = r.body.getReader();
+        const dec = new TextDecoder();
+        let buf = "";
+        const handle = async (ev: { t: string; v?: unknown }) => {
+          if (liveCtrl !== ctrl) return;
+          if (ev.t === "d" && typeof ev.v === "string") { appended += ev.v; applyM({ content: baseContent + appended, toolNote: undefined }); }
+          else if (ev.t === "status" && typeof ev.v === "string") applyM({ toolNote: ev.v });
+          else if (ev.t === "recs" && Array.isArray(ev.v)) {
+            const cards: Book[] = (ev.v as { id: string; title?: string; author?: string; cv?: string; cs?: number }[]).filter((it) => it && it.id).map((it) => ({ id: it.id, title: it.title ?? "", author: it.author ?? "", cover: it.cv ?? "", coverSeed: it.cs ?? 1, heroUrl: "", posterUrl: "", category: "", categoryId: "", tags: [], summary: "", rating: 0, readers: 0, words: 0, durationMin: 0, hasVideo: false, hasAudio: false, hasText: false, likes: 0, favCount: 0, reviewCount: 0, featured: false, intro: "", shelvedAt: "" } as Book));
+            if (cards.length) { recsAcc.push(...cards); applyM({ recommendations: recsAcc.slice() }); }
+          } else if (ev.t === "cites" && Array.isArray(ev.v)) {
+            const cites = await buildCitations(ev.v as { b: string; c: number }[]);
+            if (liveCtrl !== ctrl) return;
+            if (cites.length) { citesAcc.push(...cites); applyM({ citations: citesAcc.slice() }); }
+          } else if (ev.t === "web" && ev.v && Array.isArray((ev.v as { items?: unknown }).items)) {
+            const items = (ev.v as { items: WebSource[] }).items.filter((x) => x?.t && x?.u);
+            if (items.length) { webAcc.push(...items); applyM({ webSources: webAcc.slice() }); }
+          } else if (ev.t === "err") throw new Error(typeof ev.v === "string" ? ev.v : "服务暂时不可用");
+        };
+        const handleLine = async (line: string) => { if (!line) return; let ev: { t: string; v?: unknown } | null = null; try { ev = JSON.parse(line); } catch { return; } if (ev) await handle(ev); };
+        for (;;) { const { done, value } = await reader.read(); if (done) break; buf += dec.decode(value, { stream: true }); let nl: number; while ((nl = buf.indexOf("\n")) >= 0) { const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1); await handleLine(line); } }
+        buf += dec.decode(); await handleLine(buf.trim());
+        if (liveCtrl !== ctrl) return;
+        liveCtrl = null;
+        applyM({ content: baseContent + appended, streaming: false, toolNote: undefined });
+        setLiveBusy(false);
+        persist(chatLive?.messages ?? EMPTY_MSGS);
+      })
+      .catch((e: unknown) => {
+        if (e instanceof Error && e.name === "AbortError") return;
+        if (liveCtrl !== ctrl) return;
+        liveCtrl = null;
+        // 续写也中断：保留已追加部分 + 重新标 truncated（可再点继续）
+        applyM({ content: baseContent + appended, streaming: false, toolNote: undefined, truncated: true });
+        setLiveBusy(false);
+        persist(chatLive?.messages ?? EMPTY_MSGS);
+      });
+    // eslint-disable-next-line
+  }, []);
+
   // 语音输入（T6）：长按输入框说话 → 松开识别文本回填输入框 → 上滑取消。
   // 识别走浏览器原生 SpeechRecognition（MiniMax 无 ASR，决策见 evidence/T6）；不支持的环境降级提示
   function setRec(v: boolean) { recordingRef.current = v; setRecording(v); }
@@ -569,17 +641,20 @@ function ChatInner() {
       }
       voiceAborting.current = false;
       inputRef.current?.blur();
+      // 乐观显示录音面板：长按到点(350ms)立即弹，不等 getUserMedia——按下即弹、零等待感。
+      // 只动 recording 状态、不动 recordingRef：松手/上滑取消仍由 recordingRef 驱动，逻辑不受影响；启动失败再收起。
+      setRecording(true);
       const startT0 = Date.now();
       const okStart = await startVoice();
       if (!okStart) {
-        // 权限被拒 / 无麦克风：弹可操作的引导弹窗，而非一闪而过的 toast（之后每次长按都会再弹，直到用户去设置里放开）
+        setRecording(false); // 启动失败（权限被拒/无麦克风）：收起面板 + 弹引导
         setMicHelpOpen(true);
         return;
       }
       if (voiceAborting.current) {
         // 启动期间手已松开。若启动耗时很长（>1.2s）＝这次刚弹过麦克风授权窗——授权弹窗是模态的，会打断长按手势、
-        // 误触发取消，把这次录音白白丢掉（正是"首次授权后第一次长按识别不出"的根因）。权限现已就绪，明确提示
-        // 再按一次即可（此后长按直接录、不再首按失败）；普通快速松手则静默放弃。
+        // 误触发取消，把这次录音白白丢掉。权限现已就绪，明确提示再按一次即可；普通快速松手则静默放弃。
+        setRecording(false);
         stopVoice(true);
         if (Date.now() - startT0 > 1200) toast("麦克风已开启，按住输入框再说一次就好～", "info");
         return;
@@ -675,6 +750,7 @@ function ChatInner() {
                 <ChatMessage
                   msg={m}
                   onRegenerate={!busy && m.role === "assistant" && i === visible.length - 1 ? regenerate : undefined}
+                  onContinue={!busy && m.role === "assistant" && i === visible.length - 1 && m.truncated ? continueGenerate : undefined}
                   onFeedback={setFeedback}
                   onFeedbackDetail={setFeedbackDetail}
                 />

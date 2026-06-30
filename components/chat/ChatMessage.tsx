@@ -182,11 +182,13 @@ function VoiceDots() {
 export const ChatMessage = memo(function ChatMessage({
   msg,
   onRegenerate,
+  onContinue,
   onFeedback,
   onFeedbackDetail,
 }: {
   msg: TMsg;
   onRegenerate?: () => void;
+  onContinue?: () => void; // 截断回答专用：从断点续写（替代「重新生成」）
   onFeedback?: (id: string, value: "up" | "down" | null) => void;
   onFeedbackDetail?: (id: string, reasons: string[], text: string) => void; // 踩原因随消息落库（T2.5）
 }) {
@@ -269,7 +271,7 @@ export const ChatMessage = memo(function ChatMessage({
           {!msg.streaming && (msg.webSources?.length ?? 0) > webDone && <WebBlock sources={msg.webSources!.slice(webDone)} />}
           {/* 断线截断尾注：与正文解耦，仅展示用、不进回灌上下文（Bug#11） */}
           {msg.truncated && (
-            <p className="mt-2 border-t border-line pt-2 text-[11px] text-ink-300 dark:border-white/10">（后面断线了，回答可能不完整——可以点「重新生成」补全）</p>
+            <p className="mt-2 border-t border-line pt-2 text-[11px] text-ink-300 dark:border-white/10">（后面断线了，回答可能不完整——可以点「继续生成」从断处接着补全）</p>
           )}
         </div>
       )}
@@ -330,11 +332,16 @@ export const ChatMessage = memo(function ChatMessage({
             <Copy size={15} />
           </button>
           </>)}
-          {onRegenerate && (
+          {onContinue ? (
+            // 回答被截断：显示「继续生成」（从断点接着写，不丢已生成内容），替代「重新生成」
+            <button onClick={onContinue} className="flex h-8 items-center gap-1 px-1.5 text-xs text-celadon-700 dark:text-celadon-300">
+              <ChevronRight size={14} /> 继续生成
+            </button>
+          ) : onRegenerate ? (
             <button onClick={onRegenerate} className="flex h-8 items-center gap-1 px-1.5 text-xs text-celadon-700 dark:text-celadon-300">
               <RotateCw size={14} /> 重新生成
             </button>
-          )}
+          ) : null}
           {/* 反馈留痕：踩过且填过原因 → 常驻小标，点按可重新修改（"它记住了"看得见） */}
           {fb === "down" && !showFb && msg.feedbackReasons && msg.feedbackReasons.length > 0 && (
             <button
