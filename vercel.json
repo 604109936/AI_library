@@ -1,6 +1,5 @@
 {
   "crons": [
     { "path": "/api/cron/flip-feed", "schedule": "0 20 * * *" }
-  ],
-  "regions": ["hkg1"]
+  ]
 }
