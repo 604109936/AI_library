@@ -14,7 +14,7 @@ export interface StreamVoiceState {
 const IDLE: StreamVoiceState = { active: false, transcribing: false, seconds: 0, level: 0, partial: "" };
 const TARGET_RATE = 16000;
 const MAX_SECONDS = 60;
-const CHUNK_MS = 200; // 每 200ms 发一包 PCM
+const CHUNK_MS = 100; // 每 100ms 发一包 PCM（越小实时识别延迟越低）
 
 function getAudioCtx(): (new () => AudioContext) | null {
   if (typeof window === "undefined") return null;
@@ -46,6 +46,7 @@ export function useStreamVoiceInput() {
   const fatalRef = useRef(false);
   const pcmBuf = useRef<number[]>([]);   // 累积的 16k Int16 待发样本
   const finalText = useRef("");          // 最新完整识别文本（result_type=full）
+  const wsFailedRef = useRef(false);     // WS 连接失败（用于 stop 兜底给「网络不顺」提示）
   const sessionRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const donePromise = useRef<{ resolve: (t: string) => void } | null>(null);
@@ -89,34 +90,22 @@ export function useStreamVoiceInput() {
     try { wsRef.current?.readyState === 1 && wsRef.current.send(buf); } catch {}
   }
 
-  /** 开始：建 WS + 采音。返回 false=启动失败（权限/不支持/连接失败）。 */
+  /** 开始：拿麦克风 + 立刻起采音；WS 并行连、不阻塞（音频先进缓冲，WS 一通就补发）。返回 false=启动失败。 */
   async function start(): Promise<boolean> {
     cleanup();
-    fatalRef.current = false;
+    fatalRef.current = false; wsFailedRef.current = false;
     finalText.current = ""; pcmBuf.current = [];
     startedAt.current = Date.now();
     const session = ++sessionRef.current;
     const wsUrl = streamWsUrl();
     if (!wsUrl) return false;
 
-    let stream: MediaStream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
-    } catch { fatalRef.current = true; return false; }
-    if (session !== sessionRef.current) { stream.getTracks().forEach((t) => t.stop()); return false; }
-
-    setState({ ...IDLE, transcribing: true });
-    // 建 WS（带 Origin 由浏览器自动加；可附 token query 备未来鉴权）
+    // ① WS 先拨出去并行连——**不 await**，所以录音面板不必等握手（冷启动 1~2s）就能立刻弹出。
+    //    onaudioprocess 持续把 PCM 进缓冲，flushChunk 只在 ws 真正 OPEN 后才发，所以握手期间的音频不丢、连上即补发。
     const ws = new WebSocket(wsUrl);
     ws.binaryType = "arraybuffer";
     wsRef.current = ws;
-    const wsReady = new Promise<boolean>((resolve) => {
-      let settled = false;
-      ws.onopen = () => { if (!settled) { settled = true; resolve(true); } };
-      ws.onerror = () => { if (!settled) { settled = true; resolve(false); } };
-      ws.onclose = () => { if (!settled) { settled = true; resolve(false); } };
-      setTimeout(() => { if (!settled) { settled = true; resolve(false); } }, 6000);
-    });
+    ws.onerror = () => { wsFailedRef.current = true; };
     ws.onmessage = (ev) => {
       if (typeof ev.data !== "string") return;
       let m: any; try { m = JSON.parse(ev.data); } catch { return; }
@@ -128,13 +117,19 @@ export function useStreamVoiceInput() {
         const t = ((m.text && m.text.trim()) ? m.text : finalText.current).trim();
         finalText.current = t; donePromise.current?.resolve(t); donePromise.current = null;
       } else if (m.type === "error") {
+        wsFailedRef.current = !finalText.current;
         donePromise.current?.resolve(finalText.current.trim()); donePromise.current = null;
       }
     };
-    const ok = await wsReady;
-    if (!ok || session !== sessionRef.current) { stream.getTracks().forEach((t) => t.stop()); try { ws.close(); } catch {} return false; }
 
-    // 起采音
+    // ② 拿麦克风（唯一必须 await 的步骤；权限已授时很快）
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+    } catch { fatalRef.current = true; try { ws.close(); } catch {} return false; }
+    if (session !== sessionRef.current) { stream.getTracks().forEach((t) => t.stop()); try { ws.close(); } catch {} return false; }
+
+    // ③ 立刻起采音
     try {
       const Ctx = getAudioCtx()!;
       const ctx = new Ctx();
@@ -181,7 +176,8 @@ export function useStreamVoiceInput() {
     });
     cleanup();
     setState(IDLE);
-    return { text, fatal: false, error: false };
+    // 没识别出文本且 WS 曾失败 → 当作网络错误（前端提示「网络不太顺，再试一次」），而非「没听清」
+    return { text, fatal: false, error: !text && wsFailedRef.current };
   }
 
   return { voice: state, startVoice: start, stopVoice: stop };
