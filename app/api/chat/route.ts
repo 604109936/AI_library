@@ -45,10 +45,10 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
   // 智学对话模型：默认 Claude Sonnet 4.6（非 thinking，经 vtok.ai）；agentConfig.model 可在线覆盖。minimax.ts 按模型名路由到对应 provider。
   const chatModel = typeof ov.model === "string" && ov.model.trim() ? ov.model : DEFAULT_CHAT_MODEL;
   // 测试钩子：从主循环摘掉某工具，用于端到端验证对应兜底（逼出"该出没出"，看兜底是否强制补出）。
-  // CHAT_TEST_NO_MAIN_WEBSEARCH=1 摘 web_search；CHAT_TEST_NO_MAIN_CITE=1 摘 cite_chapters。生产绝不设——兜底仍用完整 tools。
+  // CHAT_TEST_NO_MAIN_WEBSEARCH=1 摘 web_lookup；CHAT_TEST_NO_MAIN_CITE=1 摘 cite_chapters。生产绝不设——兜底仍用完整 tools。
   const noMain = new Set(
     [
-      process.env.CHAT_TEST_NO_MAIN_WEBSEARCH === "1" ? "web_search" : "",
+      process.env.CHAT_TEST_NO_MAIN_WEBSEARCH === "1" ? "web_lookup" : "",
       process.env.CHAT_TEST_NO_MAIN_CITE === "1" ? "cite_chapters" : "",
     ].filter(Boolean)
   );
@@ -100,9 +100,9 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
     /(最新|最近)[^。！？\n]{0,10}(得主|获奖|冠军|夺冠|当选|榜单|排行榜|热点|新闻)/.test(lastUserText);
   // 时间词紧贴时效事实名词（较宽，仅用于"没出卡时"的事后兜底，不用于首轮强制，避免误触）
   const timeSensitive = /(今天|今日|现在|此刻|实时|当前|最新|最近|近期|今年|本周|这两天|这几天)[^。！？\n]{0,10}(天气|气温|温度|下雨|降雨|新闻|热搜|股价|股票|大盘|指数|汇率|油价|金价|价格|行情|比分|赛果|赛况|疫情|票房|上映|发布|榜单|排行|排名|消息|情况|进展|动态|实况)/.test(lastUserText);
-  // 首轮强制联网：仅高精度信号（明确要联网 / 实时外部事实问句）才强制——先 web_search 拿真实结果、下一轮再据实作答，
+  // 首轮强制联网：仅高精度信号（明确要联网 / 实时外部事实问句）才强制——先 web_lookup 拿真实结果、下一轮再据实作答，
   // 从源头杜绝模型凭印象编天气/财经/赛事等实时数据又谎称"帮你查到了"（实锤图）。更模糊的场景靠提示词 + 事后兜底覆盖。
-  const forceSearch0 = !noFallback && (explicitWeb || needsLiveQ) && !noMain.has("web_search");
+  const forceSearch0 = !noFallback && (explicitWeb || needsLiveQ) && !noMain.has("web_lookup");
   // 最后一轮的 content：tool_calls 轮为原始全文（含 <think>），纯文本收尾轮为剥思考后的展示文本
   // （streamChat 仅在 tool_calls 事件随附 rawContent）。补救轮回灌只需"模型看到自己说过的话"，两种口径均可。
   let lastRaw = "";
@@ -110,13 +110,13 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
   for (let round = 0; ; round++) {
     let raw = ""; // 本轮原始 content（含 <think>），工具循环回灌用
     let calls: MMToolCall[] | null = null;
-    // 首轮对「天气/财经/赛事/新闻等实时事实问句、明确要联网」强制先调 web_search：本轮不外泄任何文字
+    // 首轮对「天气/财经/赛事/新闻等实时事实问句、明确要联网」强制先调 web_lookup：本轮不外泄任何文字
     // （防"好，这就帮你查"漏出），拿到真实结果后下一轮再据实作答——从源头根治"凭印象编实时数据 + 谎称查过"。
     const forceWeb = round === 0 && forceSearch0;
     // 测试钩子：CHAT_TEST_FORCE_EMPTY=1 让首轮直接产出空（不调模型），用于验证「空回复静默重试」。生产绝不设。
     const testForceEmpty = process.env.CHAT_TEST_FORCE_EMPTY === "1" && round === 0;
     if (!testForceEmpty)
-    for await (const ev of streamChat(convo, { tools: mainTools, temperature: mainTemp, model: chatModel, signal, timeoutMs: roundTimeout(), maxTokens: mainMax, ...(forceWeb ? { toolChoice: { type: "function" as const, function: { name: "web_search" } } } : {}) })) {
+    for await (const ev of streamChat(convo, { tools: mainTools, temperature: mainTemp, model: chatModel, signal, timeoutMs: roundTimeout(), maxTokens: mainMax, ...(forceWeb ? { toolChoice: { type: "function" as const, function: { name: "web_lookup" } } } : {}) })) {
       if (ev.type === "delta") { raw += ev.text; if (!forceWeb) emitW({ t: "d", v: ev.text }); }
       else if (ev.type === "tool_calls") { calls = ev.calls; raw = ev.rawContent; }
       // think 事件忽略：思考过程对用户隐藏，等待期统一显示「思考中」水波纹，不再把思考提取成动态过程提示
@@ -204,8 +204,8 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
       recMismatch = titles.some((t) => fullText.includes(`《${t}》`));
     }
   }
-  // 「该搜没搜」事后兜底信号：模型在正文里「自称查过网 / 给出实时结果」却根本没调用 web_search——最伤信任的欺骗
-  // （实锤图：编出上海天气还说"帮你查一下…帮你查到了"）。检测这类自述，连同首轮该强制却没搜成的情况一并补一轮真实 web_search。
+  // 「该搜没搜」事后兜底信号：模型在正文里「自称查过网 / 给出实时结果」却根本没调用 web_lookup——最伤信任的欺骗
+  // （实锤图：编出上海天气还说"帮你查一下…帮你查到了"）。检测这类自述，连同首轮该强制却没搜成的情况一并补一轮真实 web_lookup。
   const claimedWeb =
     /(上网|联网|连网|网上|网络上|互联网)[^。！？\n]{0,8}(查|搜|搜索|检索|查证|核实|找)/.test(fullText) ||
     /(查|搜|搜索|检索)(了一下|了下|过了|了|到了|到)?[^。！？\n]{0,6}(最新|实时|目前|现在|今天|今日)[^。！？\n]{0,8}(天气|气温|新闻|股价|价格|行情|消息|资讯|数据|动态|情况|得主|冠军)/.test(fullText) ||
@@ -256,22 +256,22 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
     }
   }
   if (!noFallback && !usedWebSearch && (forceSearch0 || claimedWeb || (timeSensitive && !emittedCard)) && lastRaw && remain() > 18_000) {
-    // web_search 兜底：该联网却没真联网（含模型谎称查过）。补一轮：强制 web_search 拿真实结果 → 再据结果作答。
+    // web_lookup 兜底：该联网却没真联网（含模型谎称查过）。补一轮：强制 web_lookup 拿真实结果 → 再据结果作答。
     // 用 remedyBase 快照另起 wc 分支（与卡片补救解耦、互不污染）；全程 try/catch + 紧超时，绝不影响已发正文。
     try {
       emitW({ t: "status", v: "联网搜索" });
       const wc: MMMessage[] = [
         ...remedyBase,
         { role: "assistant", content: lastRaw },
-        { role: "user", content: "（系统校验：这个问题需要联网核实实时信息、或你在回答里已声称\"查过网/查到了\"，但你并没有真正调用 web_search，用户面前没有任何真实搜索结果——这是在欺骗读者。请立即调用 web_search 拿到真实结果（结合上文推断该搜什么）；先只调用工具、不要输出文字。）" },
+        { role: "user", content: "（系统校验：这个问题需要联网核实实时信息、或你在回答里已声称\"查过网/查到了\"，但你并没有真正调用 web_lookup，用户面前没有任何真实搜索结果——这是在欺骗读者。请立即调用 web_lookup 拿到真实结果（结合上文推断该搜什么）；先只调用工具、不要输出文字。）" },
       ];
-      // tool_choice 强制本轮必调 web_search（35s 紧超时：挂起也快速失败，不拖垮整请求）
+      // tool_choice 强制本轮必调 web_lookup（35s 紧超时：挂起也快速失败，不拖垮整请求）
       let calls2: MMToolCall[] | null = null;
       let raw2 = "";
       for await (const ev of streamChat(wc, {
         tools, temperature: 0.3, model: chatModel, signal,
-        timeoutMs: Math.min(35_000, roundTimeout()), maxTokens: 8192, // 给足 think 空间，防思考烧光致 web_search 没吐出
-        toolChoice: { type: "function", function: { name: "web_search" } },
+        timeoutMs: Math.min(35_000, roundTimeout()), maxTokens: 8192, // 给足 think 空间，防思考烧光致 web_lookup 没吐出
+        toolChoice: { type: "function", function: { name: "web_lookup" } },
       })) {
         if (ev.type === "tool_calls") { calls2 = ev.calls; raw2 = ev.rawContent; }
       }
@@ -295,9 +295,9 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
           }
         }
       }
-      if (!usedWebSearch) console.warn("[chat] web_search 兜底未能联网：", lastUserText.slice(0, 40));
+      if (!usedWebSearch) console.warn("[chat] web_lookup 兜底未能联网：", lastUserText.slice(0, 40));
     } catch (e) {
-      console.warn("[chat] web_search 兜底异常：", e instanceof Error ? e.message : e);
+      console.warn("[chat] web_lookup 兜底异常：", e instanceof Error ? e.message : e);
     }
   }
 }

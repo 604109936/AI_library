@@ -13,7 +13,7 @@ export const TOOL_STATUS: Record<string, string> = {
   read_book_toc: "翻阅图书",
   read_chapter: "章节浏览",
   cite_chapters: "章节浏览",
-  web_search: "联网搜索",
+  web_lookup: "联网搜索",
 };
 
 // 取工具的固定等待短语（不再带书名/章号——更简洁、也不暴露细节）；未知工具回落「思考中」。
@@ -86,7 +86,7 @@ export const AGENT_TOOLS: MMTool[] = [
   {
     type: "function",
     function: {
-      name: "web_search",
+      name: "web_lookup",
       description:
         "联网获取互联网实时公开信息。【必须调用】① 读者要你联网 / 上网 / 查最新；② 实时 / 时效内容（天气、新闻、热搜、股价 / 汇率 / 油价 / 金价、赛事比分、票房、最新版本 / 型号 / 价格、谁刚获奖、当下日期等）；③ 读书之外、需事实查证、超出你知识截止的提问。**先查到再答，绝不凭印象编实时数据。**【勿用】馆藏书内容 / 读书方法 / 个性化推荐等馆内问题走你的理解，不联网。【query】精炼中文关键词；问「最新」务必带当前年月（如「{当前年月} …」），以搜到的带日期新结果为准、别拿训练记忆当最新。结果来源卡由系统展示。",
       parameters: {
@@ -203,7 +203,7 @@ export async function execTool(name: string, argsJson: string): Promise<{ result
       if (!valid.length) return { result: "失败：引用的章节不存在，卡片没有展示。请核对 book_id 与 chapter_no 后重试；若不重试，正文中不得提及卡片。" };
       return { result: "已收到。若你已把这章讲清，**本轮就此结束**；若还没讲，一两句点出讲什么即可。别把整段原文贴进对话，也别出现\"卡片 / 入口 / 已展示 / 点开 / 在下面 / 👇 / ↓\"等任何字样——读者会自动看到可点章节，无需你交代。", event: { t: "cites", v: valid } };
     }
-    if (name === "web_search") {
+    if (name === "web_lookup") {
       const q = cutSafe(String(args.query ?? "").trim(), 60);
       if (!q) return { result: "失败：缺少搜索关键词 query。" };
       const hits: WebHit[] = await searchWeb(q);
