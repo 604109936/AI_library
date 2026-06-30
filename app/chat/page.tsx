@@ -572,7 +572,12 @@ function ChatInner() {
   function onInputPointerUp() {
     const quickTap = !pressFired.current && !recordingRef.current;
     onInputPointerEnd();
-    if (quickTap) inputRef.current?.focus();
+    if (quickTap && inputRef.current) {
+      // 进入打字：按钮态时 textarea 是只读的（触摸不弹键盘），先解除只读、再在用户手势内聚焦，正常弹出键盘。
+      // 解除后 onFocus 会置 inputFocused=true，下一次渲染 readOnly 同样为 false，与此处一致、不会回弹。
+      inputRef.current.readOnly = false;
+      inputRef.current.focus();
+    }
   }
   // 触屏滚动等系统手势抢占（pointercancel）：一律按"取消"处理——此时用户多半在上滑，
   // 若当作"确认松手"会把半截话回填进输入框，与取消意图正好相反
@@ -677,7 +682,8 @@ function ChatInner() {
             ref={inputRef}
             value={input}
             onChange={onInputChange}
-            onFocus={() => setInputFocused(true)}
+            // 按压/录音期间即便有焦点滑入也不进「聚焦态」：避免只读翻可编辑、placeholder 闪动；正常点按打字才置 true
+            onFocus={() => { if (!pressTimer.current && !recordingRef.current) setInputFocused(true); }}
             onBlur={() => setInputFocused(false)}
             onKeyDown={(e) => {
               // isComposing：输入法候选未上屏时按 Enter 是"选词"，不能把半截拼音发出去
@@ -692,8 +698,10 @@ function ChatInner() {
             // 否则录音/识别时屏幕底部会冒出原生「粘贴」气泡（浮在遮罩之上，DOM z-index 盖不住）。
             // 仅在按压/录音/识别态拦截；正常聚焦打字时放行（长按粘贴照常可用）。
             onContextMenu={(e) => { if (recordingRef.current || pressTimer.current || voice.transcribing) e.preventDefault(); }}
-            // 录音/识别中置只读：消除原生文字光标/选区手柄（截图里的绿色水滴）；结束即恢复可编辑
-            readOnly={recording || voice.transcribing}
+            // 只读时机：① 录音/识别中（消除原生光标/选区手柄）；② **未聚焦的「按住说话」按钮态**——
+            // 只读 textarea 被触摸/聚焦时不会弹软键盘，这样长按语音前绝不会先闪一下键盘（preventDefault 在个别
+            // webview 拦不住聚焦，单靠它不保险；只读是兜底根治）。点按打字时由 onInputPointerUp 解除只读并聚焦。
+            readOnly={recording || voice.transcribing || !inputFocused}
             rows={1}
             placeholder={inputFocused ? "发消息…" : "发消息或按住说话…"}
             // 未聚焦（即作为「按住说话」按钮时）禁用文字选区 + iOS 长按气泡，根除选区手柄；聚焦编辑时不受影响
