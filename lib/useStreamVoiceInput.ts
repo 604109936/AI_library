@@ -64,7 +64,18 @@ export function useStreamVoiceInput() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const donePromise = useRef<{ resolve: (t: string) => void } | null>(null);
 
-  useEffect(() => () => cleanup(), []);
+  // 卸载时才彻底拆（含关 AudioContext）；录音之间的 cleanup 保留 ctx 常热（见 cleanup 注释）
+  useEffect(() => () => { cleanup(); try { ctxRef.current?.close(); } catch {} ctxRef.current = null; }, []);
+
+  // 创建 / resume 持久 AudioContext，并保持常热复用。在用户手势里（pointerdown）提前调用预热，
+  // 这样真正录音时瞬间起采、不丢前半句；首次也因已提前 resume 而无静音空档。resume 需用户手势触发。
+  function warmAudio() {
+    try {
+      let ctx = ctxRef.current;
+      if (!ctx || ctx.state === "closed") { const Ctx = getAudioCtx(); if (!Ctx) return; ctx = new Ctx(); ctxRef.current = ctx; }
+      if (ctx.state === "suspended") ctx.resume().catch(() => {});
+    } catch {}
+  }
 
   function cleanup() {
     recordingRef.current = false;
@@ -74,8 +85,8 @@ export function useStreamVoiceInput() {
     procRef.current = null; srcRef.current = null;
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
-    ctxRef.current?.close().catch(() => {});
-    ctxRef.current = null;
+    // 关键：不关 AudioContext——保持常热复用。每次松手都关、下次按再新建+resume 会拖慢录音起点、
+    // 丢掉前半句（正是"整体变慢、说完松手识别不出"的回退根因）。ctx 仅在组件卸载时关。
     try { wsRef.current?.close(); } catch {}
     wsRef.current = null;
     pcmBuf.current = [];
@@ -142,14 +153,11 @@ export function useStreamVoiceInput() {
     } catch { fatalRef.current = true; try { ws.close(); } catch {} return false; }
     if (session !== sessionRef.current) { stream.getTracks().forEach((t) => t.stop()); try { ws.close(); } catch {} return false; }
 
-    // ③ 立刻起采音
+    // ③ 立刻起采音（复用常热的持久 ctx，不 await resume——多已被 warmAudio(pointerdown) 提前焐热，瞬间起采、不丢前半句）
     try {
-      const Ctx = getAudioCtx()!;
-      const ctx = new Ctx();
-      ctxRef.current = ctx;
-      // 等 AudioContext 真正 running 再起采音：首次（尤其刚授权）ctx 常处于 suspended，
-      // 不 await 直接采音会拿到前几百 ms 的静音 → 短句几乎全静音 → 识别不出（首按识别失败的元凶之一）。
-      if (ctx.state === "suspended") { try { await ctx.resume(); } catch {} }
+      let ctx = ctxRef.current;
+      if (!ctx || ctx.state === "closed") { const Ctx = getAudioCtx()!; ctx = new Ctx(); ctxRef.current = ctx; }
+      if (ctx.state === "suspended") ctx.resume().catch(() => {}); // fire-and-forget：绝不阻塞录音起点
       const srcRate = ctx.sampleRate;
       const src = ctx.createMediaStreamSource(stream); srcRef.current = src;
       const proc = ctx.createScriptProcessor(4096, 1, 1); procRef.current = proc;
@@ -200,5 +208,5 @@ export function useStreamVoiceInput() {
     return { text, fatal: false, error: !text && wsFailedRef.current };
   }
 
-  return { voice: state, startVoice: start, stopVoice: stop };
+  return { voice: state, startVoice: start, stopVoice: stop, warmAudio };
 }

@@ -540,7 +540,7 @@ function ChatInner() {
     }
   }
   function onInputPointerDown(e: React.PointerEvent) {
-    if (STREAM_ASR) prewarmStreamAsr(); // 一触碰输入框就预热中继 isolate（节流30s），让随后"按住说话"的第一次真录音不撞冷启动
+    if (STREAM_ASR) { prewarmStreamAsr(); _streamVoice.warmAudio(); } // 触碰输入框即预热：中继 isolate（节流30s）+ AudioContext（提前 resume 焐热），让随后录音瞬间起采、不丢前半句
     // 注意：模型回话中（busy）也不能在这里直接 return——否则会跳过下面的 preventDefault，
     // 浏览器就对 textarea 走默认长按行为（聚焦 + 弹「粘贴/全选」菜单），正是"按住说话变成输入框"的根因。
     // 改为照常 preventDefault 接管手势，到 350ms 真要起语音时再用 liveBusy 拦下、给温和提示。
