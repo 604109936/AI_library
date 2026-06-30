@@ -62,8 +62,9 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
   };
   // 实时事实问句（强制联网）且无荐书意图时，丢弃模型答完顺手弹的跑题荐书卡（问天气/新闻却弹上一轮的书卡＝答非所问）。
   let suppressRecs = false;
+  let gotText = false; // 本次是否吐出过任何可见正文（用于"全空才补一轮"的兜住，见循环后）
   const emitW: Emit = (e) => {
-    if (e.t === "d") { emit(e); return; }
+    if (e.t === "d") { if (typeof e.v === "string" && e.v.trim()) gotText = true; emit(e); return; }
     if (e.t === "recs" || e.t === "cites" || e.t === "web") {
       if (e.t === "recs" && suppressRecs) return;
       const de = dedupeCard(e);
@@ -131,6 +132,31 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
     const onlyCardTools = calls.every((c) => c.function.name === "recommend_books" || c.function.name === "cite_chapters");
     const visibleThisRound = raw.replace(/<think>[\s\S]*?(<\/think>|$)/g, "").replace(/\s/g, "");
     if (onlyCardTools && visibleThisRound.length > 15) break;
+  }
+  // 空回复兜住（唯一保留的 robustness——不靠正则猜模型哪错了，只是"模型打了个空嗝、零文字，就再问一次"）：
+  // 模型/上游偶发返回全空（如 Claude 经代理瞬时抽风，或强制联网拿到结果后那轮恰好空），没这层会变成
+  // "这次没说出话来"占位（实锤图：问天气却收到空白）。补一轮（最多2次，兼容补轮里再调工具→执行→作答）。
+  if (!gotText && remain() > 9_000) {
+    try {
+      for (let r = 0; r < 2 && !gotText && remain() > 7_000; r++) {
+        let rcalls: MMToolCall[] | null = null;
+        let rraw = "";
+        for await (const ev of streamChat(convo, { tools, temperature: mainTemp, model: chatModel, signal, timeoutMs: roundTimeout(), maxTokens: mainMax })) {
+          if (ev.type === "delta") { rraw += ev.text; emitW({ t: "d", v: ev.text }); }
+          else if (ev.type === "tool_calls") { rcalls = ev.calls; rraw = ev.rawContent; }
+        }
+        if (!rcalls?.length) break;
+        convo.push({ role: "assistant", content: rraw, tool_calls: rcalls });
+        for (const c of rcalls) {
+          emitW({ t: "status", v: toolStatus(c.function.name) });
+          const { result, event } = await execTool(c.function.name, c.function.arguments);
+          if (event) emitW(event);
+          convo.push({ role: "tool", tool_call_id: c.id, content: result });
+        }
+      }
+    } catch (e) {
+      console.warn("[chat] 空回复补轮异常：", e instanceof Error ? e.message : e);
+    }
   }
 }
 

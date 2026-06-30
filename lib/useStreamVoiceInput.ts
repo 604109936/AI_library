@@ -166,13 +166,18 @@ export function useStreamVoiceInput() {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     if (cancel || fatal) { cleanup(); setState(IDLE); return { text: "", fatal }; }
 
-    flushChunk(true); // 把残余样本发完
     setState((s) => ({ ...s, active: false, transcribing: true }));
-    // 发 EOS，等火山最终帧（带超时兜底）
+    const ws = wsRef.current;
+    // 把「残余缓存音频 + EOS」发给中继。关键：WS 还在连（冷启动首按最常见）时绝不能立刻判空返回，
+    // 否则这次说的话全丢——要挂到 onopen，等连上再补发，这样第一次长按也能识别。
+    const sendTail = () => { flushChunk(true); try { ws?.send("EOS"); } catch {} };
     const text = await new Promise<string>((resolve) => {
       donePromise.current = { resolve };
-      try { wsRef.current?.readyState === 1 ? wsRef.current.send("EOS") : resolve(finalText.current.trim()); } catch { resolve(finalText.current.trim()); }
-      setTimeout(() => { donePromise.current = null; resolve(finalText.current.trim()); }, 4000);
+      if (ws && ws.readyState === 1) sendTail();             // 已连上：直接发
+      else if (ws && ws.readyState === 0) ws.addEventListener("open", sendTail, { once: true }); // 还在连：等连上补发
+      else { resolve(finalText.current.trim()); return; }    // 已关闭/不可用：收尾
+      // 正常按毫秒级就 done；冷启动「连上+火山识别」可能要几秒，给足 9s 兜底（仅异常时触发）
+      setTimeout(() => { donePromise.current = null; resolve(finalText.current.trim()); }, 9000);
     });
     cleanup();
     setState(IDLE);

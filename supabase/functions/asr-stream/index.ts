@@ -72,6 +72,7 @@ Deno.serve((req) => {
   let volc: WebSocket | null = null;
   let volcOpen = false;
   let closed = false;
+  let eosPending = false; // 火山还没连上用户就松手了：标记，等连上后补发缓存音频 + 结束帧（别丢这次识别）
   const pending: Uint8Array[] = []; // 火山未就绪前先缓存 PCM
   let resolveDone: () => void;
   const done = new Promise<void>((r) => (resolveDone = r));
@@ -101,11 +102,16 @@ Deno.serve((req) => {
       },
     });
     volc.binaryType = "arraybuffer";
+    // 连接超时兜底：火山长时间连不上（冷启动异常/网络）就报错收尾，别让 isolate 一直挂到 wall-clock 上限
+    const openTimer = setTimeout(() => { if (!volcOpen && !closed) { safeSendClient({ type: "error", msg: "volc 连接超时" }); cleanup(); } }, 12000);
     volc.on("open", () => {
       volcOpen = true;
+      clearTimeout(openTimer);
       volc!.send(fullClientRequest());
       for (const c of pending) volc!.send(audioRequest(c, false));
       pending.length = 0;
+      // 用户在火山连上前就松手了：缓存音频已补发，这里再补一个结束帧收口，让这次（第一次长按）也能识别
+      if (eosPending) { try { volc!.send(audioRequest(new Uint8Array(0), true)); } catch { /*noop*/ } }
       safeSendClient({ type: "ready" });
     });
     volc.on("message", (data: ArrayBuffer | Uint8Array) => {
@@ -137,7 +143,7 @@ Deno.serve((req) => {
       // 控制消息：EOS = 用户说完了，发最后一帧（空 PCM + 结束 flag）让火山收口
       if (ev.data === "EOS") {
         if (volcOpen && volc) { try { volc.send(audioRequest(new Uint8Array(0), true)); } catch { /*noop*/ } }
-        else cleanup(); // 火山还没就绪就松手：直接收
+        else eosPending = true; // 火山还没就绪就松手：别丢！标记，等连上后补发缓存音频 + 结束帧（根治"第一次长按不识别"）
       }
       return;
     }
