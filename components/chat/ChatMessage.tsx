@@ -103,67 +103,73 @@ function CitesBlock({ cites }: { cites: Citation[] }) {
   );
 }
 
-/* 联网来源卡组（T10）：与引用章节卡同风格的列表卡，点击外链新开页。
-   域名 + 日期给可信度参照；不渲染 snippet（正文已综合作答，来源卡只管溯源） */
+/* 单条来源链接（域名 + 日期给可信度参照；不渲染 snippet，来源卡只管溯源） */
+function SourceLink({ s, n }: { s: WebSource; n: number }) {
+  let host = "";
+  let safe = false;
+  try {
+    const u = new URL(s.u);
+    host = u.hostname.replace(/^www\./, "");
+    safe = u.protocol === "http:" || u.protocol === "https:";
+  } catch {}
+  if (!safe) return <div className="rounded-xl border border-line p-2.5 text-xs text-ink-500 dark:border-white/10 dark:text-dark-text/55">{s.t}</div>;
+  return (
+    <a href={s.u} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 rounded-xl border border-line p-2.5 active:bg-moon/50 dark:border-white/10 dark:active:bg-white/5">
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-celadon-soft text-[11px] font-medium text-celadon-700 dark:bg-celadon/15 dark:text-celadon-300">{n}</span>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-xs font-medium text-ink dark:text-dark-text">{s.t}</p>
+        <p className="mt-0.5 truncate text-[10px] text-ink-300">{host}{s.d ? ` · ${s.d}` : ""}</p>
+      </div>
+      <ExternalLink size={13} className="shrink-0 text-ink-300" />
+    </a>
+  );
+}
+
+/* 联网来源卡组（T10，豆包式聚合）：一次回答里所有联网搜索合并为一张卡，按搜索词分组。
+   卡头：单关键词→「联网搜索「<词>」」；多关键词→「搜索 N 个关键词」；恒带「· 参考 M 篇资料」。
+   展开：多关键词时每组顶上标出搜索词，组内来源各自编号——用户一眼知道哪批资料来自哪个搜索词。 */
 function WebBlock({ sources }: { sources: WebSource[] }) {
-  const [open, setOpen] = useState(false); // 默认折叠，点击展开来源列表（参考豆包）
+  const [open, setOpen] = useState(false); // 默认折叠（参考豆包）
+  // 按搜索词分组，保留出现顺序
+  const groups: { q: string; items: WebSource[] }[] = [];
+  for (const s of sources) {
+    const q = s.q || "";
+    const g = groups.find((x) => x.q === q);
+    if (g) g.items.push(s);
+    else groups.push({ q, items: [s] });
+  }
+  const kws = groups.map((g) => g.q).filter(Boolean);
+  const nKw = kws.length;
+  const trunc = (t: string) => (t.length > 14 ? t.slice(0, 14) + "…" : t);
   return (
     <div className="my-3 animate-fade-up first:mt-0 last:mb-0">
-      {/* 折叠头：默认收起，仅显示「参考 N 篇资料」，点击展开来源列表 */}
       <button
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         className="flex w-full items-center gap-1.5 rounded-xl border border-line bg-snow/60 px-3 py-2 text-xs text-ink-500 active:bg-moon/50 dark:border-white/10 dark:bg-white/5 dark:text-dark-text/60 dark:active:bg-white/10"
       >
         <Globe size={13} className="shrink-0 text-celadon" />
-        {/* 卡头带上这批资料对应的搜索词：用户一眼知道哪批资料来自哪次搜索（多次搜索时尤其有用） */}
         <span className="truncate">
-          联网搜索
-          {sources[0]?.q ? <span className="text-celadon-700 dark:text-celadon-300">「{sources[0].q.length > 14 ? sources[0].q.slice(0, 14) + "…" : sources[0].q}」</span> : null}
+          {nKw > 1 ? (
+            `搜索 ${nKw} 个关键词`
+          ) : nKw === 1 ? (
+            <>联网搜索<span className="text-celadon-700 dark:text-celadon-300">「{trunc(kws[0])}」</span></>
+          ) : (
+            "联网搜索"
+          )}
           <span className="text-ink-400 dark:text-dark-text/45"> · 参考 {sources.length} 篇资料</span>
         </span>
         <ChevronDown size={14} className={"ml-auto shrink-0 text-ink-300 transition-transform " + (open ? "rotate-180" : "")} />
       </button>
       {open && (
-        <div className="mt-2 space-y-2">
-          {sources.map((s, i) => {
-        // 协议白名单（纵深防御）：历史 jsonb 或上游若混入 javascript:/data: 协议，不渲染为可点链接
-        let host = "";
-        let safe = false;
-        try {
-          const u = new URL(s.u);
-          host = u.hostname.replace(/^www\./, "");
-          safe = u.protocol === "http:" || u.protocol === "https:";
-        } catch {}
-        if (!safe) {
-          return (
-            <div key={i} className="rounded-xl border border-line p-2.5 text-xs text-ink-500 dark:border-white/10 dark:text-dark-text/55">
-              {s.t}
+        <div className="mt-2 space-y-3">
+          {groups.map((g, gi) => (
+            <div key={gi} className="space-y-2">
+              {/* 多关键词时每组顶上标出搜索词（单关键词已在卡头标出，不重复） */}
+              {nKw > 1 && g.q && <p className="px-1 text-xs text-celadon-700 dark:text-celadon-300">“{g.q}”</p>}
+              {g.items.map((s, i) => <SourceLink key={i} s={s} n={i + 1} />)}
             </div>
-          );
-        }
-        return (
-          <a
-            key={i}
-            href={s.u}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 rounded-xl border border-line p-2.5 active:bg-moon/50 dark:border-white/10 dark:active:bg-white/5"
-          >
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-celadon-soft text-[11px] font-medium text-celadon-700 dark:bg-celadon/15 dark:text-celadon-300">
-              {i + 1}
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-medium text-ink dark:text-dark-text">{s.t}</p>
-              <p className="mt-0.5 truncate text-[10px] text-ink-300">
-                {host}
-                {s.d ? ` · ${s.d}` : ""}
-              </p>
-            </div>
-            <ExternalLink size={13} className="shrink-0 text-ink-300" />
-          </a>
-        );
-          })}
+          ))}
         </div>
       )}
     </div>
@@ -222,6 +228,9 @@ export const ChatMessage = memo(function ChatMessage({
   // 卡片交错渲染：按占位标记切段，卡片出现在工具调用的真实位置；
   // 没有标记的老消息（或停止时标记还没吐出来）回退为渲染在末尾，卡不会丢
   const segments = splitCardSegments(msg.content);
+  // 联网来源卡聚合（豆包式）：一次回答里多次搜索的来源合并成一张卡（按搜索词分组），只在第一个 web 标记位置渲染一次、
+  // 带上全部 webSources；其余 web 标记不再各出一张卡。无任何 web 标记（老消息/中途停止）时由末尾回退渲染。
+  const firstWebSegIdx = segments.findIndex((s) => s.kind === "web");
   // 各类卡片已被正文内标记覆盖到的上界（from/to 连续追加，故已渲染区间恒为 [0,maxTo)）：末尾按差集只补渲
   // 尚未被任何已现标记覆盖的剩余卡片，避免「停在第一批标记后、第二批卡丢失」（旧的全有全无回退会整组丢卡）。
   const coveredTo = (kind: "recs" | "cites" | "web") => segments.reduce((mx, s) => (s.kind === kind ? Math.max(mx, s.to) : mx), 0);
@@ -262,8 +271,8 @@ export const ChatMessage = memo(function ChatMessage({
               return books.length ? <RecsBlock key={i} books={books} /> : null;
             }
             if (seg.kind === "web") {
-              const sources = (msg.webSources ?? []).slice(seg.from, seg.to);
-              return sources.length ? <WebBlock key={i} sources={sources} /> : null;
+              // 聚合：只在第一个 web 标记处渲染一张卡、含全部来源（按搜索词分组）；其余 web 标记跳过
+              return i === firstWebSegIdx && (msg.webSources?.length ?? 0) > 0 ? <WebBlock key={i} sources={msg.webSources!} /> : null;
             }
             const cites = (msg.citations ?? []).slice(seg.from, seg.to);
             return cites.length ? <CitesBlock key={i} cites={cites} /> : null;
@@ -273,7 +282,7 @@ export const ChatMessage = memo(function ChatMessage({
               流式中不回退：标记还在路上，先出现在末尾再跳到正确位置会很怪 */}
           {!msg.streaming && (msg.citations?.length ?? 0) > citesDone && <CitesBlock cites={msg.citations!.slice(citesDone)} />}
           {!msg.streaming && (msg.recommendations?.length ?? 0) > recsDone && <RecsBlock books={msg.recommendations!.slice(recsDone)} />}
-          {!msg.streaming && (msg.webSources?.length ?? 0) > webDone && <WebBlock sources={msg.webSources!.slice(webDone)} />}
+          {!msg.streaming && firstWebSegIdx < 0 && (msg.webSources?.length ?? 0) > 0 && <WebBlock sources={msg.webSources!} />}
           {/* 断线截断尾注：与正文解耦，仅展示用、不进回灌上下文（Bug#11） */}
           {msg.truncated && (
             <p className="mt-2 border-t border-line pt-2 text-[11px] text-ink-300 dark:border-white/10">（后面断线了，回答可能不完整——可以点「继续生成」从断处接着补全）</p>
