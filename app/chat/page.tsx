@@ -529,7 +529,9 @@ function ChatInner() {
     }
   }
   function onInputPointerDown(e: React.PointerEvent) {
-    if (busy) return;
+    // 注意：模型回话中（busy）也不能在这里直接 return——否则会跳过下面的 preventDefault，
+    // 浏览器就对 textarea 走默认长按行为（聚焦 + 弹「粘贴/全选」菜单），正是"按住说话变成输入框"的根因。
+    // 改为照常 preventDefault 接管手势，到 350ms 真要起语音时再用 liveBusy 拦下、给温和提示。
     // 录音中/长按窗口内第二根手指（掌缘误触）再落下：忽略——否则两个定时器都会触发 startVoice，
     // 双识别器并存会清掉已识别文本且旧识别器占着麦克风不放
     if (recordingRef.current || pressTimer.current) return;
@@ -545,6 +547,9 @@ function ChatInner() {
     try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch {}
     pressTimer.current = setTimeout(async () => {
       pressFired.current = true;
+      // 模型还在回话时长按：不进语音（识别完会自动发送，与正在流式的回答冲突），给温和提示即可。
+      // 取 liveBusy 实时值（而非闭包捕获的 busy）：模型若在按住期间刚好答完，仍可顺畅进入语音。
+      if (liveBusy) { toast("小涤还在回话，等它说完再聊语音哦~", "info"); return; }
       if (recordingRef.current) return; // 竞态兜底：已在录音绝不再起一个识别器
       if (!voiceSupported()) {
         toast("当前浏览器不支持语音输入，可以用键盘自带的语音键", "info");
