@@ -12,7 +12,9 @@ import { readOverride, DEFAULT_COMPRESS_KEEP, DEFAULT_COMPRESS_BATCH_MIN, DEFAUL
 // KEEP（保留最近多少条不压）/ BATCH_MIN（攒够多少才压）/ 温度 / 提示词 已移到后台可调（readOverride，默认见 agentConfig）
 const CATCH_UP = 60; // 单轮最多消化的消息数：存量长会话首压（until=0）若不设上限，part 可达数十万字必超时，
 //                      且失败不推进 until → 每轮白烧一次百秒长调用永不自愈；分多轮滚动合并追平
-const COMPRESS_MODEL = process.env.MINIMAX_COMPRESS_MODEL || "MiniMax-M3"; // 任务书 T5：全部调用统一 M3
+// 压缩模型默认跟随主对话模型（CHAT_MODEL=火山豆包-pro，实测接受 24576 maxTokens）：统一模型栈、更快更省；
+// 可用 MINIMAX_COMPRESS_MODEL 单独覆盖，两个 env 都缺省才回退 MiniMax-M3
+const COMPRESS_MODEL = process.env.MINIMAX_COMPRESS_MODEL || process.env.CHAT_MODEL || "MiniMax-M3";
 // 出厂默认压缩指令（后台可覆盖）
 export const BASE_COMPRESS_PROMPT =
   "你是对话压缩器。把读者与 AI 读书伙伴的旧对话压缩成接续摘要，供 AI 后续对话时回忆上下文。" +

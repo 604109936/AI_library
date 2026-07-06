@@ -14,7 +14,8 @@ import { readOverride, DEFAULT_MEMORY_MIN_NEW, DEFAULT_MEMORY_TEMPERATURE } from
 const CATCH_UP = 40; // 单轮最多消化的消息数：存量长会话首跑（until=0）不限量会让 part 膨胀到必超时，
 //                      且失败不推进 → 永久死循环白烧 token；分多轮追平
 const MAX_FIELD = 1000; // 单维度硬上限（防膨胀兜底）
-const MEMORY_MODEL = process.env.MINIMAX_MEMORY_MODEL || "MiniMax-M3"; // 任务书 T5：全部调用统一 M3
+// 记忆模型默认跟随主对话模型（CHAT_MODEL=火山豆包-pro）：统一模型栈；可用 MINIMAX_MEMORY_MODEL 单独覆盖
+const MEMORY_MODEL = process.env.MINIMAX_MEMORY_MODEL || process.env.CHAT_MODEL || "MiniMax-M3";
 // 出厂默认记忆管理器指令（后台可覆盖）
 export const BASE_MEMORY_PROMPT =
   "你是读者记忆管理器。对照「记忆现值」与「新对话」，判断哪些维度需要更新。" +
