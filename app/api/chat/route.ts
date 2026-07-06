@@ -140,7 +140,7 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
     if (round >= MAX_ROUNDS || remain() < 12_000) {
       // 轮次耗尽：纯出卡工具仍执行（正文可能已承诺"为你推荐/依据如下"，卡片是用户唯一点击入口），其余丢弃
       for (const c of calls) {
-        if (c.function.name === "recommend_books" || c.function.name === "cite_chapters") {
+        if (c.function.name === "recommend_books" || c.function.name === "cite_chapters" || c.function.name === "suggest_replies") {
           emitW({ t: "status", v: toolStatus(c.function.name) }); // 工具一触发就给对应水波纹（口径与主循环一致）
           const { event } = await execTool(c.function.name, c.function.arguments);
           if (event) emitW(event);
@@ -167,7 +167,7 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
     // 展示卡片类工具（recommend_books/cite_chapters）是终端动作：本轮若已写出实质正文 + 出了卡，就此收尾、
     // 不再开下一轮——根治"模型调完卡片又在下一轮重写一遍收尾"导致的重复（实测 Claude 偶发改写式重复收尾）。
     // 仅当本轮没写正文（纯调卡片、把作答留到下一轮）才继续，让模型补出答案。
-    const onlyCardTools = calls.every((c) => c.function.name === "recommend_books" || c.function.name === "cite_chapters");
+    const onlyCardTools = calls.every((c) => c.function.name === "recommend_books" || c.function.name === "cite_chapters" || c.function.name === "suggest_replies");
     const visibleThisRound = raw.replace(/<think>[\s\S]*?(<\/think>|$)/g, "").replace(/\s/g, "");
     if (onlyCardTools && visibleThisRound.length > 15) break;
   }
@@ -266,7 +266,7 @@ export async function POST(req: NextRequest) {
       const events: ToolEvent[] = [];
       await runAgent(msgs, uid, (e) => {
         if (e.t === "d" && e.v) content += e.v;
-        if (e.t === "recs" || e.t === "cites" || e.t === "web") events.push(e as ToolEvent);
+        if (e.t === "recs" || e.t === "cites" || e.t === "web" || e.t === "sug") events.push(e as ToolEvent);
       }, undefined, compressed, testEp);
       afterAnswer();
       return NextResponse.json({ content, events });
@@ -299,7 +299,7 @@ export async function POST(req: NextRequest) {
       };
       const emit: Emit = (e) => {
         if (e.t === "d" && typeof e.v === "string") acc += e.v;
-        else if (e.t === "recs" || e.t === "cites" || e.t === "web") evAcc.push(e as ToolEvent);
+        else if (e.t === "recs" || e.t === "cites" || e.t === "web" || e.t === "sug") evAcc.push(e as ToolEvent);
         if (!clientGone) {
           try { controller.enqueue(enc.encode(JSON.stringify(e) + "\n")); } catch { clientGone = true; } // enqueue 抛错=流已被客户端取消
         }

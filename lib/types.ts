@@ -118,6 +118,7 @@ export interface ChatMessage {
   toolNote?: string; // 工具调用中文案（查找书籍…/翻阅图书…/章节浏览…），仅流式期间展示
   error?: boolean; // 错误/中断占位消息：组装上下文时剔除（防模型把报错文案当成自己说过的话）
   truncated?: boolean; // 断线截断：content 仅存模型真实正文（不含尾注），尾注由渲染层据此追加，绝不进回灌上下文（Bug#11）
+  suggestions?: string[]; // 快捷追问 chips（suggest_replies 工具产出，2~3 条短问题；仅最后一条助手消息渲染成可点气泡）
 }
 
 export interface ChatSession {

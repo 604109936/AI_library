@@ -414,6 +414,9 @@ function ChatInner() {
               apply({ webSources: webAcc.slice() });
               smooth();
             }
+          } else if (ev.t === "sug" && Array.isArray(ev.v)) {
+            const qs = (ev.v as unknown[]).map(String).filter(Boolean).slice(0, 3);
+            if (qs.length) apply({ suggestions: qs }); // 快捷追问气泡：挂上消息，由最后一条助手消息渲染
           } else if (ev.t === "err") throw new Error(typeof ev.v === "string" ? ev.v : "服务暂时不可用");
         };
         const reader = r.body.getReader();
@@ -579,6 +582,9 @@ function ChatInner() {
             const q = (ev.v as { q?: string }).q;
             const items = (ev.v as { items: WebSource[] }).items.filter((x) => x?.t && x?.u).map((x) => ({ ...x, q }));
             if (items.length) { webAcc.push(...items); applyM({ webSources: webAcc.slice() }); }
+          } else if (ev.t === "sug" && Array.isArray(ev.v)) {
+            const qs = (ev.v as unknown[]).map(String).filter(Boolean).slice(0, 3);
+            if (qs.length) applyM({ suggestions: qs });
           } else if (ev.t === "err") throw new Error(typeof ev.v === "string" ? ev.v : "服务暂时不可用");
         };
         const handleLine = async (line: string) => { if (!line) return; let ev: { t: string; v?: unknown } | null = null; try { ev = JSON.parse(line); } catch { return; } if (ev) await handle(ev); };
@@ -871,6 +877,7 @@ function ChatInner() {
                   msg={m}
                   onRegenerate={!busy && m.role === "assistant" && i === visible.length - 1 ? regenerate : undefined}
                   onContinue={!busy && m.role === "assistant" && i === visible.length - 1 && m.truncated ? continueGenerate : undefined}
+                  onSuggest={!busy && m.role === "assistant" && i === visible.length - 1 && m.suggestions?.length ? send : undefined}
                   onFeedback={setFeedback}
                   onFeedbackDetail={setFeedbackDetail}
                 />

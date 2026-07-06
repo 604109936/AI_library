@@ -194,12 +194,14 @@ export const ChatMessage = memo(function ChatMessage({
   msg,
   onRegenerate,
   onContinue,
+  onSuggest,
   onFeedback,
   onFeedbackDetail,
 }: {
   msg: TMsg;
   onRegenerate?: () => void;
   onContinue?: () => void; // 截断回答专用：从断点续写（替代「重新生成」）
+  onSuggest?: (q: string) => void; // 快捷追问气泡：点了直接发送（仅最后一条助手消息传入）
   onFeedback?: (id: string, value: "up" | "down" | null) => void;
   onFeedbackDetail?: (id: string, reasons: string[], text: string) => void; // 踩原因随消息落库（T2.5）
 }) {
@@ -286,6 +288,21 @@ export const ChatMessage = memo(function ChatMessage({
           {/* 断线截断尾注：与正文解耦，仅展示用、不进回灌上下文（Bug#11） */}
           {msg.truncated && (
             <p className="mt-2 border-t border-line pt-2 text-[11px] text-ink-300 dark:border-white/10">（后面断线了，回答可能不完整——可以点「继续生成」从断处接着补全）</p>
+          )}
+          {/* 快捷追问气泡：答疑收尾的「接着聊」台阶（章节卡=读原文，追问气泡=继续聊，两套入口各干各的）。
+              仅最后一条助手消息、非流式时可点；点击即发送 */}
+          {!msg.streaming && onSuggest && (msg.suggestions?.length ?? 0) > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2 animate-fade-up">
+              {msg.suggestions!.slice(0, 3).map((q) => (
+                <button
+                  key={q}
+                  onClick={() => onSuggest(q)}
+                  className="rounded-full border border-celadon/50 bg-celadon-soft/40 px-3 py-1.5 text-xs text-celadon-700 active:scale-95 dark:border-celadon/30 dark:bg-celadon/10 dark:text-celadon-300"
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
           )}
         </div>
       )}

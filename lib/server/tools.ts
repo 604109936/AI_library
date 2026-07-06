@@ -14,6 +14,7 @@ export const TOOL_STATUS: Record<string, string> = {
   read_book_toc: "翻阅图书",
   read_chapter: "细读原文", // 读整章原文：与 cite 区分开，别再共用笼统的「章节浏览」
   cite_chapters: "整理章节", // 出可点击的引用章节卡
+  suggest_replies: "整理话头", // 出快捷追问 chips
   web_lookup: "联网搜索",
 };
 
@@ -83,7 +84,7 @@ export const AGENT_TOOLS: MMTool[] = [
     function: {
       name: "cite_chapters",
       description:
-        "展示可点击的「引用章节」卡片——让章节能跳读原文的**唯一方式**。【何时调用】凡正文讲到某馆藏书的内容 / 观点 / 情节 / 人物 / 某一章（答疑、解读、或顺带讲到都算）→ 末尾调用列出相关章节，让读者跳读原文。这是讲书内容**几乎每次都要做的收尾**，宁多列别漏。正文写「点进去跳读原文」而不调用＝点不了的空话。items ≤4、同一章不重复。",
+        "展示可点击的「引用章节」卡片——让章节能跳读原文的**唯一方式**。【何时调用】凡正文讲到某馆藏书的内容 / 观点 / 情节 / 人物 / 某一章（答疑、解读、或顺带讲到都算）→ 末尾调用列出章节。**只列真正支撑本轮回答的：概览答疑 1~2 章、细节答疑至多 3 章**——卡片是入口不是目录，堆一排反而淹没重点。正文写「点进去跳读原文」而不调用＝点不了的空话。同一章不重复。",
       parameters: {
         type: "object",
         properties: {
@@ -94,6 +95,19 @@ export const AGENT_TOOLS: MMTool[] = [
           },
         },
         required: ["items"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "suggest_replies",
+      description:
+        "在回答下方展示 2~3 个可一键发送的「快捷追问」气泡。【何时调用】答疑 / 解读的收尾（通常与 cite_chapters 同轮或紧随其后）：给出读者最可能想接着问的短问题（每条 ≤14 字，如「拉伸区怎么找」「元认知怎么练」）——**代替在正文里问「想先聊哪块」**（正文追问会和章节卡抢戏）。【勿调】荐书 / 闲聊 / 实时问题的回答不调。调用后本轮结束、不再输出文字。",
+      parameters: {
+        type: "object",
+        properties: { questions: { type: "array", items: { type: "string" }, description: "2~3 条短追问（每条≤14字、读者口吻）" } },
+        required: ["questions"],
       },
     },
   },
@@ -131,7 +145,8 @@ export async function getAgentTools(): Promise<MMTool[]> {
 export type ToolEvent =
   | { t: "recs"; v: { id: string; title: string; author: string; cv: string; cs: number }[] }
   | { t: "cites"; v: { b: string; c: number; bt: string; ct: string; sn: string; cs: number; cv: string }[] }
-  | { t: "web"; v: { q: string; items: { t: string; u: string; d: string }[] } };
+  | { t: "web"; v: { q: string; items: { t: string; u: string; d: string }[] } }
+  | { t: "sug"; v: string[] }; // 快捷追问 chips（2~3 条短问题）
 
 export async function execTool(name: string, argsJson: string): Promise<{ result: string; event?: ToolEvent }> {
   let args: any = {};
@@ -229,6 +244,11 @@ export async function execTool(name: string, argsJson: string): Promise<{ result
       }
       if (!valid.length) return { result: "失败：引用的章节不存在，卡片没有展示。请核对 book_id 与 chapter_no 后重试；若不重试，正文中不得提及卡片。" };
       return { result: "已收到。若你已把这章讲清，**本轮就此结束**；若还没讲，一两句点出讲什么即可。别把整段原文贴进对话，也别出现\"卡片 / 入口 / 已展示 / 点开 / 在下面 / 👇 / ↓\"等任何字样——读者会自动看到可点章节，无需你交代。", event: { t: "cites", v: valid } };
+    }
+    if (name === "suggest_replies") {
+      const qs = (Array.isArray(args.questions) ? args.questions : []).map((q: unknown) => cutSafe(String(q ?? "").trim(), 20)).filter(Boolean).slice(0, 3);
+      if (!qs.length) return { result: "失败：缺少 questions。" };
+      return { result: "已收到。追问气泡会自动展示，本轮就此结束，不要再输出任何文字。", event: { t: "sug", v: qs } };
     }
     if (name === "web_lookup") {
       const q = cutSafe(String(args.query ?? "").trim(), 60);
