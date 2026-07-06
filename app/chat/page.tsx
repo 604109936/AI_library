@@ -1088,7 +1088,7 @@ function ChatInner() {
               <p className="max-h-16 w-full overflow-hidden px-2 text-center text-sm leading-relaxed text-ink dark:text-dark-text">{voicePartial}</p>
             ) : null}
             {/* 灰色提示（常驻不变色） */}
-            <p className="text-xs text-ink-400 dark:text-dark-text/55">{cancelArmed ? "松开取消" : "上滑取消，松开发送"}</p>
+            <p className="text-xs text-ink-400 dark:text-dark-text/55">{cancelArmed ? "松开取消" : (voice.level > 0.08 || voicePartial) ? "上滑取消，松开发送" : "请讲…"}</p>
             {/* 大号长框＝手指长按处：青瓷↔上滑变红；下方实色盖住 Tab、一体化 */}
             <div className={"h-14 w-full rounded-3xl shadow-celadon transition-colors duration-200 " + (cancelArmed ? "bg-rouge" : "bg-celadon")} />
           </div>

@@ -63,6 +63,8 @@ export function useStreamVoiceInput() {
   const sessionRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const donePromise = useRef<{ resolve: (t: string) => void } | null>(null);
+  const micIdleTimer = useRef<ReturnType<typeof setTimeout> | null>(null); // A·麦克风短驻留：30s 无语音才真正关麦
+  const releaseMic = () => { if (micIdleTimer.current) { clearTimeout(micIdleTimer.current); micIdleTimer.current = null; } streamRef.current?.getTracks().forEach((t) => t.stop()); streamRef.current = null; };
   const preArmed = useRef(false); // 预拾音已启动（pointerdown 即开麦+连WS，长按判定通过后无缝转正——根治"开口早于拾音"丢字）
   const bootP = useRef<Promise<boolean> | null>(null);
   const allPcm = useRef<number[]>([]); // 2)整句PCM留底(<=60s约2MB)：断线重拨时从头重发，后半句不丢
@@ -70,6 +72,12 @@ export function useStreamVoiceInput() {
 
   // 卸载时才彻底拆（含关 AudioContext）；录音之间的 cleanup 保留 ctx 常热（见 cleanup 注释）
   useEffect(() => () => { cleanup(); try { ctxRef.current?.close(); } catch {} ctxRef.current = null; }, []);
+  useEffect(() => {
+    const onVis = () => { if (document.visibilityState === "hidden" && !recordingRef.current && !preArmed.current) releaseMic(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { document.removeEventListener("visibilitychange", onVis); releaseMic(); };
+    // eslint-disable-next-line
+  }, []);
 
   // 创建 / resume 持久 AudioContext，并保持常热复用。在用户手势里（pointerdown）提前调用预热，
   // 这样真正录音时瞬间起采、不丢前半句；首次也因已提前 resume 而无静音空档。resume 需用户手势触发。
@@ -87,8 +95,10 @@ export function useStreamVoiceInput() {
     try { procRef.current?.disconnect(); } catch {}
     try { srcRef.current?.disconnect(); } catch {}
     procRef.current = null; srcRef.current = null;
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
+    // A·短驻留：不立即关麦（每次重开要付 150~300ms 激活+增益爬坡＝"长按立马说话丢头半秒"的根因）。
+    // 30s 无语音才释放；切后台/卸载立即释放（见 hook 内监听）。期间缓冲不写入、什么都没录。
+    if (micIdleTimer.current) clearTimeout(micIdleTimer.current);
+    micIdleTimer.current = setTimeout(releaseMic, 30_000);
     // 关键：不关 AudioContext——保持常热复用。每次松手都关、下次按再新建+resume 会拖慢录音起点、
     // 丢掉前半句（正是"整体变慢、说完松手识别不出"的回退根因）。ctx 仅在组件卸载时关。
     try { wsRef.current?.close(); } catch {}
@@ -212,9 +222,18 @@ export function useStreamVoiceInput() {
     const ws = openWs(session);
     if (!ws) return false;
 
-    // ② 拿麦克风（唯一必须 await 的步骤；权限已授时很快）
+    // B·首词前导：先垫 250ms 静音，帮火山 VAD 稳住第一个词的边界（开头略毛糙也不吞首词）
+    const pad = new Array(Math.floor(TARGET_RATE * 0.25)).fill(0);
+    pcmBuf.current = pad.slice();
+    allPcm.current = pad.slice();
+    // ② 拿麦克风：短驻留的活流直接复用（零激活零爬坡＝按下即真拾音）；没有才现开
     let stream: MediaStream;
-    try {
+    const kept = streamRef.current;
+    if (kept && kept.getTracks().some((t) => t.readyState === "live")) {
+      if (micIdleTimer.current) { clearTimeout(micIdleTimer.current); micIdleTimer.current = null; }
+      stream = kept;
+      streamRef.current = null; // 交给下方重新挂 graph 后回填，避免 cleanup 竞态双持
+    } else try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
     } catch { fatalRef.current = true; try { ws.close(); } catch {} return false; }
     try { localStorage.setItem("mic-granted", "1"); } catch {} // 拿到过麦克风：此后按下即可预拾音
