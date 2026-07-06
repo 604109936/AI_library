@@ -108,20 +108,30 @@ export default function FlipPage() {
     if (p > 0 && p < 0.99) { try { v.currentTime = p * v.duration; } catch {} }
   }, []);
 
-  // 播当前槽位视频、暂停其余；带声被拦则静音兜底（绝不暂停）
-  const playActive = useCallback(() => {
+  // 「本次手势按下时视频是否处于静音态」的快照（kick 在 pointerdown 时记录）：若按下时静音、随后的单击判定时
+  // 已被 kick 手势翻回有声，则本次轻点的语义就是「开启声音」，不再执行暂停（与抖音一致：静音态第一次点=开声）。
+  // 按手势快照而非时间窗：切条落点/回前台等非手势 unmute 不会误打标，不吞用户真实的暂停意图（评审发现#2）。
+  const gestureStartedMuted = useRef(false);
+  const lastKickAt = useRef(0);
+
+  // 播当前槽位视频、暂停其余；带声被拦则静音兜底（绝不暂停）。
+  // keepMuted=true（onPause 自动补播用）：保持视频当前静音态、不翻成带声——拔耳机/系统中断触发的 pause
+  // 若翻 unmute 会让静音兜底中的视频突然外放（评审发现#4）；声音恢复交给用户手势 kick。
+  const playActive = useCallback((keepMuted = false) => {
     const aSlot = slotOf(activeIdxRef.current);
     videoRefs.current.forEach((v, s) => { if (v && s !== aSlot && !v.paused) v.pause(); });
     const v = videoRefs.current[aSlot];
     if (!v || userPausedRef.current) return;
-    v.muted = !soundOnRef.current;
+    if (!keepMuted) v.muted = !soundOnRef.current;
     setMutedNow(v.muted);
     // 异步回调守卫：play() Promise 落定时用户可能已快滑切条（pause 旧槽会让 pending play 以
     // AbortError 拒绝）。不带守卫会复活旧槽后台播放、污染全局静音图标、误烧静音提示、
     // 把旧槽的源错误盖到新条上——四个症状一锅端。
     const stillActive = () => slotOf(activeIdxRef.current) === aSlot;
     v.play().then(() => { if (stillActive()) setMutedNow(v.muted); }).catch(() => {
-      if (!stillActive()) return;
+      // userPaused 守卫：缓冲期用户点了暂停会让 pending play 以 AbortError 落到这里，不带守卫会静音复活播放、
+      // 造成"播放按钮悬浮在正在播的视频上"（评审发现#3）
+      if (!stillActive() || userPausedRef.current) return;
       v.muted = true;
       setMutedNow(true);
       // 静音兜底首次触发：提示「轻点开启声音」，4 秒自隐（每次会话仅一次）
@@ -130,7 +140,29 @@ export default function FlipPage() {
         setMutedHint(true);
         setTimeout(() => setMutedHint(false), 4000);
       }
-      v.play().catch(() => { if (stillActive() && v.error) setVErr(true); }); // 静音兜底也播不动且源已坏 → 走错误兜底而非一直转圈
+      v.play().catch(() => {
+        if (!stillActive()) return;
+        if (v.error) setVErr(true); // 源已坏 → 错误兜底
+        else setUserPaused(true); // 静音也播不动（如 iOS 低电量禁全部自动播放）：亮出播放按钮给用户手动起播的生路，别冻住无按钮（评审发现#7）
+      });
+    });
+  }, [setUserPaused]);
+
+  // 手势内解锁整个视频池：iOS/微信 X5 的带声播放许可是「按 video 元素」记的——乱翻复用 3 个元素轮播，
+  // 只有 active 那个被手势播过，滑到下一条用的是没解锁的元素 → 带声 play 被拒 → 静音兜底（"滑着滑着就静音"的根因）。
+  // 在用户手势内把相邻槽也静音 play 一下（起播即停），三个元素全部拿到播放许可，之后切条带声播放不再被拦。
+  const unlockedSlots = useRef<boolean[]>([false, false, false]);
+  const unlockPool = useCallback(() => {
+    videoRefs.current.forEach((v, s) => {
+      if (!v || unlockedSlots.current[s]) return;
+      if (s === slotOf(activeIdxRef.current)) { unlockedSlots.current[s] = true; return; } // active 槽由 playActive 在同一手势内解锁
+      if (!v.currentSrc && !v.getAttribute("src")) return; // 还没分到源的槽：等分到源后的下一个手势再解锁
+      const wasMuted = v.muted;
+      v.muted = true; // 静音解锁：绝不与当前条串音
+      unlockedSlots.current[s] = true; // 手势内调用过 play 即获元素级许可（iOS 口径）
+      v.play().then(() => {
+        if (slotOf(activeIdxRef.current) !== s) { v.pause(); v.muted = wasMuted; } // 起播即停（顺带暖了缓冲）；已滑成 active 则交给 playActive
+      }).catch(() => { v.muted = wasMuted; unlockedSlots.current[s] = false; }); // 被拒回滚标记：下个手势再试，不永久失去解锁机会（评审发现#6）
     });
   }, []);
 
@@ -225,15 +257,28 @@ export default function FlipPage() {
     return () => { el.removeEventListener("scroll", onScroll); el.removeEventListener("scrollend", compute); if (raf) cancelAnimationFrame(raf); };
   }, [loading, books.length, onActive]);
 
-  // 手势内触发播放（微信只认手势内 play → 带声解锁）
+  // 手势内触发播放（微信只认手势内 play → 带声解锁）。监听挂 document 而非 scroller：
+  // 骨架屏/加载阶段 scroller 还没渲染，那时的触摸也不能浪费（首次进入网络慢、"入场点击"的手势余温已过期时，
+  // 用户在骨架屏上的第一次触摸就是最早的解锁时机）；顺带在同一手势内解锁整个视频池（unlockPool）。
+  // 排除控件区（data-nokick / BottomNav 的 nav）：kick 若在声音钮的 pointerdown 先跑、把静音翻成有声，
+  // 随后 click 的 toggleSound 会基于翻转后的状态反向再翻——点「开启声音」变成全局静音（评审发现#1）；
+  // 导航类控件（读这本书 / BottomNav）跳转前也不该闪一声。
   useEffect(() => {
-    const el = scrollerRef.current;
-    if (!el) return;
-    const kick = () => playActive();
-    el.addEventListener("pointerdown", kick, { passive: true });
-    el.addEventListener("touchstart", kick, { passive: true });
-    return () => { el.removeEventListener("pointerdown", kick); el.removeEventListener("touchstart", kick); };
-  }, [playActive, books.length, loading]);
+    const kick = (e: Event) => {
+      const t = e.target as HTMLElement | null;
+      if (t && typeof t.closest === "function" && t.closest("[data-nokick],nav")) return;
+      // 同一次触摸 pointerdown/touchstart 会双双触发：手势快照只在"新手势"时取（>100ms 视为新手势），
+      // 防第二个事件用 playActive 翻转后的状态覆盖快照
+      const now = Date.now();
+      if (now - lastKickAt.current > 100) gestureStartedMuted.current = activeVideo()?.muted ?? false;
+      lastKickAt.current = now;
+      playActive();
+      unlockPool();
+    };
+    document.addEventListener("pointerdown", kick, { passive: true });
+    document.addEventListener("touchstart", kick, { passive: true });
+    return () => { document.removeEventListener("pointerdown", kick); document.removeEventListener("touchstart", kick); };
+  }, [playActive, unlockPool, activeVideo]);
 
   // 微信 X5 默认禁自动播放，等 JS 桥就绪触发
   useEffect(() => {
@@ -256,6 +301,10 @@ export default function FlipPage() {
   const togglePlay = useCallback(() => {
     const v = activeVideo();
     if (!v) return;
+    // 本次手势按下时还是静音、此刻已被 kick（pointerdown 手势里的 playActive）翻回有声：这次轻点的语义
+    // 就是「开启声音」，不执行暂停——与抖音一致：静音态第一次点=开声，第二次点才是暂停。按手势快照判定，
+    // 不用时间窗（切条落点/回前台的 unmute 不会误吞真实暂停意图）
+    if (gestureStartedMuted.current && !v.muted) { gestureStartedMuted.current = false; return; }
     if (v.paused) { setUserPaused(false); v.play().catch(() => {}); }
     else { setUserPaused(true); v.pause(); }
   }, [setUserPaused]);
@@ -346,7 +395,10 @@ export default function FlipPage() {
                     onPlay={() => { if (isActive(s)) setPlaying(true); }}
                     onPlaying={() => { if (isActive(s)) { setLoaded(true); setPlaying(true); } }}
                     onWaiting={() => { if (isActive(s)) setLoaded(false); }}
-                    onPause={() => { if (isActive(s)) { setPlaying(false); lastT.current = null; writeMedia(true); if (!userPausedRef.current && document.visibilityState === "visible") videoRefs.current[s]?.play().catch(() => {}); } }}
+                    // 非用户暂停的自动补播必须走 playActive（带静音兜底）而非裸 play()：iOS/X5 对"无手势开声"会直接把视频
+                    // 暂停，裸 play 带声重试再被拒＝视频停住且无播放按钮（"莫名自动暂停"的根因）；playActive 拒则静音续播、能自愈。
+                    // keepMuted=true：拔耳机/系统中断触发的 pause 补播时保持当前静音态，不翻 unmute 免得静音兜底中突然外放
+                    onPause={() => { if (isActive(s)) { setPlaying(false); lastT.current = null; writeMedia(true); if (!userPausedRef.current && document.visibilityState === "visible") playActive(true); } }}
                     onLoadedMetadata={() => onSlotMeta(s)}
                     onError={() => { if (isActive(s) && videoRefs.current[s]?.getAttribute("src")) setVErr(true); }}
                   />
@@ -367,7 +419,7 @@ export default function FlipPage() {
               <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 px-8 text-center text-dark-text/70">
                 <Motif name="cloud" className="relative w-24 text-celadon/20" />
                 <p className="relative">这本书的视频暂时无法播放</p>
-                <div className="relative flex items-center gap-3">
+                <div className="relative flex items-center gap-3" data-nokick>
                   {/* 重试：重置错误态 → 重新拉流 → 续播（幽灵样式，与详情入口并排） */}
                   <button onClick={() => { setVErr(false); setLoaded(false); activeVideo()?.load(); playActive(); }} className="pointer-events-auto rounded-full border border-white/25 bg-white/8 px-5 py-2 text-sm text-dark-text/80 backdrop-blur-md active:scale-95">重试</button>
                   <button onClick={() => { const b = books[activeIdx]; if (b) router.push(`/library/book/${b.id.split("__")[0]}`); }} className="pointer-events-auto rounded-full border border-celadon/50 bg-white/8 px-5 py-2 text-sm text-celadon-300 backdrop-blur-md active:scale-95">看图文详情</button>
@@ -398,6 +450,7 @@ export default function FlipPage() {
             <div className="pointer-events-none absolute left-1/2 z-20 h-px w-16 -translate-x-1/2 bg-gradient-to-r from-transparent via-brass/70 to-transparent" style={{ top: "calc(env(safe-area-inset-top) + 10px)" }} />
             <button
               onClick={toggleSound}
+              data-nokick // 声音钮必须免于 kick：pointerdown 若先把静音翻成有声，click 的 toggleSound 会反向再翻＝点「开声」变全局静音
               aria-label={mutedNow ? "开启声音" : "静音"}
               className="absolute right-3 z-30 flex h-11 w-11 items-center justify-center rounded-full bg-black/30 text-dark-text/90 ring-1 ring-brass/30 backdrop-blur-md transition active:scale-90"
               style={{ top: "calc(env(safe-area-inset-top) + 12px)" }}
@@ -504,7 +557,7 @@ function FlipOverlay({ book, active, onTogglePlay }: { book: Book; active: boole
       <div className="pointer-events-none absolute inset-0" style={{ background: "radial-gradient(120% 80% at 50% 42%, transparent 55%, rgba(0,0,0,0.4))" }} />
       <Motif name="branch" className="pointer-events-none absolute bottom-28 -left-4 w-28 text-brass/10" />
 
-      <div className="absolute right-3 z-10 flex flex-col items-center gap-6" style={{ bottom: "150px" }}>
+      <div className="absolute right-3 z-10 flex flex-col items-center gap-6" style={{ bottom: "150px" }} data-nokick>
         <Action
           icon={
             // key=bounce：每次收藏重挂载重播 [1,1.35,1] 弹跳
@@ -530,7 +583,7 @@ function FlipOverlay({ book, active, onTogglePlay }: { book: Book; active: boole
           </div>
           <p className="mt-1 line-clamp-2 text-[11px] leading-[16px] text-dark-text/80">{book.intro}</p>
         </div>
-        <button onClick={() => router.push(`/library/book/${realId}`)} className="inline-flex shrink-0 items-center gap-1 rounded-full bg-celadon/80 px-3 py-1.5 text-[12px] font-medium text-white ring-1 ring-white/25 backdrop-blur-md transition active:scale-95">
+        <button onClick={() => router.push(`/library/book/${realId}`)} data-nokick className="inline-flex shrink-0 items-center gap-1 rounded-full bg-celadon/80 px-3 py-1.5 text-[12px] font-medium text-white ring-1 ring-white/25 backdrop-blur-md transition active:scale-95">
           读这本书 <ArrowRight size={13} />
         </button>
       </div>
@@ -598,6 +651,7 @@ function FlipProgress({ getVideo, onSeeked }: { getVideo: () => HTMLVideoElement
   return (
     <div
       className="absolute inset-x-0 bottom-0 z-30"
+      data-nokick // 拖进度条不该顺带开声/触发播放（kick 排除）
       style={{ height: 20, touchAction: "none" }} // 20px 命中区：好按，又不压到上方「读这本书」按钮（其底距 24px）
       onPointerDown={onDown}
       onPointerMove={onMove}
