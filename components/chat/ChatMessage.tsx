@@ -304,7 +304,6 @@ export const ChatMessage = memo(function ChatMessage({
                   <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
                     {fixCjkBold(seg.text)}
                   </ReactMarkdown>
-                  {msg.streaming && stalled && i === lastSegIdx && <StallDots />}
                 </div>
               );
             }

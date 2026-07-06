@@ -308,6 +308,11 @@ export async function POST(req: NextRequest) {
         // 正常路径表里照样不留东西，代价只是每 2.5s 一个 upsert；实例若在断连时被杀，至少留有最后一片可恢复。
         if (acc || evAcc.length) snapshot(false);
       };
+      // 心跳：生成期间每 3s 一拍（模型思考/工具执行的静默期也在发）——客户端由此可用 5s 阈值零误判地判定"连接已死"
+      const hb = setInterval(() => {
+        if (clientGone) return;
+        try { controller.enqueue(enc.encode(JSON.stringify({ t: "hb" }) + "\n")); } catch { clientGone = true; }
+      }, 3000);
       const gen = (async () => {
         try {
           await runAgent(msgs, uid, emit, undefined, compressed, testEp); // 关键：不传 req.signal——断连不中止生成
@@ -320,6 +325,7 @@ export async function POST(req: NextRequest) {
           // 完成即删会让正在轮询的恢复端在 done 可见前扑空。行留给 15 分钟 TTL 清理（RLS 保护、量极小）。
           if (genId && (clientGone || acc || evAcc.length)) { lastSnap = 0; snapshot(true); }
           await chain.catch(() => {});
+          clearInterval(hb);
           try { controller.close(); } catch {}
           afterAnswer();
         }

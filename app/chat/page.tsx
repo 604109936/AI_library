@@ -375,6 +375,7 @@ function ChatInner() {
         const handle = async (ev: { t: string; v?: unknown }) => {
           if (liveCtrl !== ctrl) return; // 停止/被新请求取代后不再消费缓冲区残留事件（防 await 窗口期复活僵尸打字机）
           lastEventAt = Date.now(); // 供"僵死流"判定（连接死了但 fetch 未报错时，恢复逻辑据此掐掉重连）
+          if (ev.t === "hb") return; // 心跳：只喂看门狗，不渲染
           if (ev.t === "d" && typeof ev.v === "string") {
             acc += ev.v;
             if (noteShown !== undefined) { noteShown = undefined; apply({ toolNote: undefined }); } // 新文字到达才清工具状态
@@ -460,6 +461,7 @@ function ChatInner() {
         // 必须清掉打字机 interval：否则残留空转的旧 interval 会让下一次提问永远渲染不出字（P0）
         if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
         const msg = e instanceof Error && e.message && e.message !== "Failed to fetch" ? e.message : "网络有点不稳，缓一缓再问我一次吧";
+        if (genId && liveGen?.genId === genId) { console.info("[recover] R2-stream-error"); setTimeout(() => maybeRecoverGenRef.current?.(), 80); } // 断线瞬间即刻尝试接管快照，顺利时用户看不到断线尾注
         if (acc.trim()) {
           // 中途失败但已流出正文（多轮工具循环后段挂掉）：保留模型真实正文 + truncated 标记，不打 error。
           // 尾注由渲染层据 truncated 追加，content 不掺尾注——否则下一轮 history 会把"（后面断线了…）"
@@ -575,6 +577,7 @@ function ChatInner() {
         const handle = async (ev: { t: string; v?: unknown }) => {
           if (liveCtrl !== ctrl) return;
           lastEventAt = Date.now();
+          if (ev.t === "hb") return;
           if (ev.t === "d" && typeof ev.v === "string") { appended += ev.v; applyM({ content: baseContent + appended, toolNote: undefined }); }
           else if (ev.t === "status" && typeof ev.v === "string") applyM({ toolNote: ev.v });
           else if (ev.t === "recs" && Array.isArray(ev.v)) {
@@ -622,7 +625,7 @@ function ChatInner() {
   const maybeRecoverGen = useCallback(async () => {
     const gen = loadLiveGen();
     if (!gen || recovering.current) return;
-    if (liveBusy && Date.now() - lastEventAt < 8000) return; // 流还活着（8s 内有事件）：不打扰
+    if (liveBusy && Date.now() - lastEventAt < 5000) return; // 心跳3s一拍：5s 静默=连接必死，零误判
     let killedLive = false;
     if (liveBusy && liveCtrl) { killedLive = true; try { liveCtrl.abort(); } catch {} } // 僵死流：掐掉走恢复（abort 的收尾由本函数负责——fetch catch 对 AbortError 直接 return）
     recovering.current = true;
@@ -693,12 +696,18 @@ function ChatInner() {
     // eslint-disable-next-line
   }, []);
 
-  // 回前台/挂载即尝试恢复（微信回来常触发其一）
+  const maybeRecoverGenRef = useRef<null | (() => void)>(null);
+  maybeRecoverGenRef.current = maybeRecoverGen;
+  // 恢复触发三件套：①回前台/挂载 ②常驻看门狗（每3s查心跳，5s静默即接管——治"回来瞬间被缓冲事件骗过后再无人重试"）
+  // ③流报错瞬间（见 send catch）。心跳由服务端3s一拍，静默5s=连接必死，不会误伤思考/搜索期。
   useEffect(() => {
-    const onVis = () => { if (document.visibilityState === "visible") maybeRecoverGen(); };
+    const onVis = () => { if (document.visibilityState === "visible") { console.info("[recover] R0-visible"); maybeRecoverGen(); } };
     document.addEventListener("visibilitychange", onVis);
     maybeRecoverGen();
-    return () => document.removeEventListener("visibilitychange", onVis);
+    const dog = setInterval(() => {
+      if (liveBusy && liveGen && Date.now() - lastEventAt > 5000) { console.info("[recover] R1-watchdog-stall"); maybeRecoverGen(); }
+    }, 3000);
+    return () => { document.removeEventListener("visibilitychange", onVis); clearInterval(dog); };
     // eslint-disable-next-line
   }, []);
 
