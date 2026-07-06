@@ -9,6 +9,18 @@ export async function GET(req: NextRequest) {
   const id = req.nextUrl.searchParams.get("id") ?? "";
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return NextResponse.json({ found: false });
   const { data, error } = await admin.from("chat_gens").select("content,events,done").eq("id", id).maybeSingle();
-  if (error || !data) return NextResponse.json({ found: false });
+  if (error || !data) { console.info("[gen-get]", id.slice(0, 8), "notfound"); return NextResponse.json({ found: false }); }
+  console.info("[gen-get]", id.slice(0, 8), "done=" + !!data.done, "len=" + String(data.content ?? "").length);
   return NextResponse.json({ found: true, done: !!data.done, content: data.content ?? "", events: Array.isArray(data.events) ? data.events : [] });
+}
+
+// 客户端恢复链路埋点收口（fire-and-forget beacon）：复现一次断线即可在 vercel logs 还原每一步
+export async function POST(req: NextRequest) {
+  try {
+    const j = await req.json();
+    const id = String(j?.id ?? "").slice(0, 8);
+    const step = String(j?.step ?? "").slice(0, 60);
+    if (id && step) console.info("[gen-beacon]", id, step);
+  } catch {}
+  return NextResponse.json({ ok: true });
 }

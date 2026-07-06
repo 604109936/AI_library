@@ -461,7 +461,7 @@ function ChatInner() {
         // 必须清掉打字机 interval：否则残留空转的旧 interval 会让下一次提问永远渲染不出字（P0）
         if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
         const msg = e instanceof Error && e.message && e.message !== "Failed to fetch" ? e.message : "网络有点不稳，缓一缓再问我一次吧";
-        if (genId && liveGen?.genId === genId) { console.info("[recover] R2-stream-error"); setTimeout(() => maybeRecoverGenRef.current?.(), 80); } // 断线瞬间即刻尝试接管快照，顺利时用户看不到断线尾注
+        if (genId && liveGen?.genId === genId) { setTimeout(() => maybeRecoverGenRef.current?.("stream-error"), 80); } // 断线瞬间即刻尝试接管快照，顺利时用户看不到断线尾注
         if (acc.trim()) {
           // 中途失败但已流出正文（多轮工具循环后段挂掉）：保留模型真实正文 + truncated 标记，不打 error。
           // 尾注由渲染层据 truncated 追加，content 不掺尾注——否则下一轮 history 会把"（后面断线了…）"
@@ -622,15 +622,18 @@ function ChatInner() {
   // 凭 liveGen（sessionStorage 存活）向 /api/chat/gen 轮询服务端后台续跑的进度，回填原消息直到 done。
   // 服务端没有快照（生成没撑过断连/已TTL）→ 保持 truncated，回落「继续生成」按钮兜底。
   const recovering = useRef(false);
-  const maybeRecoverGen = useCallback(async () => {
+  // 埋点：客户端恢复每一步上报服务端日志（fire-and-forget），复现一次即可从 vercel logs 看到真相
+  const beacon = (id: string, step: string) => { try { fetch("/api/chat/gen", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, step }), keepalive: true }).catch(() => {}); } catch {} };
+  const maybeRecoverGen = useCallback(async (why: string = "?") => {
     const gen = loadLiveGen();
     if (!gen || recovering.current) return;
     if (liveBusy && Date.now() - lastEventAt < 5000) return; // 心跳3s一拍：5s 静默=连接必死，零误判
     let killedLive = false;
-    if (liveBusy && liveCtrl) { killedLive = true; try { liveCtrl.abort(); } catch {} } // 僵死流：掐掉走恢复（abort 的收尾由本函数负责——fetch catch 对 AbortError 直接 return）
+    if (liveBusy && liveCtrl) { killedLive = true; try { liveCtrl.abort(); } catch {} }
     recovering.current = true;
-    // 收尾兜底（评审#1）：恢复失败/耗尽时绝不能留下 liveBusy=true + 永久"思考中"——标截断、松开输入、可点「继续生成」
-    const finalizeFail = () => {
+    beacon(gen.genId, `start:${why}:${killedLive ? "killed" : "idle"}`);
+    const finalizeFail = (reason: string) => {
+      beacon(gen.genId, `fail:${reason}`);
       if (killedLive) {
         liveCtrl = null;
         if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
@@ -640,25 +643,31 @@ function ChatInner() {
         setLiveBusy(false);
         persist(chatLive?.messages ?? EMPTY_MSGS);
       }
-      if (liveGen?.genId === gen.genId) setLiveGen(null); // 只清自己的凭证，别误伤 await 期间换上的新对话凭证（评审#2）
+      if (liveGen?.genId === gen.genId) setLiveGen(null); // 只清自己的凭证
     };
-    // 续写场景的卡片基线：快照 events 只含续写新增，必须每次都基于「恢复开始时的原有卡片」合并（幂等，不随轮询叠加）（评审#4）
     const baseMsg = (chatLive?.messages ?? EMPTY_MSGS).find((m) => m.id === gen.aId);
     const baseArr = { recs: baseMsg?.recommendations ?? [], cites: baseMsg?.citations ?? [], webs: baseMsg?.webSources ?? [] };
     try {
-      let notFound = 0;
+      // 容错核心：微信解冻头1~2秒网络栈未恢复，第一发请求必失败——任何瞬时失败(fetch抛错/暂无快照)都计入
+      // misses 重试(至多6次、每次2s)，绝不因瞬时失败作废凭证（上一版在此把凭证烧了=永久断线的根因）
+      let misses = 0;
       for (let i = 0; i < 55; i++) {
-        if (liveGen?.genId !== gen.genId) return; // 已被新对话/停止取代
-        const r = await fetch(`/api/chat/gen?id=${gen.genId}`, { cache: "no-store" });
-        const j = await r.json().catch(() => null);
-        if (!j?.found) {
-          // 刚掐掉的僵死流：断连检测靠服务端下一个 emit，首片快照可能还要几秒——容忍 3 次再放弃
-          if (killedLive && ++notFound <= 3) { await new Promise((res) => setTimeout(res, 2000)); continue; }
-          finalizeFail();
+        if (liveGen?.genId !== gen.genId) { beacon(gen.genId, "superseded"); return; }
+        let j: { found?: boolean; done?: boolean; content?: string; events?: unknown[] } | null = null;
+        try {
+          const r = await fetch(`/api/chat/gen?id=${gen.genId}`, { cache: "no-store" });
+          j = await r.json();
+        } catch { j = null; } // 网络瞬断：按 miss 处理，别让异常冲进外层 catch 烧凭证
+        if (!j || !j.found) {
+          misses++;
+          beacon(gen.genId, `miss${misses}:${j ? "notfound" : "neterr"}`);
+          if (misses <= 6) { await new Promise((res) => setTimeout(res, 2000)); continue; }
+          finalizeFail("misses-exhausted");
           return;
         }
+        misses = 0;
         const content = gen.base + String(j.content ?? "");
-        const evs: { t: string; v?: unknown }[] = Array.isArray(j.events) ? j.events : [];
+        const evs: { t: string; v?: unknown }[] = Array.isArray(j.events) ? (j.events as { t: string; v?: unknown }[]) : [];
         const recsNew = evs.filter((e) => e.t === "recs").flatMap((e) => (Array.isArray(e.v) ? (e.v as { id: string; title?: string; author?: string; cv?: string; cs?: number }[]) : []))
           .filter((it) => it && it.id)
           .map((it) => ({ id: it.id, title: it.title ?? "", author: it.author ?? "", cover: it.cv ?? "", coverSeed: it.cs ?? 1, heroUrl: "", posterUrl: "", category: "", categoryId: "", tags: [], summary: "", rating: 0, readers: 0, words: 0, durationMin: 0, hasVideo: false, hasAudio: false, hasText: false, likes: 0, favCount: 0, reviewCount: 0, featured: false, intro: "", shelvedAt: "" } as Book));
@@ -668,9 +677,8 @@ function ChatInner() {
         });
         const citeItems = evs.filter((e) => e.t === "cites").flatMap((e) => (Array.isArray(e.v) ? (e.v as { b: string; c: number }[]) : []));
         const citesNew = citeItems.length ? await buildCitations(citeItems) : [];
-        if (liveGen?.genId !== gen.genId) return; // await 期间被取代：放弃回填
-        // 续写(base非空)：新增合并在基线之后（base 正文里的卡片占位标记引用原数组下标，原数组在前则标记依然成立）；
-        // 全新回答(base空)：快照 events 即全量，直接替换（为空则保留断连前已下发的卡片）
+        const sugNew = evs.filter((e) => e.t === "sug").flatMap((e) => (Array.isArray(e.v) ? (e.v as string[]).map(String) : []));
+        if (liveGen?.genId !== gen.genId) { beacon(gen.genId, "superseded-late"); return; }
         const recs = gen.base ? [...baseArr.recs, ...recsNew] : recsNew;
         const cites = gen.base ? [...baseArr.cites, ...citesNew] : citesNew;
         const webs = gen.base ? [...baseArr.webs, ...websNew] : websNew;
@@ -679,11 +687,13 @@ function ChatInner() {
           const exists = prev.some((m) => m.id === gen.aId);
           const patch = (m: TMsg): TMsg => ({ ...m, content, streaming: false, toolNote: undefined, error: undefined,
             truncated: done ? (content.trim() ? undefined : true) : undefined,
-            ...(recs.length ? { recommendations: recs } : {}), ...(cites.length ? { citations: cites } : {}), ...(webs.length ? { webSources: webs } : {}) });
+            ...(recs.length ? { recommendations: recs } : {}), ...(cites.length ? { citations: cites } : {}), ...(webs.length ? { webSources: webs } : {}),
+            ...(sugNew.length ? { suggestions: sugNew } : {}) });
           return exists ? prev.map((m) => (m.id === gen.aId ? patch(m) : m)) : [...prev, patch({ id: gen.aId, role: "assistant", content: "" } as TMsg)];
         });
-        if (killedLive) { liveCtrl = null; if (liveTimer) { clearInterval(liveTimer); liveTimer = null; } setLiveBusy(false); killedLive = false; } // 已接管：松开被掐流占用的 busy 态
+        if (killedLive) { liveCtrl = null; if (liveTimer) { clearInterval(liveTimer); liveTimer = null; } setLiveBusy(false); killedLive = false; }
         if (done) {
+          beacon(gen.genId, `done:${content.length}`);
           if (liveGen?.genId === gen.genId) setLiveGen(null);
           setLiveBusy(false);
           persist(chatLive?.messages ?? EMPTY_MSGS);
@@ -691,21 +701,20 @@ function ChatInner() {
         }
         await new Promise((res) => setTimeout(res, 2000));
       }
-      finalizeFail(); // 55 次耗尽（~110s）仍没 done：按失败收尾，别留僵态
-    } catch { finalizeFail(); } finally { recovering.current = false; }
+      finalizeFail("poll-exhausted");
+    } catch (e) { beacon(gen.genId, "exception"); finalizeFail("exception"); console.warn("[recover]", e); } finally { recovering.current = false; }
     // eslint-disable-next-line
   }, []);
-
-  const maybeRecoverGenRef = useRef<null | (() => void)>(null);
+  const maybeRecoverGenRef = useRef<null | ((why?: string) => void)>(null);
   maybeRecoverGenRef.current = maybeRecoverGen;
   // 恢复触发三件套：①回前台/挂载 ②常驻看门狗（每3s查心跳，5s静默即接管——治"回来瞬间被缓冲事件骗过后再无人重试"）
   // ③流报错瞬间（见 send catch）。心跳由服务端3s一拍，静默5s=连接必死，不会误伤思考/搜索期。
   useEffect(() => {
-    const onVis = () => { if (document.visibilityState === "visible") { console.info("[recover] R0-visible"); maybeRecoverGen(); } };
+    const onVis = () => { if (document.visibilityState === "visible") { maybeRecoverGen("visible"); } };
     document.addEventListener("visibilitychange", onVis);
-    maybeRecoverGen();
+    maybeRecoverGen("mount");
     const dog = setInterval(() => {
-      if (liveBusy && liveGen && Date.now() - lastEventAt > 5000) { console.info("[recover] R1-watchdog-stall"); maybeRecoverGen(); }
+      if (liveBusy && liveGen && Date.now() - lastEventAt > 5000) { maybeRecoverGen("watchdog"); }
     }, 3000);
     return () => { document.removeEventListener("visibilitychange", onVis); clearInterval(dog); };
     // eslint-disable-next-line

@@ -280,6 +280,7 @@ export async function POST(req: NextRequest) {
   // **不再打断生成**——runAgent 不挂 req.signal，waitUntil 让实例在响应流关闭后继续跑完；断连一刻起把进度
   // （正文 + 卡片事件）快照写 chat_gens（连接正常时零额外写），客户端回来经 GET /api/chat/gen 取回接续。
   const genId = typeof body.genId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.genId) ? body.genId : null;
+  if (genId) console.info("[chat] genId", genId.slice(0, 8)); else console.info("[chat] genId MISSING(旧客户端缓存?)");
   const enc = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
