@@ -117,6 +117,8 @@ function ChatInner() {
   const [input, setInput] = useState("");
   const [inputFocused, setInputFocused] = useState(false); // 输入框聚焦态：驱动 placeholder 文案切换
   const [micHelpOpen, setMicHelpOpen] = useState(false); // 麦克风权限被拒引导弹窗（替代一闪而过的 toast）
+  const [micIntroOpen, setMicIntroOpen] = useState(false); // 首次授权仪式化：先弹自家引导，再触发系统授权
+  const [micReady, setMicReady] = useState(false); // 授权成功后的醒目就绪态（提示条+placeholder，几秒自隐）
   const [recording, setRecording] = useState(false);
   const recordingRef = useRef(false);
   const [cancelArmed, setCancelArmed] = useState(false);
@@ -828,6 +830,9 @@ function ChatInner() {
         toast("当前浏览器不支持语音输入，可以用键盘自带的语音键", "info");
         return;
       }
+      // 首次未授权：不直接闯系统授权框（那会打断长按、把这次说话丢掉且用户以为识别失败）——
+      // 改走仪式化流程：收起面板→自家引导弹窗→用户主动点开启→授权成功给醒目就绪态，下次按下即录
+      try { if (STREAM_ASR && localStorage.getItem("mic-granted") !== "1") { setRecording(false); setMicIntroOpen(true); return; } } catch {}
       voiceAborting.current = false;
       inputRef.current?.blur();
       // 乐观显示录音面板：长按到点(350ms)立即弹，不等 getUserMedia——按下即弹、零等待感。
@@ -999,7 +1004,7 @@ function ChatInner() {
             // webview 拦不住聚焦，单靠它不保险；只读是兜底根治）。点按打字时由 onInputPointerUp 解除只读并聚焦。
             readOnly={recording || voice.transcribing || !inputFocused}
             rows={1}
-            placeholder={inputFocused ? "发消息…" : "发消息或按住说话…"}
+            placeholder={inputFocused ? "发消息…" : micReady ? "麦克风已就绪，按住说话试试…" : "发消息或按住说话…"}
             // 未聚焦（即作为「按住说话」按钮时）禁用文字选区 + iOS 长按气泡，根除选区手柄；聚焦编辑时不受影响
             className="max-h-24 flex-1 resize-none touch-none rounded-2xl border border-line bg-snow px-4 py-2.5 text-sm text-ink outline-none [-webkit-touch-callout:none] [&:not(:focus)]:select-none [&:not(:focus)]:[-webkit-user-select:none] focus:border-celadon dark:border-white/10 dark:bg-dark-card dark:text-dark-text dark:placeholder:text-dark-text/40"
           />
@@ -1015,6 +1020,30 @@ function ChatInner() {
         </div>
       </div>
 
+      {/* 首次授权仪式化弹窗 + 授权成功就绪提示条 */}
+      {micIntroOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-ink/40 px-8 backdrop-blur-sm dark:bg-black/50" onClick={() => setMicIntroOpen(false)}>
+          <div className="w-full max-w-xs rounded-2xl bg-snow p-5 text-center shadow-xl dark:bg-dark-card" onClick={(ev) => ev.stopPropagation()}>
+            <p className="font-serif text-base text-ink dark:text-dark-text">小涤想借用麦克风听你说话</p>
+            <p className="mt-2.5 text-xs leading-relaxed text-ink-500 dark:text-dark-text/60">开启后，按住输入框就能语音提问；录音只在你按住说话时进行。</p>
+            <button
+              onClick={async () => {
+                setMicIntroOpen(false);
+                const ok = await _streamVoice.grantMic();
+                if (ok) { prewarmStreamAsr(); setMicReady(true); setTimeout(() => setMicReady(false), 6000); }
+                else setMicHelpOpen(true);
+              }}
+              className="mt-4 h-9 w-full rounded-full bg-celadon text-sm text-snow active:scale-95"
+            >开启麦克风</button>
+            <button onClick={() => setMicIntroOpen(false)} className="mt-2 text-xs text-ink-300 dark:text-dark-text/50">先不用</button>
+          </div>
+        </div>
+      )}
+      {micReady && (
+        <div className="fixed inset-x-0 z-[60] flex justify-center animate-fade-up" style={{ bottom: "calc(150px + env(safe-area-inset-bottom))" }}>
+          <div className="rounded-full bg-celadon px-4 py-2 text-xs text-snow shadow-lg">✅ 麦克风已就绪——按住输入框说话吧</div>
+        </div>
+      )}
       {/* 麦克风权限引导弹窗：被拒后每次长按都弹此可操作提示（替代一闪而过的 toast），引导去设置放开后再用 */}
       {micHelpOpen && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-ink/40 px-8 backdrop-blur-sm dark:bg-black/50" onClick={() => setMicHelpOpen(false)}>

@@ -280,5 +280,15 @@ export function useStreamVoiceInput() {
     return { text, fatal: false, error: !text && wsFailedRef.current, soft: !!text && wsFailedRef.current };
   }
 
-  return { voice: state, startVoice: start, stopVoice: stop, warmAudio, preCapture, cancelPre };
+  /** 首次授权（仪式化流程用）：只拿权限不录音；成功即落标记+焐热链路，下次按下即录零冷启动 */
+  async function grantMic(): Promise<boolean> {
+    try {
+      const st = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+      st.getTracks().forEach((t) => t.stop());
+      try { localStorage.setItem("mic-granted", "1"); } catch {}
+      warmAudio();
+      return true;
+    } catch { return false; }
+  }
+  return { voice: state, startVoice: start, stopVoice: stop, warmAudio, preCapture, cancelPre, grantMic };
 }
