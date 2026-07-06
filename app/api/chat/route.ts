@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import { streamChat, type MMMessage, type MMToolCall } from "@/lib/server/minimax";
-import { buildSystem, getUid } from "@/lib/server/agent";
+import { buildSystem, getUid, admin } from "@/lib/server/agent";
 import { getAgentTools, toolStatus, execTool, type ToolEvent } from "@/lib/server/tools";
 import { searchWebStream, webStreamAvailable } from "@/lib/server/websearch";
 import { readOverride, DEFAULT_MAIN_MAX_TOKENS, DEFAULT_CHAT_MODEL } from "@/lib/server/agentConfig";
@@ -199,7 +199,7 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
 }
 
 export async function POST(req: NextRequest) {
-  let body: { messages?: { role?: string; content?: string }[]; stream?: boolean; sessionId?: string; _ep?: { model: string; url: string; key: string; extraBody?: Record<string, unknown> } };
+  let body: { messages?: { role?: string; content?: string }[]; stream?: boolean; sessionId?: string; genId?: string; _ep?: { model: string; url: string; key: string; extraBody?: Record<string, unknown> } };
   try {
     body = await req.json();
   } catch {
@@ -276,23 +276,53 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // 流式（默认）
+  // 流式（默认）。断线治本：客户端带 genId（不可猜 UUID，能力凭证）时，客户端断连（跳去看来源网页被微信冻结/杀连接）
+  // **不再打断生成**——runAgent 不挂 req.signal，waitUntil 让实例在响应流关闭后继续跑完；断连一刻起把进度
+  // （正文 + 卡片事件）快照写 chat_gens（连接正常时零额外写），客户端回来经 GET /api/chat/gen 取回接续。
+  const genId = typeof body.genId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.genId) ? body.genId : null;
   const enc = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      const emit: Emit = (e) => { try { controller.enqueue(enc.encode(JSON.stringify(e) + "\n")); } catch {} };
-      try {
-        await runAgent(msgs, uid, emit, req.signal, compressed, testEp);
-        emit({ t: "end" });
-        afterAnswer();
-      } catch (e) {
-        if (!(e instanceof Error && e.name === "AbortError")) {
+      let clientGone = false;
+      try { req.signal?.addEventListener("abort", () => { clientGone = true; }, { once: true }); } catch {}
+      let acc = "";
+      const evAcc: ToolEvent[] = [];
+      let lastSnap = 0;
+      let chain: Promise<unknown> = Promise.resolve(); // 快照写入串行化：防乱序覆盖（后写的旧快照盖掉新快照）
+      const snapshot = (done: boolean) => {
+        if (!genId) return;
+        const now = Date.now();
+        if (!done && now - lastSnap < 2500) return; // 进行中至多每 2.5s 一片；终态必写
+        lastSnap = now;
+        const row = { id: genId, user_id: uid, content: acc, events: evAcc.slice(), done, updated_at: new Date().toISOString() };
+        chain = chain.then(() => admin.from("chat_gens").upsert(row)).catch((e) => console.warn("[chat] 生成快照写入失败：", e instanceof Error ? e.message : e));
+      };
+      const emit: Emit = (e) => {
+        if (e.t === "d" && typeof e.v === "string") acc += e.v;
+        else if (e.t === "recs" || e.t === "cites" || e.t === "web") evAcc.push(e as ToolEvent);
+        if (!clientGone) {
+          try { controller.enqueue(enc.encode(JSON.stringify(e) + "\n")); } catch { clientGone = true; } // enqueue 抛错=流已被客户端取消
+        }
+        if (clientGone) snapshot(false); // 断连后才开始落快照（正常连接零额外开销）
+      };
+      const gen = (async () => {
+        try {
+          await runAgent(msgs, uid, emit, undefined, compressed, testEp); // 关键：不传 req.signal——断连不中止生成
+          emit({ t: "end" });
+        } catch (e) {
           console.error("[/api/chat]", e);
           emit({ t: "err", v: "我这边信号不太好，稍等片刻再来找我吧" });
+        } finally {
+          if (clientGone && genId) { lastSnap = 0; snapshot(true); } // 断连场景终态快照（含空正文=告知客户端别再等）
+          await chain.catch(() => {});
+          try { controller.close(); } catch {}
+          afterAnswer();
         }
-      } finally {
-        try { controller.close(); } catch {}
-      }
+      })();
+      try { waitUntil(gen); } catch {} // 响应流关闭后仍把生成+快照跑完
+      // 顺手 TTL：清 15 分钟前的陈旧快照（轻量，无 cron 依赖）
+      if (genId) { try { waitUntil(Promise.resolve(admin.from("chat_gens").delete().lt("updated_at", new Date(Date.now() - 15 * 60_000).toISOString())).then(() => {})); } catch {} }
+      await gen;
     },
   });
   return new Response(stream, {
