@@ -46,7 +46,7 @@ function useStalled(content: string, streaming: boolean) {
 }
 function StallDots() {
   return (
-    <span className="mt-1.5 inline-flex items-center gap-1 animate-fade-up" aria-label="小涤在斟酌">
+    <span className="ml-1.5 inline-flex items-center gap-1 align-baseline animate-fade-up" aria-label="小涤在斟酌">
       {[0, 1, 2].map((i) => (
         <span key={i} className="h-1.5 w-1.5 animate-bounce rounded-full bg-ink-300/70 dark:bg-dark-text/40" style={{ animationDelay: `${i * 0.15}s` }} />
       ))}
@@ -268,6 +268,7 @@ export const ChatMessage = memo(function ChatMessage({
   // 卡片交错渲染：按占位标记切段，卡片出现在工具调用的真实位置；
   // 没有标记的老消息（或停止时标记还没吐出来）回退为渲染在末尾，卡不会丢
   const segments = splitCardSegments(msg.content);
+  const lastSegIdx = segments.length - 1; // 呼吸点内联锚点：卡顿时点在最后一段文字的末字之后(不换行)
   // 联网来源卡聚合（豆包式）：一次回答里多次搜索的来源合并成一张卡（按搜索词分组），只在第一个 web 标记位置渲染一次、
   // 带上全部 webSources；其余 web 标记不再各出一张卡。无任何 web 标记（老消息/中途停止）时由末尾回退渲染。
   const firstWebSegIdx = segments.findIndex((s) => s.kind === "web");
@@ -299,10 +300,11 @@ export const ChatMessage = memo(function ChatMessage({
             if (seg.kind === "text") {
               if (!seg.text.trim()) return null;
               return (
-                <div key={i} className="prose-cn">
+                <div key={i} className={"prose-cn" + (msg.streaming && stalled && i === lastSegIdx ? " stall-inline" : "")}>
                   <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
                     {fixCjkBold(seg.text)}
                   </ReactMarkdown>
+                  {msg.streaming && stalled && i === lastSegIdx && <StallDots />}
                 </div>
               );
             }
@@ -323,8 +325,8 @@ export const ChatMessage = memo(function ChatMessage({
           {!msg.streaming && (msg.citations?.length ?? 0) > citesDone && <CitesBlock cites={msg.citations!.slice(citesDone)} />}
           {!msg.streaming && (msg.recommendations?.length ?? 0) > recsDone && <RecsBlock books={msg.recommendations!.slice(recsDone)} />}
           {!msg.streaming && firstWebSegIdx < 0 && (msg.webSources?.length ?? 0) > 0 && <WebBlock sources={msg.webSources!} />}
-          {/* 流式卡顿：文字冻住>1.8s时浮现呼吸点(一恢复出字立即消失)，让用户知道没断、小涤还在写 */}
-          {msg.streaming && !!msg.content.trim() && stalled && <div><StallDots /></div>}
+          {/* 流式卡顿呼吸点兜底：末段是卡片(非文字)时退回独立一行；末段是文字时已内联在末字后 */}
+          {msg.streaming && !!msg.content.trim() && stalled && segments[lastSegIdx]?.kind !== "text" && <div><StallDots /></div>}
           {/* 断线截断尾注：与正文解耦，仅展示用、不进回灌上下文（Bug#11） */}
           {msg.truncated && (
             <p className="mt-2 border-t border-line pt-2 text-[11px] text-ink-300 dark:border-white/10">（后面断线了，回答可能不完整——可以点「继续生成」从断处接着补全）</p>

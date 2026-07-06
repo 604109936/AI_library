@@ -224,3 +224,6 @@ body {
   opacity: 0.08;
   pointer-events: none;
 }
+
+/* 流式卡顿呼吸点内联：卡顿时把末段最后一个段落转 inline，呼吸点紧跟末字不换行(末元素是列表等则自然回退换行) */
+.stall-inline > p:last-child { display: inline; }
