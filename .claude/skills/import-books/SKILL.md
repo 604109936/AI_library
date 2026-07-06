@@ -34,6 +34,12 @@ description: 校验并把书籍 JSON 数据导入本项目的 Supabase 数据库
    node --env-file=.env.local scripts/import-books.mjs --commit --overwrite  # 覆盖
    ```
 6. **回读确认**：`node --env-file=.env.local scripts/db-stats.mjs`，把分类/书/章节条数与每本概览给用户看。
+7. **补生成一句话简介**（书单方案A 必需——系统提示的书单每本只带一句话简介 `short_intro`，缺失会回退截概要前40字、质量略差）：
+   ```
+   node --env-file=.env.local scripts/gen-short-intros.mjs            # 干跑预览生成质量
+   node --env-file=.env.local scripts/gen-short-intros.mjs --commit   # 质量OK后写库
+   ```
+   幂等（只补 `short_intro` 为空的书，已有值不动），用火山豆包生成、需 `.env.local` 有 `ARK_API_KEY` + `CHAT_MODEL`。把生成结果给用户过目。
 
 ## 关键约定（写/校验数据时遵守）
 - JSON 顶层只需 `books` 数组；**6 个分类脚本自动建**（psy/growth/tech/biz/lit/his）。

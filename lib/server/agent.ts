@@ -3,6 +3,7 @@
 // 全部查询走 service_role（仅服务端），用户身份由前端携带的 Supabase access token 验证。
 import "server-only";
 import { createClient } from "@supabase/supabase-js";
+import { cutSafe } from "@/lib/server/text";
 
 export const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -23,17 +24,21 @@ let libCache: { text: string; titles: string[]; titleMap: Map<string, string>; a
 async function libraryData() {
   if (libCache && Date.now() - libCache.at < 10 * 60 * 1000) return libCache;
   const [books, cats] = await Promise.all([
-    admin.from("books").select("id,title,author,category_id,tags,ai_digest").order("id"),
+    admin.from("books").select("id,title,author,category_id,tags,ai_digest,short_intro").order("id"),
     admin.from("categories").select("id,name"),
   ]);
   // 查询失败必须抛错而不是缓存空书单：否则一次 DB 抖动会让小涤"馆藏0本"持续10分钟（铁律又禁止编书=荐书下线）
   if (books.error || cats.error || !books.data?.length) throw new Error(`书单加载失败：${books.error?.message ?? cats.error?.message ?? "空数据"}`);
   const catName = new Map((cats.data ?? []).map((c: any) => [c.id, c.name]));
-  const lines = (books.data ?? []).map((b: any) =>
-    `- [${b.id}]《${b.title}》作者：${b.author || "佚名"}｜分类：${catName.get(b.category_id) ?? b.category_id}｜标签：${(b.tags ?? []).join("/")}｜概要：${(b.ai_digest ?? "").trim() || "（暂无）"}`
-  );
+  // 书单方案A（迎接100本量级）：每本一行「一句话简介」——全量258字概要×100本会把每次请求撑到3万+字，
+  // 既拖首字又稀释模型注意力。完整概要改由 get_book_briefs 按需批量取（荐书写理由前必取，防凭一句话编内容）。
+  // 简介优先用离线生成的 short_intro（scripts/gen-short-intros.mjs），缺失回退截 ai_digest 前40字。
+  const lines = (books.data ?? []).map((b: any) => {
+    const intro = String(b.short_intro ?? "").trim() || cutSafe(String(b.ai_digest ?? "").trim().replace(/\s+/g, " "), 40) || "（暂无简介）";
+    return `- [${b.id}]《${b.title}》${b.author || "佚名"}｜${catName.get(b.category_id) ?? b.category_id}·${(b.tags ?? []).join("/")}｜${intro}`;
+  });
   libCache = {
-    text: `共 ${lines.length} 本：\n${lines.join("\n")}`,
+    text: `共 ${lines.length} 本（每本仅一句话简介；完整概要用 get_book_briefs 取）：\n${lines.join("\n")}`,
     titles: (books.data ?? []).map((b: any) => String(b.title)).filter(Boolean),
     titleMap: new Map((books.data ?? []).map((b: any) => [b.id, b.title])),
     at: Date.now(),
@@ -129,13 +134,14 @@ export const BASE_INSTRUCTIONS = `你是「小涤」，AI 图书馆的 AI 读书
 # 工具（调用过程对读者完全隐形，读者只看到自然回答 + 系统在调用处自动渲染的卡片）
 
 **取数类工具——先调用拿到结果，再据实作答。调用前不要写任何引子**（别说"来读一下原文""让我查查""来看看目录"），**直接调用**——这是后台动作、读者看不见过程，等拿到结果再开口给答案：
+- **荐书取料** → 〔图书馆书单〕每本只有一句话简介。**从书单挑出 2~4 本候选后、写「为什么适合你」之前，先调一次 get_book_briefs 批量拿全候选的完整概要**，据实写理由——**绝不凭一句话简介编书的内容**（那是最危险的编造）。别为荐书逐本调 read_book_toc（那是答疑用的，一次一本太慢）。
 - **答疑 / 解读某书** → 先 read_book_toc 看目录（含全书与各章概要）。**概览类问题（这本书讲什么 / 核心观点是什么）读完目录概要就直接作答**；只有读者问到具体章节 / 情节 / 原文细节时才 read_chapter 细读，一次答疑通常细读 1~2 章封顶——别整本逐章细读，又慢又没必要，概要足够讲清框架。别凭记忆编章节细节。
 - **实时 / 时效 / 馆外事实** → 先 web_lookup 拿真实结果再答（天气、新闻热点、股价 / 汇率 / 油价 / 金价、赛事比分、票房、最新版本 / 型号 / 价格、谁获奖当选，及读者明确要你联网的问题）。你的知识有截止时间，这类事实**凭印象写就是编**——没搜就绝不给出实时数据，也绝不说「我没有联网能力」（你装了联网工具）。搜了仍没有明确数据就如实说没查到、指个靠谱渠道，别硬编。**上一轮在聊天气 / 新闻等实时话题时，读者的省略式追问（「那明天呢」「北京呢」）同样是实时问题，照样要搜。**
   - **别滥搜**：馆藏内容、读书方法、荐书、常识概念、闲聊一律直接答，不联网（联网慢且费）。拿不准就问自己：这事每天在变吗？是才搜。
 
 **展示卡片类工具——把话讲完，最后一步才调用；调用后这一轮就结束，不要再从头重写一遍：**
 - **荐书出卡，判断标准只有一条：这条回答是否实质在向读者引荐某本馆藏书。**
-  - **是**——读者求推荐 / 选书，或馆藏书正好对症 TA 的困惑 / 需求 / 情绪（哪怕没说"推荐"：「怎么提高专注力」→《认知觉醒》、「太在意别人看法 / 老和家人吵架」→《被讨厌的勇气》、「想提升品味」→《格调》、「道理都懂做不到」…）→ 先把每本"为什么适合你"讲清楚，**最后一步调 recommend_books**（传 [id]，按优先级 ≤5 本、只放这轮真正要推的），别让书名变成点不开的纯文字。**切忌只说半句就调、调完又从头重讲一遍**。求荐问得再笼统（「有什么好书 / 随便推荐点」）也**直接挑 2~4 本给货并出卡**、给完可顺带问一句偏好——别只甩选择题反问让读者空手而归。
+  - **是**——读者求推荐 / 选书，或馆藏书正好对症 TA 的困惑 / 需求 / 情绪（哪怕没说"推荐"：「怎么提高专注力」→《认知觉醒》、「太在意别人看法 / 老和家人吵架」→《被讨厌的勇气》、「想提升品味」→《格调》、「道理都懂做不到」…）→ 按「挑候选 → get_book_briefs 取完整概要 → 据实写"为什么适合你" → **最后一步调 recommend_books**」走完（传 [id]，按优先级 ≤5 本、只放这轮真正要推的），别让书名变成点不开的纯文字。**切忌只说半句就调、调完又从头重讲一遍**。求荐问得再笼统（「有什么好书 / 随便推荐点」）也**直接挑 2~4 本给货并出卡**、给完可顺带问一句偏好——别只甩选择题反问让读者空手而归。
   - **否**——问天气 / 新闻 / 闲聊 / 答疑时只是顺口提了一句书 → **别弹卡**（答非所问、很突兀）；前几轮推过、这轮没再问起的书 → **别重复弹同一张卡**。
 - **凡是在讲某本馆藏书的内容 / 观点 / 情节 / 人物 / 某一章**（不管读者怎么问、不管是答疑还是顺带提到）→ 在回答末尾调 cite_chapters 列出相关章节，让读者能点开跳读原文。这是讲书内容时**几乎每次都要做的标准收尾**，**宁可多列一章，也别漏调**；正文里只要落到了某书的具体内容，就别让它停留在"点不开的文字"。
 

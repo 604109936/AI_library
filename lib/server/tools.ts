@@ -10,6 +10,7 @@ import type { MMTool } from "@/lib/server/minimax";
 // 工具执行中的等待文案（前端水波纹扫光呈现，不带省略号）：每个工具一句固定短语，对用户隐去工具本身。
 export const TOOL_STATUS: Record<string, string> = {
   recommend_books: "为你挑书", // 是"呈现挑好的书"，不是"查找"——与卡片标题「为你挑的书」呼应
+  get_book_briefs: "翻看简介", // 荐书取料：批量取候选书的完整概要
   read_book_toc: "翻阅图书",
   read_chapter: "细读原文", // 读整章原文：与 cite 区分开，别再共用笼统的「章节浏览」
   cite_chapters: "整理章节", // 出可点击的引用章节卡
@@ -31,6 +32,19 @@ export const AGENT_TOOLS: MMTool[] = [
       parameters: {
         type: "object",
         properties: { book_ids: { type: "array", items: { type: "string" }, description: "要推荐的书 id 列表（≤5 本）" } },
+        required: ["book_ids"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_book_briefs",
+      description:
+        "批量读取几本馆藏书的完整概要（书名 / 作者 / 标签 / 250字级全书概要），一次最多 6 本。【何时调用】荐书专用：书单里每本只有一句话简介——从书单挑出候选后，**写「为什么适合你」之前先调本工具一次拿全候选的完整概要**，据实写理由，绝不凭一句话简介编书的内容。【勿用】答疑 / 解读单本书用 read_book_toc（带章节结构）；本工具不含章节列表。book_ids 取自〔图书馆书单〕的 [id]。",
+      parameters: {
+        type: "object",
+        properties: { book_ids: { type: "array", items: { type: "string" }, description: "要取概要的书 id 列表（≤6 本）" } },
         required: ["book_ids"],
       },
     },
@@ -140,6 +154,19 @@ export async function execTool(name: string, argsJson: string): Promise<{ result
         result: `已收到。若你已把推荐理由讲完，**本轮就此结束、不要再从头重讲一遍**；若还没讲完，简短补完即止。别复述书名清单，也别出现"卡片 / 入口 / 已展示 / 已备好 / 点开 / 跳到 / 在上面 / 在下面 / 👇 / ↓"等任何字样——读者会自动看到可点书目，无需你交代。`,
         event: { t: "recs", v: valid.map((b: any) => ({ id: b.id, title: b.title, author: b.author ?? "", cv: b.cover_url ?? "", cs: b.cover_seed ?? 1 })) },
       };
+    }
+    if (name === "get_book_briefs") {
+      const ids: string[] = Array.isArray(args.book_ids) ? args.book_ids.map(String).slice(0, 6) : [];
+      if (!ids.length) return { result: "失败：缺少 book_ids。" };
+      const { data } = await admin.from("books").select("id,title,author,tags,ai_digest").in("id", ids);
+      // 按模型传入顺序重排（同 recommend_books 口径：.in() 返回 DB 扫描序，与模型的候选优先级无关）
+      const order = new Map<string, number>();
+      ids.forEach((id, i) => { if (!order.has(id)) order.set(id, i); });
+      const rows = (data ?? []).sort((a: any, b: any) => (order.get(a.id) ?? 99) - (order.get(b.id) ?? 99));
+      if (!rows.length) return { result: "失败：这些 book_id 在馆藏中不存在。请用〔图书馆书单〕里的 [id] 重试。" };
+      const missing = ids.filter((id) => !rows.some((r: any) => r.id === id));
+      const lines = rows.map((b: any) => `[${b.id}]《${b.title}》${b.author || "佚名"}｜${(b.tags ?? []).join("/")}\n概要：${(b.ai_digest ?? "").trim() || "（暂无概要）"}`);
+      return { result: `候选书完整概要如下——据实写推荐理由，别写概要里没有的内容：\n\n${lines.join("\n\n")}${missing.length ? `\n\n（未找到：${missing.join("、")}）` : ""}` };
     }
     if (name === "read_book_toc") {
       const id = String(args.book_id ?? "");
