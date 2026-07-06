@@ -16,6 +16,7 @@ import { msgIdTime } from "@/lib/utils";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useVoiceInput, voiceSupported } from "@/lib/useVoiceInput";
 import { useStreamVoiceInput, streamVoiceSupported, prewarmStreamAsr } from "@/lib/useStreamVoiceInput";
+import { WebViewer } from "@/components/shell/WebViewer";
 import type { Book, Citation, WebSource, ChatMessage as TMsg } from "@/lib/types";
 
 // useLayoutEffect 在 SSR 无意义→客户端才用（消除告警）。用于在浏览器「绘制前」补历史，避免先闪欢迎/载入再跳历史。
@@ -707,6 +708,28 @@ function ChatInner() {
   }, []);
   const maybeRecoverGenRef = useRef<null | ((why?: string) => void)>(null);
   maybeRecoverGenRef.current = maybeRecoverGen;
+  // 滚动锚点：离开(隐藏/卸载)时存位置；回来/重载后恢复——真离开(浏览器打开/微信重载)的场景不再"跑到第一条"；
+  // 无存档时默认锚到底部最新消息(聊天产品的正确默认)。站内浮层场景根本不触发(页面没离开)。
+  const scrollRestored = useRef(false);
+  useEffect(() => {
+    if (scrollRestored.current || !messages.length) return;
+    scrollRestored.current = true;
+    let saved: { y?: number; t?: number } | null = null;
+    try { saved = JSON.parse(sessionStorage.getItem("chat-scroll") ?? "null"); } catch {}
+    const fresh = saved && Date.now() - (saved.t ?? 0) < 12 * 60_000;
+    const apply = () => { if (fresh && typeof saved!.y === "number") window.scrollTo(0, saved!.y); else bottomRef.current?.scrollIntoView({ block: "end" }); };
+    requestAnimationFrame(apply);
+    setTimeout(apply, 300); // 图片/布局二次稳定后再校准一次
+    // eslint-disable-next-line
+  }, [messages.length]);
+  useEffect(() => {
+    const save = () => { try { sessionStorage.setItem("chat-scroll", JSON.stringify({ y: window.scrollY, t: Date.now() })); } catch {} };
+    const onVis = () => { if (document.visibilityState === "hidden") save(); };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("pagehide", save);
+    return () => { document.removeEventListener("visibilitychange", onVis); window.removeEventListener("pagehide", save); };
+  }, []);
+
   // 恢复触发三件套：①回前台/挂载 ②常驻看门狗（每3s查心跳，5s静默即接管——治"回来瞬间被缓冲事件骗过后再无人重试"）
   // ③流报错瞬间（见 send catch）。心跳由服务端3s一拍，静默5s=连接必死，不会误伤思考/搜索期。
   useEffect(() => {
@@ -1033,7 +1056,8 @@ function ChatInner() {
         </div>
       )}
 
-      <BottomNav active="chat" />
+<WebViewer />
+            <BottomNav active="chat" />
     </main>
   );
 }
