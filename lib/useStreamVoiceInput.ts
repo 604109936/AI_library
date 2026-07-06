@@ -131,6 +131,9 @@ export function useStreamVoiceInput() {
   /** 预拾音（pointerdown 即调）：开麦 + 连 WS + 采音进缓冲，但不进录音 UI。长按判定通过后 start() 无缝转正；
    *  判定为点按则 cancelPre() 立刻关麦丢弃（橙点仅闪现，未录任何内容被保留）。 */
   function preCapture() {
+    // 只有麦克风此前授权过才预拾音：否则首次用户"轻点输入框想打字"就会被弹系统授权框（语境错误、很吓人）。
+    // 未授权用户走原路：长按到点才请求权限（此时用户明确想说话，语境正确）；授权成功后 boot 里落标记。
+    try { if (localStorage.getItem("mic-granted") !== "1") return; } catch { return; }
     if (preArmed.current || recordingRef.current) return;
     preArmed.current = true;
     bootP.current = boot().then((ok) => { if (!ok) preArmed.current = false; return ok; });
@@ -214,6 +217,7 @@ export function useStreamVoiceInput() {
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
     } catch { fatalRef.current = true; try { ws.close(); } catch {} return false; }
+    try { localStorage.setItem("mic-granted", "1"); } catch {} // 拿到过麦克风：此后按下即可预拾音
     if (session !== sessionRef.current) { stream.getTracks().forEach((t) => t.stop()); try { ws.close(); } catch {} return false; }
 
     // ③ 立刻起采音（复用常热的持久 ctx，不 await resume——多已被 warmAudio(pointerdown) 提前焐热，瞬间起采、不丢前半句）
