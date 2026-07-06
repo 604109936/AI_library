@@ -65,6 +65,8 @@ export function useStreamVoiceInput() {
   const donePromise = useRef<{ resolve: (t: string) => void } | null>(null);
   const preArmed = useRef(false); // 预拾音已启动（pointerdown 即开麦+连WS，长按判定通过后无缝转正——根治"开口早于拾音"丢字）
   const bootP = useRef<Promise<boolean> | null>(null);
+  const allPcm = useRef<number[]>([]); // 2)整句PCM留底(<=60s约2MB)：断线重拨时从头重发，后半句不丢
+  const redials = useRef(0); // 每次发声最多重拨2次
 
   // 卸载时才彻底拆（含关 AudioContext）；录音之间的 cleanup 保留 ctx 常热（见 cleanup 注释）
   useEffect(() => () => { cleanup(); try { ctxRef.current?.close(); } catch {} ctxRef.current = null; }, []);
@@ -100,7 +102,9 @@ export function useStreamVoiceInput() {
     const outLen = Math.floor(input.length / ratio);
     for (let i = 0; i < outLen; i++) {
       const s = Math.max(-1, Math.min(1, input[Math.floor(i * ratio)]));
-      pcmBuf.current.push(s < 0 ? s * 0x8000 : s * 0x7fff);
+      const v = s < 0 ? s * 0x8000 : s * 0x7fff;
+      pcmBuf.current.push(v);
+      allPcm.current.push(v); // 留底副本(重拨重发用)
     }
   }
   // 取出累积的样本打成一个 Int16 ArrayBuffer 发出去
@@ -150,21 +154,15 @@ export function useStreamVoiceInput() {
     arm();
     return true;
   }
-  async function boot(): Promise<boolean> {
-    cleanup();
-    fatalRef.current = false; wsFailedRef.current = false;
-    finalText.current = ""; pcmBuf.current = [];
-    startedAt.current = Date.now();
-    const session = ++sessionRef.current;
+  // 建 WS（boot 与断线重拨共用一套 handler）
+  function openWs(session: number): WebSocket | null {
     const wsUrl = streamWsUrl();
-    if (!wsUrl) return false;
-
-    // ① WS 先拨出去并行连——**不 await**，所以录音面板不必等握手（冷启动 1~2s）就能立刻弹出。
-    //    onaudioprocess 持续把 PCM 进缓冲，flushChunk 只在 ws 真正 OPEN 后才发，所以握手期间的音频不丢、连上即补发。
+    if (!wsUrl) return null;
     const ws = new WebSocket(wsUrl);
     ws.binaryType = "arraybuffer";
     wsRef.current = ws;
-    ws.onerror = () => { wsFailedRef.current = true; };
+    ws.onerror = () => { wsFailedRef.current = true; tryRedial(session, ws); };
+    ws.onclose = () => { tryRedial(session, ws); };
     ws.onmessage = (ev) => {
       if (typeof ev.data !== "string") return;
       let m: any; try { m = JSON.parse(ev.data); } catch { return; }
@@ -180,6 +178,36 @@ export function useStreamVoiceInput() {
         donePromise.current?.resolve(finalText.current.trim()); donePromise.current = null;
       }
     };
+    return ws;
+  }
+  // 2) 断线重拨：录音/预拾音期间 WS 意外断（中继实例被回收/网络抖动）→ 立刻重拨、整段留底音频从头重发，
+  // 火山新会话重识别整句——后半句不再丢。stop/cancel 主动收尾先 bump session，不会误重拨。
+  function tryRedial(session: number, dead: WebSocket) {
+    if (session !== sessionRef.current) return;
+    if (wsRef.current !== dead) return; // 已被更新的连接取代
+    if (!recordingRef.current && !preArmed.current) return;
+    if (redials.current >= 2) return;
+    redials.current++;
+    const ws2 = openWs(session);
+    if (!ws2) return;
+    ws2.addEventListener("open", () => {
+      if (session !== sessionRef.current || wsRef.current !== ws2) return;
+      wsFailedRef.current = false; // 重拨成功：不再算网络失败
+      pcmBuf.current = allPcm.current.slice(); // 整段重发
+      flushChunk(false);
+    }, { once: true });
+  }
+  async function boot(): Promise<boolean> {
+    cleanup();
+    fatalRef.current = false; wsFailedRef.current = false;
+    finalText.current = ""; pcmBuf.current = [];
+    startedAt.current = Date.now();
+    const session = ++sessionRef.current;
+    allPcm.current = [];
+    redials.current = 0;
+    // 1) WS 先拨出去并行连——不 await，录音面板不必等握手；握手期间音频进缓冲，连上即补发。
+    const ws = openWs(session);
+    if (!ws) return false;
 
     // ② 拿麦克风（唯一必须 await 的步骤；权限已授时很快）
     let stream: MediaStream;
@@ -214,7 +242,7 @@ export function useStreamVoiceInput() {
   }
 
   /** 结束。cancel=true 丢弃；否则发 EOS 等最终文本。返回 {text, fatal}。 */
-  async function stop(cancel: boolean): Promise<{ text: string; fatal: boolean; error?: boolean }> {
+  async function stop(cancel: boolean): Promise<{ text: string; fatal: boolean; error?: boolean; soft?: boolean }> {
     const fatal = fatalRef.current;
     preArmed.current = false;
     recordingRef.current = false;
@@ -223,23 +251,29 @@ export function useStreamVoiceInput() {
     if (cancel || fatal) { cleanup(); setState(IDLE); return { text: "", fatal }; }
 
     setState((s) => ({ ...s, active: false, transcribing: true }));
-    const ws = wsRef.current;
-    // 把「残余缓存音频 + EOS」发给中继。关键：WS 还在连（冷启动首按最常见）时绝不能立刻判空返回，
-    // 否则这次说的话全丢——要挂到 onopen，等连上再补发，这样第一次长按也能识别。
-    const sendTail = () => { flushChunk(true); try { ws?.send("EOS"); } catch {} };
+    // 1) 等待窗自适应：已有实时文字 -> 600ms 秒发；零文字 -> 识别窗从「EOS 真正送达火山」起算、上限 6s
+    //   （冷链路下缓冲音频要先灌给火山再识别，从松手起算 2.5s 会把录到的话误判成"没听清"）
+    const sendTail = () => { flushChunk(true); try { wsRef.current?.send("EOS"); } catch {} };
     const text = await new Promise<string>((resolve) => {
+      const settle = () => { donePromise.current = null; resolve(finalText.current.trim()); };
       donePromise.current = { resolve };
-      if (ws && ws.readyState === 1) sendTail();             // 已连上：直接发
-      else if (ws && ws.readyState === 0) ws.addEventListener("open", sendTail, { once: true }); // 还在连：等连上补发
-      else { resolve(finalText.current.trim()); return; }    // 已关闭/不可用：收尾
-      // 正常按毫秒级就 done；冷启动「连上+火山识别」可能要几秒，给足 9s 兜底（仅异常时触发）
-      // 松手秒发：实时文字(result_type=full)本就是完整句，最多再等600ms要终稿；一个字都还没出才多等一会
-      setTimeout(() => { donePromise.current = null; resolve(finalText.current.trim()); }, finalText.current.trim() ? 600 : 2500);
+      let capArmed = false;
+      const armCap = () => { if (!capArmed) { capArmed = true; setTimeout(settle, 6000); } }; // EOS 送达后的识别窗
+      if (finalText.current.trim()) setTimeout(settle, 600); // 秒发快路：终稿最多再等600ms
+      const tail = () => { sendTail(); armCap(); };
+      const w = wsRef.current;
+      if (w && w.readyState === 1) tail();
+      else if (w && w.readyState === 0) {
+        w.addEventListener("open", tail, { once: true });
+        w.addEventListener("close", settle, { once: true });
+        w.addEventListener("error", settle, { once: true });
+        setTimeout(settle, 10_000); // 绝对上限：连接始终建不起来
+      } else settle();
     });
     cleanup();
     setState(IDLE);
-    // 没识别出文本且 WS 曾失败 → 当作网络错误（前端提示「网络不太顺，再试一次」），而非「没听清」
-    return { text, fatal: false, error: !text && wsFailedRef.current };
+    // soft：识别出了文字但链路中途出过问题且未成功重拨——完整性存疑，前端回填输入框让用户确认，不擅自发送
+    return { text, fatal: false, error: !text && wsFailedRef.current, soft: !!text && wsFailedRef.current };
   }
 
   return { voice: state, startVoice: start, stopVoice: stop, warmAudio, preCapture, cancelPre };

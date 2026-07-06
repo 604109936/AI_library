@@ -131,7 +131,7 @@ export function useVoiceInput() {
    * 结束录音。cancel=true 丢弃；否则编码 WAV 上传 /api/asr 取识别文本。
    * 返回 Promise：text=识别结果（空=没听清/失败）；fatal=本段遇权限/麦克风致命错误；error=网络/服务端识别失败。
    */
-  async function stop(cancel: boolean): Promise<{ text: string; fatal: boolean; error?: boolean }> {
+  async function stop(cancel: boolean): Promise<{ text: string; fatal: boolean; error?: boolean; soft?: boolean }> {
     const fatal = fatalRef.current;
     recordingRef.current = false;
     sessionRef.current++; // 作废本会话：兜底让任何在途回调失效

@@ -152,6 +152,12 @@ function ChatInner() {
 
   // 进入页面即预热语音中继 isolate：等用户真要"按住说话"时（通常几秒后）中继已热，第一次真录音不撞冷启动。
   useEffect(() => { if (STREAM_ASR) prewarmStreamAsr(); }, []);
+  // 3) 中继保温心跳：页面可见期间每75s ping一次（prewarm自带30s节流），把"聊几分钟才用语音"撞冷启动的概率压到最低
+  useEffect(() => {
+    if (!STREAM_ASR) return;
+    const t = setInterval(() => { if (document.visibilityState === "visible") prewarmStreamAsr(); }, 75_000);
+    return () => clearInterval(t);
+  }, []);
 
   // 卸载（切 Tab）：只清 UI 级短定时器；绝不中断 liveCtrl、不清 liveTimer——
   // 让流式在后台继续跑（增量实时写进模块级 chatLive、完成时由流自身落库），切回来接着看（回复到哪就是哪）
@@ -724,9 +730,14 @@ function ChatInner() {
     stick.current = true;
     setMessages((prev) => [...prev, { id: vId, role: "user", content: "", voicePending: true }]);
 
-    const { text, fatal, error } = await stopVoice(false);
+    const { text, fatal, error, soft } = await stopVoice(false);
     liveBusy = false; // 解除占位闸，交给 send 接管
-    if (text) {
+    if (text && soft) {
+      // 4) 链路中途出过问题、识别完整性存疑：不擅自发送，回填输入框让用户过目补充后再发（半句也不浪费）
+      setMessages((prev) => prev.filter((m) => m.id !== vId));
+      setInput((cur) => (cur.trim() ? (cur.trim() + " " + text) : text).slice(0, 500));
+      toast("网络抖了一下——识别到的话放进输入框了，看一眼再发送", "info");
+    } else if (text) {
       const q = (input.trim() ? `${input.trim()} ${text}` : text).slice(0, 500);
       // base 用「占位前 messages + 占位气泡」：闭包 messages 不含占位，补上即当前真态；send 按 voiceId 把它的内容映射成 q
       send(q, [...cur, { id: vId, role: "user", content: "" }], vId);
