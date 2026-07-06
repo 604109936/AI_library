@@ -32,6 +32,28 @@ function ThinkingNote({ override }: { override?: string }) {
   return override ? <ShimmerText text={override} /> : <ThinkingHints />;
 }
 
+// 流式卡顿指示：打字机追平模型、上游出字停顿(火山token间歇/网络抖动)时，正文会冻住让用户以为断线。
+// 文字停止前进 >1.8s 才浮现三个呼吸点（正常流畅出字时零打扰），一恢复出字立刻消失。
+function useStalled(content: string, streaming: boolean) {
+  const [stalled, setStalled] = useState(false);
+  useEffect(() => {
+    if (!streaming || !content.trim()) { setStalled(false); return; }
+    setStalled(false);
+    const t = setTimeout(() => setStalled(true), 1800);
+    return () => clearTimeout(t);
+  }, [content, streaming]);
+  return stalled;
+}
+function StallDots() {
+  return (
+    <span className="mt-1.5 inline-flex items-center gap-1 animate-fade-up" aria-label="小涤在斟酌">
+      {[0, 1, 2].map((i) => (
+        <span key={i} className="h-1.5 w-1.5 animate-bounce rounded-full bg-ink-300/70 dark:bg-dark-text/40" style={{ animationDelay: `${i * 0.15}s` }} />
+      ))}
+    </span>
+  );
+}
+
 // 表格在手机气泡里必然挤爆（用户明确不要表格）：System 已禁止小涤输出表格，
 // 这里再做渲染兜底——万一漏出表格语法，降级为紧凑的行式列表而非 <table>
 const MD_COMPONENTS: Components = {
@@ -206,6 +228,7 @@ export const ChatMessage = memo(function ChatMessage({
   onFeedbackDetail?: (id: string, reasons: string[], text: string) => void; // 踩原因随消息落库（T2.5）
 }) {
   const toast = useUI((s) => s.toast);
+  const stalled = useStalled(msg.content, !!msg.streaming); // 流式卡顿感知(>1.8s无新字)
   const [fb, setFb] = useState<"up" | "down" | null>(msg.feedback ?? null);
   const [showFb, setShowFb] = useState(false);
   const [picked, setPicked] = useState<string[]>([]);
@@ -285,6 +308,8 @@ export const ChatMessage = memo(function ChatMessage({
           {!msg.streaming && (msg.citations?.length ?? 0) > citesDone && <CitesBlock cites={msg.citations!.slice(citesDone)} />}
           {!msg.streaming && (msg.recommendations?.length ?? 0) > recsDone && <RecsBlock books={msg.recommendations!.slice(recsDone)} />}
           {!msg.streaming && firstWebSegIdx < 0 && (msg.webSources?.length ?? 0) > 0 && <WebBlock sources={msg.webSources!} />}
+          {/* 流式卡顿：文字冻住>1.8s时浮现呼吸点(一恢复出字立即消失)，让用户知道没断、小涤还在写 */}
+          {msg.streaming && !!msg.content.trim() && stalled && <div><StallDots /></div>}
           {/* 断线截断尾注：与正文解耦，仅展示用、不进回灌上下文（Bug#11） */}
           {msg.truncated && (
             <p className="mt-2 border-t border-line pt-2 text-[11px] text-ink-300 dark:border-white/10">（后面断线了，回答可能不完整——可以点「继续生成」从断处接着补全）</p>
