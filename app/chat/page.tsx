@@ -718,16 +718,22 @@ function ChatInner() {
     try { saved = JSON.parse(sessionStorage.getItem("chat-scroll") ?? "null"); } catch {}
     const fresh = saved && Date.now() - (saved.t ?? 0) < 12 * 60_000;
     const apply = () => { if (fresh && typeof saved!.y === "number") window.scrollTo(0, saved!.y); else bottomRef.current?.scrollIntoView({ block: "end" }); };
+    // 多次校准：Next 路由切换会把新页滚到顶部(时机在首帧后)，必须在其后再压一次；450ms 再校准盖过图片/布局位移
     requestAnimationFrame(apply);
-    setTimeout(apply, 300); // 图片/布局二次稳定后再校准一次
+    setTimeout(apply, 120);
+    setTimeout(apply, 450);
     // eslint-disable-next-line
   }, [messages.length]);
   useEffect(() => {
     const save = () => { try { sessionStorage.setItem("chat-scroll", JSON.stringify({ y: window.scrollY, t: Date.now() })); } catch {} };
+    // 随滚随存(节流500ms)：SPA 切 Tab 不触发 visibilitychange/pagehide，只有持续保存才能覆盖所有离开路径
+    let last = 0;
+    const onScroll = () => { const now = Date.now(); if (now - last > 500) { last = now; save(); } };
+    window.addEventListener("scroll", onScroll, { passive: true });
     const onVis = () => { if (document.visibilityState === "hidden") save(); };
     document.addEventListener("visibilitychange", onVis);
     window.addEventListener("pagehide", save);
-    return () => { document.removeEventListener("visibilitychange", onVis); window.removeEventListener("pagehide", save); };
+    return () => { save(); window.removeEventListener("scroll", onScroll); document.removeEventListener("visibilitychange", onVis); window.removeEventListener("pagehide", save); };
   }, []);
 
   // 恢复触发三件套：①回前台/挂载 ②常驻看门狗（每3s查心跳，5s静默即接管——治"回来瞬间被缓冲事件骗过后再无人重试"）
