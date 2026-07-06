@@ -1,7 +1,7 @@
 "use client";
 // 站内浏览浮层（In-App Browser）：点来源资料不再跳出 App——聊天页在浮层底下原封不动（流式继续、位置不丢），
 // 关闭即回原地。借鉴"切 Tab 不断流"的本质：始终不离开 SPA。部分网站禁内嵌(X-Frame-Options)，顶栏常备「浏览器打开」降级。
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { X, ExternalLink, Globe } from "lucide-react";
 
 let current: { url: string; host: string; key: number } | null = null;
@@ -13,9 +13,17 @@ export function openWebViewer(url: string) {
     if (u.protocol !== "http:" && u.protocol !== "https:") return;
     current = { url, host: u.hostname.replace(/^www\./, ""), key: ++seq };
   } catch { return; }
+  // 压入一条历史记录：侧滑返回/返回键只消费这一条＝关闭浮层留在原页（否则会退到上一个路由如泡馆）
+  try { window.history.pushState({ __webviewer: seq }, ""); } catch {}
   subs.forEach((cb) => cb());
 }
-function closeViewer() { current = null; subs.forEach((cb) => cb()); }
+function dismiss() { if (!current) return; current = null; subs.forEach((cb) => cb()); }
+function closeViewer() {
+  if (!current) return;
+  // 主动关闭（点✕）：回退一步消费掉 open 时压入的历史，popstate 里 dismiss；历史异常时直接关兜底
+  try { window.history.back(); } catch { dismiss(); }
+  setTimeout(() => { if (current) dismiss(); }, 120); // back 未触发 popstate 的极端兜底
+}
 
 export function WebViewer() {
   const snap = useSyncExternalStore(
@@ -24,6 +32,12 @@ export function WebViewer() {
     () => null
   );
   const [loaded, setLoaded] = useState(0); // 按 key 记录已加载，切换新链接时重置提示
+  // 侧滑返回/返回键：关浮层、不换路由（URL 未变，Next 路由不动）
+  useEffect(() => {
+    const onPop = () => dismiss();
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
   if (!snap) return null;
   return (
     <div className="fixed inset-0 z-[80] flex flex-col bg-snow dark:bg-dark-bg">
