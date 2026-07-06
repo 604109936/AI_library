@@ -81,7 +81,7 @@ function CitesBlock({ cites }: { cites: Citation[] }) {
       {/* 系统标签样式：图标 + 青瓷色 + 小字距，与「为你挑的书」一致，区别于 AI 正文 */}
       <div className="flex items-center gap-1.5">
         <BookOpen size={13} className="shrink-0 text-celadon" />
-        <span className="text-[11px] font-medium tracking-[0.08em] text-celadon-700 dark:text-celadon-300">点开读原文 · {cites.length} 章</span>
+        <span className="text-[11px] font-medium tracking-[0.08em] text-celadon-700 dark:text-celadon-300">引用 {cites.length} 章 · 点开读原文</span>
       </div>
       {cites.map((c, i) => (
         <Link
