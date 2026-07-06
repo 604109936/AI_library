@@ -924,6 +924,16 @@ function Welcome({ onAsk }: { onAsk: (q: string) => void }) {
         </>
       )}
 
+      {/* 小涤开场白（游客/零记录新用户版）：最需要引导的人不能只看到标题——给一句破冰的话，
+          告诉 TA 能怎么用（纯本地拼装，零成本零延迟；有阅读记录的登录用户走下面的近况版开场白） */}
+      {(!user || !last) && (
+        <div className="mt-5 w-full animate-fade-up">
+          <div className="rounded-2xl rounded-tl-sm bg-snow px-3.5 py-3 text-sm leading-6 text-ink-700 shadow-sm dark:bg-dark-card dark:text-dark-text/85">
+            你好呀，我是<b className="text-ink dark:text-dark-text">小涤</b> 😊 馆里每本书我都读透了——想找本对味的书、聊聊某本书的内容，或者就是最近有点卡、有点累，都可以直接跟我说。
+          </div>
+        </div>
+      )}
+
       {/* 小涤开场白：汇报阅读近况（仅登录且有阅读记录；纯本地拼装） */}
       {user && last && (
         <div className="mt-5 w-full animate-fade-up">
