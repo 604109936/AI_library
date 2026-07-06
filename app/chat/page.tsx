@@ -97,6 +97,7 @@ function takeChatLive() {
   return chatLive;
 }
 
+let chatMountedOnce = false; // 本 JS 会话内智学是否已挂载过（区分 SPA 切 Tab 与整页加载）
 // 超长会话只渲染最近这么多条：更早的内容仍完整保留在云端与小涤的记忆（压缩摘要）里
 const RENDER_WINDOW = 120;
 
@@ -716,7 +717,10 @@ function ChatInner() {
     scrollRestored.current = true;
     let saved: { y?: number; t?: number } | null = null;
     try { saved = JSON.parse(sessionStorage.getItem("chat-scroll") ?? "null"); } catch {}
-    const fresh = saved && Date.now() - (saved.t ?? 0) < 12 * 60_000;
+    // 产品规则：SPA 内切 Tab 进智学一律锚定最新(底部)；只有整页加载(微信重载/外开浏览器回来)才恢复上次位置
+    const spaReentry = chatMountedOnce;
+    chatMountedOnce = true;
+    const fresh = !spaReentry && saved && Date.now() - (saved.t ?? 0) < 12 * 60_000;
     const apply = () => { if (fresh && typeof saved!.y === "number") window.scrollTo(0, saved!.y); else bottomRef.current?.scrollIntoView({ block: "end" }); };
     // 多次校准：Next 路由切换会把新页滚到顶部(时机在首帧后)，必须在其后再压一次；450ms 再校准盖过图片/布局位移
     requestAnimationFrame(apply);
