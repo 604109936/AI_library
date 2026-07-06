@@ -29,6 +29,23 @@ const GENERIC = [
   "给我一句今天的读书灵感",
 ];
 
+// 情绪/求助型入口（实测小涤最出彩的对症荐书场景）：新用户常不知道读什么、只知道自己哪里不舒服——
+// 给一条"说人话"的破冰口，直接展示「说困惑 → 得到对症的书」这个杀手锏。每次随机混 1 条进 chips。
+const MOOD = [
+  "最近有点焦虑内耗，读点什么好",
+  "总是三分钟热度坚持不下来，怎么办",
+  "感觉活得好累，老在意别人的看法",
+  "道理都懂就是做不到，有书能治吗",
+  "最近很丧，提不起劲，想被一本书拉一把",
+  "老忍不住对家人发脾气，想改",
+];
+// 把 1 条情绪问题随机插进前 3 个位置（保证它在首屏可见），总数仍封顶 4
+function mixMood(list: string[]): string[] {
+  const out = list.filter((q) => !MOOD.includes(q));
+  out.splice(Math.floor(Math.random() * Math.min(3, out.length + 1)), 0, pick(MOOD));
+  return out.slice(0, 4);
+}
+
 export interface PersonalData {
   history: HistoryItem[];
   progress: Record<string, Progress>;
@@ -68,7 +85,7 @@ export function buildQuestions(d: PersonalData | null): string[] {
     if (out.length >= 4) break;
     if (!out.includes(q)) out.push(q);
   }
-  return out.slice(0, 4);
+  return mixMood(out);
 }
 
 // 游客/新用户：从真实馆藏「随机」挑书拼问题，每次进来不一样；并体现读书伙伴「荐书 · 答疑 · 解读原文」三大能力。
@@ -91,5 +108,5 @@ export function buildGuestQuestions(books: Book[], categories: Category[]): stri
     if (out.length >= 4) break;
     if (!out.includes(g)) out.push(g);
   }
-  return out.slice(0, 4);
+  return mixMood(out);
 }
