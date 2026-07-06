@@ -54,6 +54,21 @@ function StallDots() {
   );
 }
 
+// CJK 加粗渲染兜底：CommonMark 边界规则下，** 紧贴中文标点(《 " 「 等)时加粗不成立、星号裸露（实锤图三处）。
+// 提示词治不了 100%——渲染前只在「必定渲染失败」的位置按需插入极细空格(U+2009，视觉几乎不可见)，正常加粗零影响。
+const BOLD_PUNCT = "\u300a\u300b\u300c\u300d\u300e\u300f\u3010\u3011\u3008\u3009\uff08\uff09()[]{}\"'\u201c\u201d\u2018\u2019\u3001\u3002\uff0c,.\uff1a:\uff1b;\uff01!\uff1f?\u2026\u2014\uff5e~\u00b7-";
+const isBoldPunct = (ch: string) => !!ch && BOLD_PUNCT.indexOf(ch) >= 0;
+const isWsCh = (ch: string) => !!ch && /\s/.test(ch);
+function fixCjkBold(md: string): string {
+  return md.replace(/\*\*([^*\n]+?)\*\*/g, (m, inner: string, off: number, str: string) => {
+    const prev = off > 0 ? str[off - 1] : "";
+    const next = str.charAt(off + m.length);
+    const needPre = isBoldPunct(inner[0]) && !!prev && !isWsCh(prev) && !isBoldPunct(prev); // ** 后是标点且前面是文字 → 开界必失败
+    const needPost = isBoldPunct(inner[inner.length - 1]) && !!next && !isWsCh(next) && !isBoldPunct(next); // ** 前是标点且后面是文字 → 闭界必失败
+    return (needPre ? "\u2009" : "") + m + (needPost ? "\u2009" : "");
+  });
+}
+
 // 表格在手机气泡里必然挤爆（用户明确不要表格）：System 已禁止小涤输出表格，
 // 这里再做渲染兜底——万一漏出表格语法，降级为紧凑的行式列表而非 <table>
 const MD_COMPONENTS: Components = {
@@ -286,7 +301,7 @@ export const ChatMessage = memo(function ChatMessage({
               return (
                 <div key={i} className="prose-cn">
                   <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
-                    {seg.text}
+                    {fixCjkBold(seg.text)}
                   </ReactMarkdown>
                 </div>
               );
