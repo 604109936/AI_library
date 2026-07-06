@@ -738,7 +738,7 @@ function ChatInner() {
     }
   }
   function onInputPointerDown(e: React.PointerEvent) {
-    if (STREAM_ASR) { prewarmStreamAsr(); _streamVoice.warmAudio(); } // 触碰输入框即预热：中继 isolate（节流30s）+ AudioContext（提前 resume 焐热），让随后录音瞬间起采、不丢前半句
+    if (STREAM_ASR) { prewarmStreamAsr(); _streamVoice.warmAudio(); } // 预热中继 isolate + AudioContext
     // 注意：模型回话中（busy）也不能在这里直接 return——否则会跳过下面的 preventDefault，
     // 浏览器就对 textarea 走默认长按行为（聚焦 + 弹「粘贴/全选」菜单），正是"按住说话变成输入框"的根因。
     // 改为照常 preventDefault 接管手势，到 350ms 真要起语音时再用 liveBusy 拦下、给温和提示。
@@ -750,6 +750,7 @@ function ChatInner() {
     // 未聚焦时按下：阻止 textarea 自动聚焦——否则长按语音前会先弹一下软键盘再收起（用户反馈：体验差）。
     // 想打字的「快速点按」场景，在 pointerup（onInputPointerUp）里手动聚焦补回。
     e.preventDefault();
+    if (STREAM_ASR) _streamVoice.preCapture(); // 按下即拾音+连WS：长按判定前的话也在缓冲里，一个字不丢；点按则 cancelPre 立刻关麦
     pressFired.current = false;
     pressStart.current = { x: e.clientX, y: e.clientY };
     // 指针捕获：录音浮层渲染后会遮住输入框，没有 capture 时鼠标指针被判定"离开"输入框 →
@@ -759,7 +760,7 @@ function ChatInner() {
       pressFired.current = true;
       // 模型还在回话时长按：不进语音（识别完会自动发送，与正在流式的回答冲突），给温和提示即可。
       // 取 liveBusy 实时值（而非闭包捕获的 busy）：模型若在按住期间刚好答完，仍可顺畅进入语音。
-      if (liveBusy) { toast("小涤还在回话，等它说完再聊语音哦~", "info"); return; }
+      if (liveBusy) { if (STREAM_ASR) _streamVoice.cancelPre(); toast("小涤还在回话，等它说完再聊语音哦~", "info"); return; }
       if (recordingRef.current) return; // 竞态兜底：已在录音绝不再起一个识别器
       if (!isVoiceSupported()) {
         toast("当前浏览器不支持语音输入，可以用键盘自带的语音键", "info");
@@ -786,17 +787,21 @@ function ChatInner() {
         return;
       }
       setRec(true);
-    }, 350);
+    }, 280); // 350→280ms：起手更跟手，与点按判定仍有区分度
   }
   function onInputPointerEnd() {
     if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; }
     if (recordingRef.current) endRecording();
-    else voiceAborting.current = true; // 长按定时器已触发但识别还在启动中就松了手：启动完成后直接放弃
+    else {
+      voiceAborting.current = true; // 长按定时器已触发但识别还在启动中就松了手：启动完成后直接放弃
+      if (!pressFired.current && STREAM_ASR) _streamVoice.cancelPre(); // 长按从未触发(纯预拾音)就离开：关麦防泄漏
+    }
   }
   // 真正松手（pointerup，区别于 pointerleave）：快速点按（没触发长按语音、也没在录音）→ 手动聚焦进入打字
   // （pointerdown 已 preventDefault 阻止自动聚焦防键盘闪现，这里在用户手势内补回聚焦，正常弹起键盘）。
   function onInputPointerUp() {
     const quickTap = !pressFired.current && !recordingRef.current;
+    if (quickTap && STREAM_ASR) _streamVoice.cancelPre(); // 快速点按想打字：立刻关麦丢弃(橙点仅闪现)
     onInputPointerEnd();
     if (quickTap && inputRef.current) {
       // 进入打字：按钮态时 textarea 是只读的（触摸不弹键盘），先解除只读、再在用户手势内聚焦，正常弹出键盘。
@@ -817,6 +822,7 @@ function ChatInner() {
       setCancelArmed(false);
     } else {
       voiceAborting.current = true;
+      if (!pressFired.current && STREAM_ASR) _streamVoice.cancelPre(); // 系统手势抢占时的纯预拾音同样关麦防泄漏
     }
   }
   function onInputPointerMove(e: React.PointerEvent) {

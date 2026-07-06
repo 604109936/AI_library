@@ -63,6 +63,8 @@ export function useStreamVoiceInput() {
   const sessionRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const donePromise = useRef<{ resolve: (t: string) => void } | null>(null);
+  const preArmed = useRef(false); // 预拾音已启动（pointerdown 即开麦+连WS，长按判定通过后无缝转正——根治"开口早于拾音"丢字）
+  const bootP = useRef<Promise<boolean> | null>(null);
 
   // 卸载时才彻底拆（含关 AudioContext）；录音之间的 cleanup 保留 ctx 常热（见 cleanup 注释）
   useEffect(() => () => { cleanup(); try { ctxRef.current?.close(); } catch {} ctxRef.current = null; }, []);
@@ -114,8 +116,41 @@ export function useStreamVoiceInput() {
     try { wsRef.current?.readyState === 1 && wsRef.current.send(buf); } catch {}
   }
 
-  /** 开始：拿麦克风 + 立刻起采音；WS 并行连、不阻塞（音频先进缓冲，WS 一通就补发）。返回 false=启动失败。 */
+  // 正式进入录音态（拾音/WS 已就绪）：置位 + UI 状态 + 计时
+  function arm() {
+    preArmed.current = false;
+    recordingRef.current = true;
+    startedAt.current = Date.now(); // MAX_SECONDS 从正式录音起算（预拾音的几百毫秒不占额度）
+    setState({ active: true, transcribing: false, seconds: 0, level: 0, partial: "" });
+    timerRef.current = setInterval(() => setState((s) => (s.active ? { ...s, seconds: Math.floor((Date.now() - startedAt.current) / 1000) } : s)), 500);
+  }
+  /** 预拾音（pointerdown 即调）：开麦 + 连 WS + 采音进缓冲，但不进录音 UI。长按判定通过后 start() 无缝转正；
+   *  判定为点按则 cancelPre() 立刻关麦丢弃（橙点仅闪现，未录任何内容被保留）。 */
+  function preCapture() {
+    if (preArmed.current || recordingRef.current) return;
+    preArmed.current = true;
+    bootP.current = boot().then((ok) => { if (!ok) preArmed.current = false; return ok; });
+  }
+  /** 取消预拾音（快速点按想打字）：立刻关麦、断 WS、清缓冲 */
+  function cancelPre() {
+    if (!preArmed.current || recordingRef.current) return;
+    preArmed.current = false;
+    sessionRef.current++; // 打断在途 boot
+    cleanup();
+  }
+  /** 开始：预拾音已就绪则无缝转正；否则现场启动。返回 false=启动失败。 */
   async function start(): Promise<boolean> {
+    if (preArmed.current && bootP.current) {
+      const ok = await bootP.current;
+      if (ok && streamRef.current) { arm(); return true; }
+      preArmed.current = false; // 预启动失败：走全新启动
+    }
+    const ok = await boot();
+    if (!ok) return false;
+    arm();
+    return true;
+  }
+  async function boot(): Promise<boolean> {
     cleanup();
     fatalRef.current = false; wsFailedRef.current = false;
     finalText.current = ""; pcmBuf.current = [];
@@ -163,27 +198,25 @@ export function useStreamVoiceInput() {
       const proc = ctx.createScriptProcessor(4096, 1, 1); procRef.current = proc;
       let lastLevelAt = 0;
       proc.onaudioprocess = (e) => {
-        if (!recordingRef.current) return;
+        if (!recordingRef.current && !preArmed.current) return;
         const input = e.inputBuffer.getChannelData(0);
         if ((Date.now() - startedAt.current) / 1000 <= MAX_SECONDS) { pushSamples(new Float32Array(input), srcRate); flushChunk(false); }
         let sum = 0; for (let i = 0; i < input.length; i++) sum += input[i] * input[i];
         const level = Math.min(1, Math.sqrt(sum / input.length) * 3.2);
         const now = performance.now();
-        if (now - lastLevelAt > 100) { lastLevelAt = now; setState((s) => (s.active ? { ...s, level } : s)); }
+        if (recordingRef.current && now - lastLevelAt > 100) { lastLevelAt = now; setState((s) => (s.active ? { ...s, level } : s)); }
       };
       src.connect(proc); proc.connect(ctx.destination);
       streamRef.current = stream;
     } catch { stream.getTracks().forEach((t) => t.stop()); cleanup(); return false; }
 
-    recordingRef.current = true;
-    setState({ active: true, transcribing: false, seconds: 0, level: 0, partial: "" });
-    timerRef.current = setInterval(() => setState((s) => (s.active ? { ...s, seconds: Math.floor((Date.now() - startedAt.current) / 1000) } : s)), 500);
-    return true;
+    return true; // 拾音/WS 已跑起来；进录音 UI 由 arm() 负责
   }
 
   /** 结束。cancel=true 丢弃；否则发 EOS 等最终文本。返回 {text, fatal}。 */
   async function stop(cancel: boolean): Promise<{ text: string; fatal: boolean; error?: boolean }> {
     const fatal = fatalRef.current;
+    preArmed.current = false;
     recordingRef.current = false;
     sessionRef.current++;
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
@@ -200,7 +233,8 @@ export function useStreamVoiceInput() {
       else if (ws && ws.readyState === 0) ws.addEventListener("open", sendTail, { once: true }); // 还在连：等连上补发
       else { resolve(finalText.current.trim()); return; }    // 已关闭/不可用：收尾
       // 正常按毫秒级就 done；冷启动「连上+火山识别」可能要几秒，给足 9s 兜底（仅异常时触发）
-      setTimeout(() => { donePromise.current = null; resolve(finalText.current.trim()); }, 9000);
+      // 松手秒发：实时文字(result_type=full)本就是完整句，最多再等600ms要终稿；一个字都还没出才多等一会
+      setTimeout(() => { donePromise.current = null; resolve(finalText.current.trim()); }, finalText.current.trim() ? 600 : 2500);
     });
     cleanup();
     setState(IDLE);
@@ -208,5 +242,5 @@ export function useStreamVoiceInput() {
     return { text, fatal: false, error: !text && wsFailedRef.current };
   }
 
-  return { voice: state, startVoice: start, stopVoice: stop, warmAudio };
+  return { voice: state, startVoice: start, stopVoice: stop, warmAudio, preCapture, cancelPre };
 }
