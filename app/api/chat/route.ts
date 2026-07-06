@@ -303,7 +303,10 @@ export async function POST(req: NextRequest) {
         if (!clientGone) {
           try { controller.enqueue(enc.encode(JSON.stringify(e) + "\n")); } catch { clientGone = true; } // enqueue 抛错=流已被客户端取消
         }
-        if (clientGone) snapshot(false); // 断连后才开始落快照（正常连接零额外开销）
+        // 生产实测：Vercel 上客户端断连时 enqueue 可能不抛错、req.signal 也可能不触发（与 dev 行为不同）——
+        // 「断连才写快照」会一片都写不出。改为生成期间恒按节奏写（有内容才写），健康走完在 finally 删行：
+        // 正常路径表里照样不留东西，代价只是每 2.5s 一个 upsert；实例若在断连时被杀，至少留有最后一片可恢复。
+        if (acc || evAcc.length) snapshot(false);
       };
       const gen = (async () => {
         try {
@@ -313,7 +316,9 @@ export async function POST(req: NextRequest) {
           console.error("[/api/chat]", e);
           emit({ t: "err", v: "我这边信号不太好，稍等片刻再来找我吧" });
         } finally {
-          if (clientGone && genId) { lastSnap = 0; snapshot(true); } // 断连场景终态快照（含空正文=告知客户端别再等）
+          // 终态快照必写。不做"健康走完就删行"：生产上断连检测不可靠(clientGone 可能恒 false)，
+          // 完成即删会让正在轮询的恢复端在 done 可见前扑空。行留给 15 分钟 TTL 清理（RLS 保护、量极小）。
+          if (genId && (clientGone || acc || evAcc.length)) { lastSnap = 0; snapshot(true); }
           await chain.catch(() => {});
           try { controller.close(); } catch {}
           afterAnswer();
