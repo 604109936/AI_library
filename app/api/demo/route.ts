@@ -12,11 +12,13 @@ export async function POST(req: NextRequest) {
   // ① 单 IP 10 分钟 8 个；② 全站 10 分钟 60 个——后者防"伪造/轮换 XFF 让 IP key 永远不同"绕过单 IP 限流。
   // IP 取可信来源(x-real-ip/x-vercel-forwarded-for)而非可伪造的 XFF 首段；配 KV 后两闸跨实例严格生效。
   const ip = clientIp(req.headers);
-  const [okIp, okGlobal] = await Promise.all([
-    rateLimit(`demo:ip:${ip}`, 8, 600_000),
-    rateLimit("demo:global", 60, 600_000),
-  ]);
-  if (!okIp || !okGlobal) {
+  // 必须串行短路：被单 IP 闸拦下的请求绝不能再消耗全局桶（原并行 Promise.all 里被拒请求照样给
+  // demo:global +1，一个 IP 狂刷≈60 次就灌满全局 60/10min，令其他 IP 正常用户集体 429——防滥用闸反成 DoS 放大器）。
+  // 全局桶只统计「真正会建号」的请求（过了单 IP 闸的）。
+  if (!(await rateLimit(`demo:ip:${ip}`, 8, 600_000))) {
+    return NextResponse.json({ error: "体验太频繁了，歇会儿再来" }, { status: 429 });
+  }
+  if (!(await rateLimit("demo:global", 60, 600_000))) {
     return NextResponse.json({ error: "体验太频繁了，歇会儿再来" }, { status: 429 });
   }
   try {

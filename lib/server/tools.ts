@@ -103,7 +103,7 @@ export const AGENT_TOOLS: MMTool[] = [
     function: {
       name: "suggest_replies",
       description:
-        "在回答下方展示 2~3 个可一键发送的「快捷追问」气泡。【何时调用】答疑 / 解读的收尾（通常与 cite_chapters 同轮或紧随其后）：给出读者最可能想接着问的**内容延伸**短问题（每条 ≤14 字，如「拉伸区怎么找」「X类人是什么意思」）——**代替在正文里问「想先聊哪块」**。**禁止出「拉原文 / 读原文 / 看原文」类气泡**：读原文的入口是章节卡，气泡再出一遍＝三个入口说同一件事。【勿调】荐书 / 闲聊 / 实时问题的回答不调。调用后本轮结束、不再输出文字。",
+        "在回答下方展示 2~3 个可一键发送的「快捷追问」气泡。【何时调用】答疑 / 解读的收尾（**与 cite_chapters 同一轮一起调用，别拖到下一轮**——出卡后本轮即收尾，拖后就发不出来了）：给出读者最可能想接着问的**内容延伸**短问题（每条 ≤14 字，如「拉伸区怎么找」「X类人是什么意思」）——**代替在正文里问「想先聊哪块」**。**禁止出「拉原文 / 读原文 / 看原文」类气泡**：读原文的入口是章节卡，气泡再出一遍＝三个入口说同一件事。【勿调】荐书 / 闲聊 / 实时问题的回答不调。调用后本轮结束、不再输出文字。",
       parameters: {
         type: "object",
         properties: { questions: { type: "array", items: { type: "string" }, description: "2~3 条短追问（每条≤14字、读者口吻）" } },
@@ -148,15 +148,18 @@ export type ToolEvent =
   | { t: "web"; v: { q: string; items: { t: string; u: string; d: string }[] } }
   | { t: "sug"; v: string[] }; // 快捷追问 chips（2~3 条短问题）
 
-export async function execTool(name: string, argsJson: string): Promise<{ result: string; event?: ToolEvent }> {
+// budgetMs：调用方传剩余时间预算。needsFollowup：工具结果需要模型下一轮补救（如部分书没出卡），编排据此不提前收尾。
+export async function execTool(name: string, argsJson: string, budgetMs?: number): Promise<{ result: string; event?: ToolEvent; needsFollowup?: boolean }> {
   let args: any = {};
   try { args = JSON.parse(argsJson || "{}"); } catch {}
+  // 每笔 DB 查询的硬超时（对齐 read_chapter 原有 8s 口径，并被剩余预算钳制）：防 DB 网络 stall 顶穿函数 maxDuration
+  const dbTmo = () => AbortSignal.timeout(Math.max(3000, Math.min(8000, (budgetMs ?? 30000) - 2000)));
   try {
     if (name === "recommend_books") {
       const ids: string[] = Array.isArray(args.book_ids) ? args.book_ids.map(String) : [];
       // 直带 作者/封面种子/封面图：前端零查询即可成完整卡片（不再二次 getBook 拉书目），
       // 彻底消除"降级空封面"与富化竞态——谁的封面都不会缺
-      const { data } = await admin.from("books").select("id,title,author,cover_url,cover_seed").in("id", ids);
+      const { data } = await admin.from("books").select("id,title,author,cover_url,cover_seed").in("id", ids).abortSignal(dbTmo());
       // 必须按模型传入的顺序重排：.in() 返回行序是 DB 扫描序，与推荐优先级无关——
       // 正文说"最推荐第一本《A》"而卡组第一张是《B》即失配；超 5 本时砍掉的也该是模型排最后的
       const order = new Map<string, number>();
@@ -165,15 +168,22 @@ export async function execTool(name: string, argsJson: string): Promise<{ result
         .sort((a: any, b: any) => (order.get(a.id) ?? 99) - (order.get(b.id) ?? 99))
         .slice(0, 5);
       if (!valid.length) return { result: "失败：这些 book_id 在馆藏中不存在，卡片没有展示。请用〔图书馆书单〕里的 [id] 重试；若不重试，正文中不得提及卡片。" };
+      // 部分 id 无效（模型手误/幻觉）或超 5 本被截：必须回告哪几本没出卡（与 get_book_briefs 的 missing 口径对齐），
+      // 否则正文写了 3 本推荐语、卡组只出 2 张，读者对着没入口的书干瞪眼。needsFollowup 让编排放行下一轮补救。
+      const missing = Array.from(new Set(ids)).filter((id) => !valid.some((b: any) => b.id === id));
+      const missNote = missing.length
+        ? `注意：${missing.join("、")} 不在馆藏（或超出 5 本上限），**这几本没有出卡**——正文若提到了它们，请用〔图书馆书单〕里的正确 [id] 补调一次 recommend_books，或一句话更正对应推荐语，别让读者看到点不了的书。`
+        : "";
       return {
-        result: `已收到。若你已把推荐理由讲完，**本轮就此结束、不要再从头重讲一遍**；若还没讲完，简短补完即止。别复述书名清单，也别出现"卡片 / 入口 / 已展示 / 已备好 / 点开 / 跳到 / 在上面 / 在下面 / 👇 / ↓"等任何字样——读者会自动看到可点书目，无需你交代。`,
+        result: `已收到。${missNote}若你已把推荐理由讲完，**本轮就此结束、不要再从头重讲一遍**；若还没讲完，简短补完即止。别复述书名清单，也别出现"卡片 / 入口 / 已展示 / 已备好 / 点开 / 跳到 / 在上面 / 在下面 / 👇 / ↓"等任何字样——读者会自动看到可点书目，无需你交代。`,
         event: { t: "recs", v: valid.map((b: any) => ({ id: b.id, title: b.title, author: b.author ?? "", cv: b.cover_url ?? "", cs: b.cover_seed ?? 1 })) },
+        needsFollowup: missing.length > 0,
       };
     }
     if (name === "get_book_briefs") {
       const ids: string[] = Array.isArray(args.book_ids) ? args.book_ids.map(String).slice(0, 6) : [];
       if (!ids.length) return { result: "失败：缺少 book_ids。" };
-      const { data } = await admin.from("books").select("id,title,author,tags,ai_digest").in("id", ids);
+      const { data } = await admin.from("books").select("id,title,author,tags,ai_digest").in("id", ids).abortSignal(dbTmo());
       // 按模型传入顺序重排（同 recommend_books 口径：.in() 返回 DB 扫描序，与模型的候选优先级无关）
       const order = new Map<string, number>();
       ids.forEach((id, i) => { if (!order.has(id)) order.set(id, i); });
@@ -188,8 +198,8 @@ export async function execTool(name: string, argsJson: string): Promise<{ result
       // 不再整本书正文进内存：原 select 含 content 是为"概要缺失时取开头 60 字"，却把全书每章
       // 正文（30 章 × 1.5 万字级）拉穿 DB→函数。改两步：先拉轻量列，仅对缺概要的章补拉正文
       const [bookR, chapR] = await Promise.all([
-        admin.from("books").select("id,title,author,tags,ai_digest").eq("id", id).maybeSingle(),
-        admin.from("chapters").select("no,title,ai_summary").eq("book_id", id).order("no"),
+        admin.from("books").select("id,title,author,tags,ai_digest").eq("id", id).abortSignal(dbTmo()).maybeSingle(),
+        admin.from("chapters").select("no,title,ai_summary").eq("book_id", id).order("no").abortSignal(dbTmo()),
       ]);
       const b: any = bookR.data;
       if (!b) return { result: `失败：馆藏中没有 book_id=${id} 的书。` };
@@ -197,7 +207,7 @@ export async function execTool(name: string, argsJson: string): Promise<{ result
       const missing = chaps.filter((c) => !(c.ai_summary ?? "").trim()).map((c) => c.no);
       const headOf = new Map<number, string>();
       if (missing.length) {
-        const { data: extra } = await admin.from("chapters").select("no,content").eq("book_id", id).in("no", missing);
+        const { data: extra } = await admin.from("chapters").select("no,content").eq("book_id", id).in("no", missing).abortSignal(dbTmo());
         for (const c of (extra ?? []) as any[]) headOf.set(c.no, cutSafe(String(c.content ?? ""), 60));
       }
       const lines = chaps.map(
@@ -209,8 +219,8 @@ export async function execTool(name: string, argsJson: string): Promise<{ result
     if (name === "read_chapter") {
       const id = String(args.book_id ?? "");
       const no = Number(args.chapter_no);
-      // 取整章正文（最多 15000 字）是工具循环里最重的一笔查询：挂 8s 硬超时，防 DB 网络 stall 顶穿 maxDuration 产生无 end 截断流
-      const { data: c } = await admin.from("chapters").select("no,title,content").eq("book_id", id).eq("no", no).abortSignal(AbortSignal.timeout(8000)).maybeSingle();
+      // 取整章正文（最多 15000 字）是工具循环里最重的一笔查询：挂硬超时（8s 且被剩余预算钳制），防 DB stall 顶穿 maxDuration 产生无 end 截断流
+      const { data: c } = await admin.from("chapters").select("no,title,content").eq("book_id", id).eq("no", no).abortSignal(dbTmo()).maybeSingle();
       if (!c) return { result: `失败：${id} 没有第 ${no} 章。可先用 read_book_toc 查目录。` };
       const content = String((c as any).content ?? "");
       // 第 0 章即前言：与 read_book_toc 同口径标「前言《标题》」而非「第0章《…》」，免得模型照搬"第0章"进正文
@@ -226,8 +236,8 @@ export async function execTool(name: string, argsJson: string): Promise<{ result
         const c = Number(it.chapter_no);
         // 展示数据一次取齐：书名/封面 + 章题/开头 60 字（前端原来为这点数据拉整本书正文）
         const [bookR, chapR] = await Promise.all([
-          admin.from("books").select("title,cover_url,cover_seed").eq("id", b).maybeSingle(),
-          admin.from("chapters").select("no,title,content").eq("book_id", b).eq("no", c).maybeSingle(),
+          admin.from("books").select("title,cover_url,cover_seed").eq("id", b).abortSignal(dbTmo()).maybeSingle(),
+          admin.from("chapters").select("no,title,content").eq("book_id", b).eq("no", c).abortSignal(dbTmo()).maybeSingle(),
         ]);
         const bk: any = bookR.data;
         const ch: any = chapR.data;
@@ -253,7 +263,7 @@ export async function execTool(name: string, argsJson: string): Promise<{ result
     if (name === "web_lookup") {
       const q = cutSafe(String(args.query ?? "").trim(), 60);
       if (!q) return { result: "失败：缺少搜索关键词 query。" };
-      const hits: WebHit[] = await searchWeb(q);
+      const hits: WebHit[] = await searchWeb(q, budgetMs ? budgetMs - 2000 : undefined);
       if (!hits.length) return { result: `联网搜索「${q}」没有找到结果。可换个关键词重试，或如实告诉读者没查到。` };
       const lines = hits.map((h, i) => `${i + 1}. ${h.title}${h.date ? `（${h.date}）` : ""}\n   ${h.snippet}\n   来源：${h.link}`);
       return {

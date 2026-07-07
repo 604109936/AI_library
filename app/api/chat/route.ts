@@ -8,7 +8,7 @@ import { waitUntil } from "@vercel/functions";
 import { streamChat, type MMMessage, type MMToolCall } from "@/lib/server/minimax";
 import { buildSystem, getUid, admin } from "@/lib/server/agent";
 import { getAgentTools, toolStatus, execTool, type ToolEvent } from "@/lib/server/tools";
-import { searchWebStream, webStreamAvailable } from "@/lib/server/websearch";
+import { searchWebStream, webStreamAvailable, type WebHit } from "@/lib/server/websearch";
 import { readOverride, DEFAULT_MAIN_MAX_TOKENS, DEFAULT_CHAT_MODEL } from "@/lib/server/agentConfig";
 import { getCompressed, maybeCompress } from "@/lib/server/compress";
 import { maybeUpdateMemory } from "@/lib/server/memory";
@@ -108,9 +108,15 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
   // （边搜边出字、源卡同步）并跳过 Claude 重写——省掉一遍模型、不再死等水波纹。出错/零文字才回落下面 Claude 主循环兜底。
   if (forceSearch0 && !recIntent && webStreamAvailable()) {
     emitW({ t: "status", v: searchStatus(lastUserText) }); // 搜索期间亮「正在搜「…」」，首个文字到达即自动切走
+    // 直答也要带上下文：省略式追问（聊完余华接「帮我查一下**他**最近获了什么奖」）只发单句，火山不知道"他"是谁，
+    // 会按字面搜错对象。拼上最近几轮对话原文（仅作指代消解背景），当前问题仍是作答对象。
+    const prior = msgs.slice(0, -1).slice(-4);
+    const liveInput = prior.length
+      ? `【对话背景（仅用于理解指代，不要复述）】\n${prior.map((m) => `${m.role === "user" ? "读者" : "小涤"}：${cutSafe(m.content, 160)}`).join("\n")}\n\n【读者当前问题（围绕它搜索并回答）】\n${lastUserText}`
+      : lastUserText;
     let got = "";
     try {
-      const { hits } = await searchWebStream(lastUserText, {
+      const { hits } = await searchWebStream(liveInput, {
         instructions: liveAnswerInstructions(),
         onDelta: (t) => { if (t) { got += t; emitW({ t: "d", v: t }); } },
         signal,
@@ -119,8 +125,14 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
       if (got.trim() && hits.length) emitW({ t: "web", v: { q: lastUserText, items: hits.map((h) => ({ t: h.title, u: h.link, d: h.date })) } });
     } catch (e) {
       console.warn("[chat] 联网流式直答失败，回落 Claude：", e instanceof Error ? e.message : e);
+      if (got.trim()) {
+        // 出了字才失败：半截话不能装作正常收尾——补发已拿到的来源卡 + err 提示（前端据此标截断、给「继续生成」）
+        const ph = (e as { partialHits?: WebHit[] } | null)?.partialHits ?? [];
+        if (ph.length) emitW({ t: "web", v: { q: lastUserText, items: ph.map((h) => ({ t: h.title, u: h.link, d: h.date })) } });
+        emitW({ t: "err", v: "刚才网络抖了一下，可能没说完" });
+      }
     }
-    if (got.trim()) return; // 已流式吐出回答 → 收尾；绝不回落 Claude 造成重复作答
+    if (got.trim()) return; // 已流式吐出回答（含上面补过截断提示的情况）→ 收尾；绝不回落 Claude 造成重复作答
     // got 为空（直答完全没出字 / 出错）→ 继续往下走正常 Claude 主循环兜底（含 forceWeb + 空回复重试）
   }
   for (let round = 0; ; round++) {
@@ -142,7 +154,7 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
       for (const c of calls) {
         if (c.function.name === "recommend_books" || c.function.name === "cite_chapters" || c.function.name === "suggest_replies") {
           emitW({ t: "status", v: toolStatus(c.function.name) }); // 工具一触发就给对应水波纹（口径与主循环一致）
-          const { event } = await execTool(c.function.name, c.function.arguments);
+          const { event } = await execTool(c.function.name, c.function.arguments, remain());
           if (event) emitW(event);
         }
       }
@@ -155,12 +167,14 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
     if (process.env.AGENT_DEBUG === "1") {
       console.log(`[agent-debug] 第${round + 1}轮回灌 assistant（前240字）：${raw.slice(0, 240).replace(/\n/g, "⏎")}`);
     }
+    let needsFollowup = false; // 工具结果要求模型下一轮补救（如部分书没出卡）时，本轮不提前收尾
     for (const c of calls) {
       // 每个工具一句固定短语；联网搜索额外把"在搜什么"亮出来（看得见进度、降低死等焦虑）
       let st = toolStatus(c.function.name);
       if (c.function.name === "web_lookup") { try { st = searchStatus(JSON.parse(c.function.arguments || "{}").query); } catch {} }
       emitW({ t: "status", v: st });
-      const { result, event } = await execTool(c.function.name, c.function.arguments);
+      const { result, event, needsFollowup: nf } = await execTool(c.function.name, c.function.arguments, remain());
+      if (nf) needsFollowup = true;
       if (event) emitW(event);
       convo.push({ role: "tool", tool_call_id: c.id, content: result });
     }
@@ -169,7 +183,10 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
     // 仅当本轮没写正文（纯调卡片、把作答留到下一轮）才继续，让模型补出答案。
     const onlyCardTools = calls.every((c) => c.function.name === "recommend_books" || c.function.name === "cite_chapters" || c.function.name === "suggest_replies");
     const visibleThisRound = raw.replace(/<think>[\s\S]*?(<\/think>|$)/g, "").replace(/\s/g, "");
-    if (onlyCardTools && visibleThisRound.length > 15) break;
+    // 追问气泡（suggest_replies）是收尾动作：单独成轮（无正文）时若此前已有正文，也直接收尾——
+    // 不然还会再空跑一整轮全上下文模型调用（工具结果已叮嘱"不要再输出文字"，那轮注定为空）。
+    const calledSug = calls.some((c) => c.function.name === "suggest_replies");
+    if (onlyCardTools && (visibleThisRound.length > 15 || (gotText && calledSug)) && !needsFollowup) break;
   }
   // 空回复兜住（唯一保留的 robustness——不靠正则猜模型哪错了，只是"模型打了个空嗝、零文字，就再问一次"）：
   // 模型/上游偶发返回全空（如 Claude 经代理瞬时抽风，或强制联网拿到结果后那轮恰好空），没这层会变成
@@ -187,7 +204,7 @@ async function runAgent(msgs: MMMessage[], uid: string | null, emit: Emit, signa
         convo.push({ role: "assistant", content: rraw, tool_calls: rcalls });
         for (const c of rcalls) {
           emitW({ t: "status", v: toolStatus(c.function.name) });
-          const { result, event } = await execTool(c.function.name, c.function.arguments);
+          const { result, event } = await execTool(c.function.name, c.function.arguments, remain());
           if (event) emitW(event);
           convo.push({ role: "tool", tool_call_id: c.id, content: result });
         }
@@ -287,7 +304,8 @@ export async function POST(req: NextRequest) {
       let clientGone = false;
       try { req.signal?.addEventListener("abort", () => { clientGone = true; }, { once: true }); } catch {}
       let acc = "";
-      const evAcc: ToolEvent[] = [];
+      // err 事件也进快照 events：中途抛错的半截回答不能在恢复端伪装成"正常完成"（前端读到 t:"err" → 错误态+「继续生成」）
+      const evAcc: (ToolEvent | { t: "err"; v: string })[] = [];
       let lastSnap = 0;
       let chain: Promise<unknown> = Promise.resolve(); // 快照写入串行化：防乱序覆盖（后写的旧快照盖掉新快照）
       const snapshot = (done: boolean) => {
@@ -296,11 +314,16 @@ export async function POST(req: NextRequest) {
         if (!done && now - lastSnap < 2500) return; // 进行中至多每 2.5s 一片；终态必写
         lastSnap = now;
         const row = { id: genId, user_id: uid, content: acc, events: evAcc.slice(), done, updated_at: new Date().toISOString() };
-        chain = chain.then(() => admin.from("chat_gens").upsert(row)).catch((e) => console.warn("[chat] 生成快照写入失败：", e instanceof Error ? e.message : e));
+        // supabase-js 失败不 reject（resolve 成 {error}），只挂 .catch 兜不住——必须检查返回值的 error 字段留痕
+        chain = chain
+          .then(() => admin.from("chat_gens").upsert(row))
+          .then(({ error }) => { if (error) console.warn("[chat] 生成快照写入失败：", error.message); })
+          .catch((e) => console.warn("[chat] 生成快照写入失败：", e instanceof Error ? e.message : e));
       };
       const emit: Emit = (e) => {
         if (e.t === "d" && typeof e.v === "string") acc += e.v;
         else if (e.t === "recs" || e.t === "cites" || e.t === "web" || e.t === "sug") evAcc.push(e as ToolEvent);
+        else if (e.t === "err") evAcc.push({ t: "err", v: typeof e.v === "string" ? e.v : "" });
         if (!clientGone) {
           try { controller.enqueue(enc.encode(JSON.stringify(e) + "\n")); } catch { clientGone = true; } // enqueue 抛错=流已被客户端取消
         }
@@ -333,7 +356,7 @@ export async function POST(req: NextRequest) {
       })();
       try { waitUntil(gen); } catch {} // 响应流关闭后仍把生成+快照跑完
       // 顺手 TTL：清 15 分钟前的陈旧快照（轻量，无 cron 依赖）
-      if (genId) { try { waitUntil(Promise.resolve(admin.from("chat_gens").delete().lt("updated_at", new Date(Date.now() - 15 * 60_000).toISOString())).then(() => {})); } catch {} }
+      if (genId) { try { waitUntil(Promise.resolve(admin.from("chat_gens").delete().lt("updated_at", new Date(Date.now() - 15 * 60_000).toISOString())).then(({ error }) => { if (error) console.warn("[chat] 快照TTL清理失败：", error.message); })); } catch {} }
       await gen;
     },
   });

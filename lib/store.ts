@@ -37,16 +37,22 @@ async function loadProfile(authUser: any): Promise<UserProfile> {
 // signInWithPassword 会同步广播 SIGNED_IN，login()/register() 与 onAuthStateChange 处理器会双触发——
 // 按 uid 合并在途加载保证整链只跑一次：重复跑既双倍打库，也会放大「user 已置位、数据未就绪」的空基线窗口
 let signInLoading: { uid: string; p: Promise<void> } | null = null;
+// 登录世代：SIGNED_OUT / 新登录链开启即自增——在途的旧账号加载据此作废，晚到 profile 不再回写已登出/换号的 user
+export let authGen = 0;
+export function bumpAuthGen() { authGen++; }
 function signInLoad(authUser: { id: string }): Promise<void> {
   if (signInLoading?.uid === authUser.id) return signInLoading.p;
+  const gen = ++authGen; // 新登录链：作废任何在途旧账号加载
   const p = (async () => {
     try {
       const prof = await loadProfile(authUser);
+      if (authGen !== gen) return; // 期间已登出/换号：晚到 profile 绝不回写（防「幽灵登录」——顶栏亮身份、canSync 打开却被 RLS 连环拒写）
       useAuth.setState({ user: prof });
       await useLibrary.getState().load(prof);
+      if (authGen !== gen) return;
       await useChat.getState().loadCloud(prof.id);
     } finally {
-      signInLoading = null;
+      if (signInLoading?.uid === authUser.id) signInLoading = null; // 仅清自己这个 uid 的在途标记，不误清后来者（快速换号时的新账号）
     }
   })();
   signInLoading = { uid: authUser.id, p };
@@ -92,6 +98,7 @@ export const useAuth = create<AuthState>()((set, get) => ({
       authSubscribed = true;
       supabase.auth.onAuthStateChange((event, sess) => {
         if (event === "SIGNED_OUT") {
+          authGen++; // 作废在途加载：登出后晚到的 loadProfile 不得把已清空的 user 重新置位
           set({ user: null });
           useLibrary.getState().reset();
           useChat.getState().resetLocal();
@@ -103,8 +110,11 @@ export const useAuth = create<AuthState>()((set, get) => ({
             // 与 login()/register() 的双触发由 signInLoad 在途去重
             signInLoad(sess.user).catch(() => {});
           } else {
-            // 已登录态的资料刷新（USER_UPDATED/TOKEN_REFRESHED）：只刷 profile，不重拉数据
-            loadProfile(sess.user).then((p) => set({ user: p })).catch(() => {});
+            // 已登录态的资料刷新（USER_UPDATED/TOKEN_REFRESHED）：只刷 profile，不重拉数据。
+            // 世代 + uid 双校验：登出/换号后晚到的 profile 不回写（防幽灵登录 / 顶栏身份与数据错位）
+            const gen2 = authGen;
+            const sid = sess.user.id;
+            loadProfile(sess.user).then((p) => { if (authGen === gen2 && get().user?.id === sid) set({ user: p }); }).catch(() => {});
           }
         }
       });
@@ -226,10 +236,12 @@ export const useUI = create<UIState>()(
           }
         }
         const last = cur[cur.length - 1];
-        // 队尾同文案去重：不再新增，只重置自动消失计时
+        // 队尾同文案去重：不新增，但必须原地替换 action 闭包（连删两条笔记都弹「已删除」，
+        // 若不换闭包，屏上「撤销」仍绑第一条 → 复活错对象、第二条永久无撤销入口）+ 按 action 恢复 4s 撤销窗
         if (last && last.msg === msg && last.type === type) {
           clearTimeout(toastTimers[last.id]);
-          toastTimers[last.id] = setTimeout(() => get().dismiss(last.id), 2800);
+          set({ toasts: cur.map((t) => (t.id === last.id ? { ...t, action } : t)) });
+          toastTimers[last.id] = setTimeout(() => get().dismiss(last.id), action ? 4000 : 2800);
           return;
         }
         const id = toastId++;
@@ -390,32 +402,36 @@ export const useLibrary = create<LibState>()((set, get) => {
       set({ ...EMPTY, hydrated: true });
     },
     isFav: (id) => get().favorites.includes(real(id)),
+    // 乐观更新失败回滚统一走「按当前状态做单项逆操作」，而非恢复整份 prev 快照——
+    // 快照覆盖会把两次并发在途里「后发起、已在云端成功」的另一项一并抹掉（本地/云端不一致）。
     toggleFav: (id) => {
       const r = real(id);
       const prev = get().favorites;
       const has = prev.includes(r);
       set({ favorites: has ? prev.filter((x) => x !== r) : [r, ...prev] });
       const u = uid();
-      if (u) sync(has ? db.removeFav(u, r) : db.addFav(u, r), "收藏", () => set({ favorites: prev }));
+      if (u) sync(has ? db.removeFav(u, r) : db.addFav(u, r), "收藏", () => set({ favorites: has ? (get().favorites.includes(r) ? get().favorites : [r, ...get().favorites]) : get().favorites.filter((x) => x !== r) }));
       return !has;
     },
     addNote: (n) => {
       const prev = get().notes;
       set({ notes: [n, ...prev] });
       const u = uid();
-      if (u) sync(db.addNote(u, { ...n, bookId: real(n.bookId) }), "笔记", () => set({ notes: prev }));
+      if (u) sync(db.addNote(u, { ...n, bookId: real(n.bookId) }), "笔记", () => set({ notes: get().notes.filter((x) => x.id !== n.id) }));
     },
     removeNote: (id) => {
       const prev = get().notes;
+      const removed = prev.find((n) => n.id === id);
       set({ notes: prev.filter((n) => n.id !== id) });
       const u = uid();
-      if (u) sync(db.removeNote(id), "笔记", () => set({ notes: prev }));
+      if (u) sync(db.removeNote(id), "笔记", () => { if (removed) set({ notes: get().notes.some((n) => n.id === id) ? get().notes : [removed, ...get().notes] }); });
     },
     updateNote: (id, note) => {
       const prev = get().notes;
+      const before = prev.find((n) => n.id === id);
       set({ notes: prev.map((n) => (n.id === id ? { ...n, note } : n)) });
       const u = uid();
-      if (u) sync(db.updateNote(id, note), "笔记", () => set({ notes: prev }));
+      if (u) sync(db.updateNote(id, note), "笔记", () => set({ notes: get().notes.map((n) => (n.id === id && before ? before : n)) }));
     },
     notesOfChapter: (bookId, chapterId) =>
       get().notes.filter((n) => n.bookId === real(bookId) && n.chapterId === chapterId),
@@ -457,7 +473,7 @@ export const useLibrary = create<LibState>()((set, get) => {
       const has = prev.includes(id);
       set({ likedReviews: has ? prev.filter((x) => x !== id) : [id, ...prev] });
       const u = uid();
-      if (u) sync(has ? db.removeReviewLike(u, id) : db.addReviewLike(u, id), "点赞", () => set({ likedReviews: prev }));
+      if (u) sync(has ? db.removeReviewLike(u, id) : db.addReviewLike(u, id), "点赞", () => set({ likedReviews: has ? (get().likedReviews.includes(id) ? get().likedReviews : [id, ...get().likedReviews]) : get().likedReviews.filter((x) => x !== id) }));
     },
     // addReview 已删除：全站书评写入收敛到 upsertReview 单入口（原 addReview 本地前插不去重、
     // 云端却 onConflict 单行，一旦被误用即产生本地/云端漂移的死代码陷阱）
@@ -466,14 +482,15 @@ export const useLibrary = create<LibState>()((set, get) => {
       const rev = prev.find((r) => r.id === id);
       set({ myReviews: prev.filter((r) => r.id !== id) });
       const u = uid();
-      if (u && rev) sync(db.removeReview(u, real(rev.bookId)), "书评", () => set({ myReviews: prev }));
+      if (u && rev) sync(db.removeReview(u, real(rev.bookId)), "书评", () => set({ myReviews: get().myReviews.some((x) => x.id === id) ? get().myReviews : [rev, ...get().myReviews] }));
     },
     upsertReview: (r) => {
       const id = real(r.bookId);
       const prev = get().myReviews;
+      const before = prev.find((x) => x.bookId === id); // 本书此前的评价（回滚时只还原它，不动别书的并发写入）
       set({ myReviews: [{ ...r, bookId: id }, ...prev.filter((x) => x.bookId !== id)] });
       const u = uid();
-      if (u) sync(db.upsertReview(u, { ...r, bookId: id }), "书评", () => set({ myReviews: prev }));
+      if (u) sync(db.upsertReview(u, { ...r, bookId: id }), "书评", () => set({ myReviews: before ? [before, ...get().myReviews.filter((x) => x.bookId !== id)] : get().myReviews.filter((x) => x.bookId !== id) }));
     },
     myReviewOf: (bookId) => get().myReviews.find((r) => r.bookId === real(bookId)),
     setMediaProgress: (bookId, pct) => {

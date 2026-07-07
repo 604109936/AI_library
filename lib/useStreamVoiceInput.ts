@@ -119,6 +119,9 @@ export function useStreamVoiceInput() {
   }
   // 取出累积的样本打成一个 Int16 ArrayBuffer 发出去
   function flushChunk(force = false) {
+    // WS 未连上（CONNECTING/CLOSING）时绝不 splice：否则握手期每 100ms 的音频被取走却发不出＝永久丢句头。
+    // 数据留在 pcmBuf（且 allPcm 有留底），open 后由下一帧 onaudioprocess 的 flushChunk 自然补发。
+    if (wsRef.current?.readyState !== 1) return;
     const need = TARGET_RATE * CHUNK_MS / 1000;
     if (pcmBuf.current.length < need && !force) return;
     if (!pcmBuf.current.length) return;
@@ -259,6 +262,9 @@ export function useStreamVoiceInput() {
       };
       src.connect(proc); proc.connect(ctx.destination);
       streamRef.current = stream;
+      // 录音/预拾音进行中绝不能有 releaseMic 定时器：cleanup() 起手无条件装了 30s 关麦定时器，
+      // 冷麦走 getUserMedia 分支不像 kept 分支那样清它——不清的话冷麦首录满 30s 会被掐麦、后半句全静音
+      if (micIdleTimer.current) { clearTimeout(micIdleTimer.current); micIdleTimer.current = null; }
     } catch { stream.getTracks().forEach((t) => t.stop()); cleanup(); return false; }
 
     return true; // 拾音/WS 已跑起来；进录音 UI 由 arm() 负责
@@ -278,19 +284,28 @@ export function useStreamVoiceInput() {
     //   （冷链路下缓冲音频要先灌给火山再识别，从松手起算 2.5s 会把录到的话误判成"没听清"）
     const sendTail = () => { flushChunk(true); try { wsRef.current?.send("EOS"); } catch {} };
     const text = await new Promise<string>((resolve) => {
-      const settle = () => { donePromise.current = null; resolve(finalText.current.trim()); };
+      // 本次收尾创建的定时器统一登记：settle 时一次清光，避免过期定时器晚触发抹掉下一条语音的 donePromise。
+      const timers: ReturnType<typeof setTimeout>[] = [];
+      const settle = () => {
+        timers.forEach(clearTimeout);
+        if (donePromise.current?.resolve === resolve) donePromise.current = null; // 只清自己的 resolver，绝不误伤下一条
+        resolve(finalText.current.trim());
+      };
       donePromise.current = { resolve };
       let capArmed = false;
-      const armCap = () => { if (!capArmed) { capArmed = true; setTimeout(settle, 6000); } }; // EOS 送达后的识别窗
-      if (finalText.current.trim()) setTimeout(settle, 600); // 秒发快路：终稿最多再等600ms
+      const armCap = () => { if (!capArmed) { capArmed = true; timers.push(setTimeout(settle, 6000)); } }; // EOS 送达后的识别窗
+      if (finalText.current.trim()) timers.push(setTimeout(settle, 600)); // 秒发快路：终稿最多再等600ms
       const tail = () => { sendTail(); armCap(); };
+      // 断线后松手正落在重拨握手窗口：新 WS 从未收到过音频（session 已被上面 bump，tryRedial 的 open 补发被拦死）——
+      // 这里在 open 后先整段重灌 allPcm 再发 EOS，否则火山新会话只收到 <100ms 残余、识别为空/半截。
+      const tailRedial = () => { pcmBuf.current = allPcm.current.slice(); sendTail(); armCap(); };
       const w = wsRef.current;
       if (w && w.readyState === 1) tail();
       else if (w && w.readyState === 0) {
-        w.addEventListener("open", tail, { once: true });
+        w.addEventListener("open", tailRedial, { once: true });
         w.addEventListener("close", settle, { once: true });
         w.addEventListener("error", settle, { once: true });
-        setTimeout(settle, 10_000); // 绝对上限：连接始终建不起来
+        timers.push(setTimeout(settle, 10_000)); // 绝对上限：连接始终建不起来
       } else settle();
     });
     cleanup();

@@ -9,6 +9,7 @@ import { admin } from "@/lib/server/agent";
 import { chatOnce } from "@/lib/server/minimax";
 import { requestView } from "@/lib/server/compress";
 import { readOverride, DEFAULT_MEMORY_MIN_NEW, DEFAULT_MEMORY_TEMPERATURE } from "@/lib/server/agentConfig";
+import { cutSafe } from "@/lib/server/text";
 
 // MIN_NEW（攒够多少条才更新）/ 温度 / 提示词 已移到后台可调（readOverride，默认见 agentConfig）
 const CATCH_UP = 40; // 单轮最多消化的消息数：存量长会话首跑（until=0）不限量会让 part 膨胀到必超时，
@@ -69,7 +70,7 @@ async function update(uid: string, budgetMs: number) {
   if (timeoutMs < 15_000) { console.warn("[memory] 本轮剩余预算不足，跳过"); return; }
   const part = view
     .slice(until, target)
-    .map((m) => `${m.role === "user" ? "读者" : "小涤"}：${m.content.slice(0, 400)}`)
+    .map((m) => `${m.role === "user" ? "读者" : "小涤"}：${cutSafe(m.content, 400)}`)
     .join("\n");
 
   const current = MEMORY_FIELDS.map(([k, label]) => `${k}（${label}）：${String((mem as any)?.[k] ?? "").trim() || "（空）"}`).join("\n");
@@ -95,11 +96,11 @@ async function update(uid: string, budgetMs: number) {
   for (const [k] of MEMORY_FIELDS) {
     if (!(k in patch)) continue;
     const v = patch[k];
-    if (typeof v === "string") { const t = v.trim().slice(0, MAX_FIELD); if (t) valid[k] = t; } // 空串/纯空白=本维度无更新，绝不覆盖现值（防记忆被某次模型抖动静默清空·Bug#3）
+    if (typeof v === "string") { const t = cutSafe(v.trim(), MAX_FIELD); if (t) valid[k] = t; } // 空串/纯空白=本维度无更新，绝不覆盖现值（防记忆被某次模型抖动静默清空·Bug#3）
     else if (typeof v === "number" || typeof v === "boolean") valid[k] = String(v); // 偶发标量容错
     else if (Array.isArray(v)) {
       // 列表型维度（interests/facts 等）模型可能吐 JSON 数组：取字符串项合并，空数组=本维度无更新
-      const t = v.filter((x) => typeof x === "string" && x.trim()).join("；").slice(0, MAX_FIELD);
+      const t = cutSafe(v.filter((x) => typeof x === "string" && x.trim()).join("；"), MAX_FIELD);
       if (t) valid[k] = t;
     }
     // null / undefined / 嵌套对象：视作该维度无更新，跳过该字段——**不放弃整批、不影响其它有效字段、照常推进**

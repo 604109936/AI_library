@@ -256,11 +256,16 @@ function ReaderInner({ id }: { id: string }) {
   useEffect(() => {
     const t = pendingPct.current;
     if (!t || !cur || cur.id !== t.ch) return;
-    pendingPct.current = null;
     const el = scrollRef.current;
-    if (!el) return;
-    const max = el.scrollHeight - el.clientHeight;
-    if (max > 0) el.scrollTop = (t.pct / 100) * max;
+    if (!el) { pendingPct.current = null; return; }
+    // 单次 scrollTop 会被随后加载的图片/网络字体撑高布局挤偏（首帧按未含图高度算的位置偏上），
+    // 且这次编程滚动触发的 onScroll 会把偏上的位置当用户滚动写回、覆盖正确续读点，越读越靠前。
+    // 多次校准（rAF + 120ms + 400ms）盖过布局位移；校准全程保留 pendingPct，让进度 effect 据它跳过 chpos 写回，末拍才清。
+    const apply = () => { const max = el.scrollHeight - el.clientHeight; if (max > 0) el.scrollTop = (t.pct / 100) * max; };
+    const r = requestAnimationFrame(apply);
+    const t1 = setTimeout(apply, 120);
+    const t2 = setTimeout(() => { apply(); pendingPct.current = null; }, 400);
+    return () => { cancelAnimationFrame(r); clearTimeout(t1); clearTimeout(t2); };
     // eslint-disable-next-line
   }, [cur?.id, cur?.content]);
 

@@ -38,9 +38,15 @@ export async function GET(req: NextRequest) {
   if (sp.get("preview")) {
     const email = (sp.get("email") ?? "").trim().toLowerCase();
     if (email) {
-      // 按邮箱查真实用户 → 用「该用户口径」组装：读者数据②③④⑤ + 长期记忆⑦ + 对话摘要 全部带上
-      const { data, error } = await admin.auth.admin.listUsers({ perPage: 1000 });
-      const u = error ? undefined : data.users.find((x) => (x.email ?? "").toLowerCase() === email);
+      // 按邮箱查真实用户 → 用「该用户口径」组装：读者数据②③④⑤ + 长期记忆⑦ + 对话摘要 全部带上。
+      // 分页遍历直到命中：listUsers 单页上限 1000，仅取第一页会让第 1001+ 个注册用户永远查不到（静默回落游客口径）。
+      let u: Awaited<ReturnType<typeof admin.auth.admin.listUsers>>["data"]["users"][number] | undefined;
+      for (let page = 1; page <= 20 && !u; page++) {
+        const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 1000 });
+        if (error) break;
+        u = data.users.find((x) => (x.email ?? "").toLowerCase() === email);
+        if (data.users.length < 1000) break; // 已到最后一页
+      }
       if (!u) return NextResponse.json({ dataSection: await buildDataSection(null), found: false, email });
       const compressed = (await getCompressed(u.id, "main").catch(() => ({ summary: undefined as string | undefined }))).summary;
       const memory = await memoryVar(u.id).catch(() => "");

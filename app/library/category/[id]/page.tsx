@@ -64,16 +64,18 @@ export default function CategoryPage({ params }: { params: { id: string } }) {
     const el = sentinel.current;
     if (!el) return;
     const ob = new IntersectionObserver((e) => {
-      if (e[0].isIntersecting && q.hasNextPage && !q.isFetchingNextPage) q.fetchNextPage();
+      // !q.isError 关键：持续 5xx 时 fetchNextPage 失败→isFetchingNextPage 翻假→本 effect 重建 observer→sentinel 仍在视口
+      // →立即再拉，形成忙循环狂打同一页。React Query 已内部重试 3 次，errored 后就停手，等重新聚焦/重进自然恢复。
+      if (e[0].isIntersecting && q.hasNextPage && !q.isFetchingNextPage && !q.isError) q.fetchNextPage();
     }, { rootMargin: "200px" });
     ob.observe(el);
     return () => ob.disconnect();
-  }, [q.hasNextPage, q.isFetchingNextPage]); // eslint-disable-line
+  }, [q.hasNextPage, q.isFetchingNextPage, q.isError]); // eslint-disable-line
 
   // 稀疏筛选时若当前页为空但还有更多，自动续拉
   useEffect(() => {
-    if (status !== "all" && filtered.length === 0 && q.hasNextPage && !q.isFetchingNextPage) q.fetchNextPage();
-  }, [status, filtered.length, q.hasNextPage, q.isFetchingNextPage]); // eslint-disable-line
+    if (status !== "all" && filtered.length === 0 && q.hasNextPage && !q.isFetchingNextPage && !q.isError) q.fetchNextPage();
+  }, [status, filtered.length, q.hasNextPage, q.isFetchingNextPage, q.isError]); // eslint-disable-line
 
   useEffect(() => {
     const el = titleRef.current;

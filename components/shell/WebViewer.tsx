@@ -33,7 +33,8 @@ export function WebViewer() {
   );
   const [loadedKey, setLoadedKey] = useState(0);
   const [blockedKey, setBlockedKey] = useState(0); // 预检确认被禁内嵌的 key
-  const [slowKey, setSlowKey] = useState(0); // 6s 未加载完成的 key（兜底按钮）
+  const [okKey, setOkKey] = useState(0); // 预检确认可内嵌的 key（据此在成功场景抑制兜底出口、保持无感）
+  const [slowKey, setSlowKey] = useState(0); // 6s 已到的 key（兜底按钮计时）
   // 侧滑返回/返回键：关浮层、不换路由
   useEffect(() => {
     const onPop = () => dismiss();
@@ -46,7 +47,11 @@ export function WebViewer() {
     const k = snap.key;
     fetch(`/api/embed-check?url=${encodeURIComponent(snap.url)}`, { cache: "no-store" })
       .then((r) => r.json())
-      .then((j) => { if (current?.key === k && j?.checked && j.embeddable === false) setBlockedKey(k); })
+      .then((j) => {
+        if (current?.key !== k || !j?.checked) return;
+        if (j.embeddable === false) setBlockedKey(k);
+        else if (j.embeddable === true) setOkKey(k); // 预检打包票可嵌：成功加载后不再浮兜底出口，保持无感
+      })
       .catch(() => {});
     const t = setTimeout(() => { if (current?.key === k) setSlowKey(k); }, 6000);
     return () => clearTimeout(t);
@@ -54,7 +59,10 @@ export function WebViewer() {
   if (!snap) return null;
   const loaded = loadedKey === snap.key;
   const blocked = blockedKey === snap.key;
-  const slow = slowKey === snap.key && !loaded;
+  const ok = okKey === snap.key;
+  // 兜底出口的抑制条件不能用 !loaded：被 XFO/CSP 拦截的 iframe 浏览器照样触发 onLoad（loaded=true）却是白屏。
+  // 只有「预检明确打包票可嵌」才在 6s 后抑制出口（成功场景无感）；预检没把握的站，6s 一到一律给出口。
+  const slow = slowKey === snap.key && !ok;
   return (
     <div className="fixed inset-0 z-[80] bg-snow dark:bg-dark-bg">
       {blocked ? (

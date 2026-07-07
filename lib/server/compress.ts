@@ -8,6 +8,7 @@ import { admin } from "@/lib/server/agent";
 import { chatOnce } from "@/lib/server/minimax";
 import { stripCardMarkers } from "@/lib/chatMarkers";
 import { readOverride, DEFAULT_COMPRESS_KEEP, DEFAULT_COMPRESS_BATCH_MIN, DEFAULT_COMPRESS_TEMPERATURE } from "@/lib/server/agentConfig";
+import { cutSafe } from "@/lib/server/text";
 
 // KEEP（保留最近多少条不压）/ BATCH_MIN（攒够多少才压）/ 温度 / 提示词 已移到后台可调（readOverride，默认见 agentConfig）
 const CATCH_UP = 60; // 单轮最多消化的消息数：存量长会话首压（until=0）若不设上限，part 可达数十万字必超时，
@@ -70,7 +71,7 @@ async function compress(uid: string, sessionId: string, budgetMs: number) {
   // 卡片占位标记已在 requestView 剥净：摘要绝不能把 [[recs:…]] 语法带进 system，主模型会学样输出假标记
   const part = msgs
     .slice(until, cut)
-    .map((m) => `${m.role === "user" ? "读者" : "小涤"}：${m.content.slice(0, 600)}`)
+    .map((m) => `${m.role === "user" ? "读者" : "小涤"}：${cutSafe(m.content, 600)}`)
     .join("\n");
   const prev = (row.compressed_history ?? "").trim();
 
@@ -101,7 +102,7 @@ async function compress(uid: string, sessionId: string, budgetMs: number) {
   // 写库失败必须留痕：这条链路全程后台静默，无日志的写失败=「until 停滞」类故障的观测盲区
   const { error: writeErr } = await admin
     .from("chat_sessions")
-    .update({ compressed_history: summary.slice(0, 20000), compressed_until: cut })
+    .update({ compressed_history: cutSafe(summary, 20000), compressed_until: cut })
     .eq("user_id", uid)
     .eq("id", sessionId);
   if (writeErr) console.error("[compress] 写摘要失败：", writeErr);

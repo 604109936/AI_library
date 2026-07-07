@@ -29,8 +29,9 @@ function provider(): "ark" | "minimax" {
   return "minimax";
 }
 
-export async function searchWeb(query: string): Promise<WebHit[]> {
-  const raw = provider() === "ark" ? await fetchArk(query) : await fetchMiniMax(query);
+// timeoutMs：调用方（工具循环）按剩余时间预算传入，防边界轮一次 30s stall 顶穿函数 maxDuration 产生无 end 截断流
+export async function searchWeb(query: string, timeoutMs?: number): Promise<WebHit[]> {
+  const raw = provider() === "ark" ? await fetchArk(query, timeoutMs) : await fetchMiniMax(query, timeoutMs);
   return refine(raw, query);
 }
 
@@ -99,6 +100,14 @@ export async function searchWebStream(
         }
       }
     }
+  } catch (e) {
+    // 中途失败（超时 abort / 网络重置 / failed 帧）：已出的字用户看见了，把已收到的部分挂在错误对象上，
+    // 调用方据此善后（补发来源卡 + 截断提示），不能让半截话被当成正常收尾
+    if (e && typeof e === "object") {
+      (e as { partialText?: string; partialHits?: WebHit[] }).partialText = text;
+      (e as { partialText?: string; partialHits?: WebHit[] }).partialHits = refine(rawHits, input);
+    }
+    throw e;
   } finally {
     reader.cancel().catch(() => {});
   }
@@ -106,7 +115,7 @@ export async function searchWebStream(
 }
 
 // ───────────────────────── 火山方舟 Responses API（默认） ─────────────────────────
-async function fetchArk(query: string): Promise<WebHit[]> {
+async function fetchArk(query: string, timeoutMs?: number): Promise<WebHit[]> {
   const key = process.env.ARK_API_KEY;
   const endpoint = process.env.ARK_SEARCH_ENDPOINT; // 推理接入点 ID，形如 ep-xxxxxxxx
   if (!key || !endpoint) throw new Error("服务端未配置 ARK_API_KEY / ARK_SEARCH_ENDPOINT");
@@ -123,7 +132,7 @@ async function fetchArk(query: string): Promise<WebHit[]> {
       thinking: { type: "disabled" }, // 关思考：我们只要搜索结果，不要模型的长篇推理，省 token
       max_output_tokens: 512,         // 限输出：模型那段总结用不上，给够带出 annotations 即可
     }),
-    signal: AbortSignal.timeout(30000),
+    signal: AbortSignal.timeout(Math.max(5000, Math.min(30000, timeoutMs ?? 30000))),
   });
   const j: any = await r.json().catch(() => null);
   // 200 + 非 JSON（网关错误页/协议变更）必须抛错而不是当"零结果"：否则基础设施故障会被
@@ -160,7 +169,7 @@ function parseCnDate(s: string): string {
 }
 
 // ───────────────────────── MiniMax（保留，可切回） ─────────────────────────
-async function fetchMiniMax(query: string): Promise<WebHit[]> {
+async function fetchMiniMax(query: string, timeoutMs?: number): Promise<WebHit[]> {
   const key = process.env.MINIMAX_API_KEY;
   if (!key) throw new Error("服务端未配置 MINIMAX_API_KEY");
   const r = await fetch("https://api.minimaxi.com/v1/coding_plan/search", {
@@ -171,7 +180,7 @@ async function fetchMiniMax(query: string): Promise<WebHit[]> {
       "MM-API-Source": "Minimax-MCP",
     },
     body: JSON.stringify({ q: query }),
-    signal: AbortSignal.timeout(20000),
+    signal: AbortSignal.timeout(Math.max(5000, Math.min(20000, timeoutMs ?? 20000))),
   });
   const j: any = await r.json().catch(() => null);
   if (j === null) throw new Error(`搜索服务返回非 JSON（HTTP ${r.status}），疑似网关错误或协议变更`);

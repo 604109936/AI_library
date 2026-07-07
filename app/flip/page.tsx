@@ -45,6 +45,7 @@ export default function FlipPage() {
   const [mutedHint, setMutedHint] = useState(false); // 静音兜底提示 chip（4 秒自隐）
 
   const fetching = useRef(false);
+  const moreRetries = useRef(0); // 末端续拉失败的退避重试计数（防"停在最后一条上拉无反应"死角）
   const booksRef = useRef<Book[]>(books);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]); // 3 个复用视频元素
@@ -190,8 +191,10 @@ export default function FlipPage() {
     if (fetching.current) return;
     fetching.current = true;
     getFlip(booksRef.current.map((b) => b.id))
-      .then(({ books: more }) => setBooks((cur) => { const next = [...cur, ...more]; if (flipCache) flipCache.books = next; return next; }))
-      .catch(() => {}) // 弱网续拉失败静默：fetching 复位后下次滑动自动重试（不 catch 会冒未处理 rejection）
+      .then(({ books: more }) => { moreRetries.current = 0; setBooks((cur) => { const next = [...cur, ...more]; if (flipCache) flipCache.books = next; return next; }); })
+      // 弱网续拉失败：用户已停在最后一条时 activeIdx/books.length 都不再变，触发 effect 不会重跑，
+      // 会卡成"到底了"死角。退避后自动再试（fetching 闸防重入；最多 4 次防风暴）
+      .catch(() => { if (moreRetries.current < 4) { const n = ++moreRetries.current; setTimeout(() => loadMore(), 1500 * n); } })
       .finally(() => { fetching.current = false; });
   }, []);
 

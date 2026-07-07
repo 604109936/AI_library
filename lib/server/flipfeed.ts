@@ -203,10 +203,14 @@ export async function generateFlipFeeds(opts?: { force?: boolean; budgetMs?: num
   const stats: FlipFeedStats = { date, users: profiles.length, generated: 0, skippedNoSignal: 0, skippedExisting: 0, failed: 0, llmFallback: 0, partial: false };
   if (!candidates.length) return stats; // 馆里还没有带视频的书
 
+  // todo 顺序不能恒按 profiles.order("id")：Cron 每天只跑一次、预算(50s)耗尽即 break，
+  // 排在 id 序尾部的用户会天天在预算外被掐、永远拿不到个性化 feed。按 (uid+date) 哈希每天打散顺序，
+  // 长期轮转下每个用户都有机会排进预算内，公平覆盖（零额外查询）。
+  const dayHash = (uid: string) => { let h = 0; const s = uid + date; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return h; };
   const todo = profiles.map((r) => r.id as string).filter((uid) => {
     if (existing.has(uid)) { stats.skippedExisting++; return false; }
     return true;
-  });
+  }).sort((a, b) => dayHash(a) - dayHash(b) || (a < b ? -1 : 1));
 
   // 预算闸必须细到「用户任务开工前」：单批 24 人 ÷ 4 并发 = 每 worker 串行 6 次 LLM，
   // 每次上限 20s，批内最坏约 120s 远超 maxDuration=60——只在批间检查时，同一批每天原地
